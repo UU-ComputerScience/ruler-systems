@@ -1,0 +1,59 @@
+-- type inference for the simply-typed lambda calculus
+
+let parse = \args -> case length args of
+  { 1 -> let { filename = head args; }
+         in abstract parse inputs filename
+              ( case parseExpFile filename of
+                  { parseSuccess expr -> expr;
+                    parseFail msg     -> abort msg;
+                  });
+    _ -> abort "usage: ./ruler test.rul <file.exp>";
+  };
+
+let int = tyCon (ident "Int");
+
+syntax { env |- e : !ty };
+syntax tyArrow { 1 -> 2 };
+
+let infer = derivation inputs env, e outputs ty
+{  branch var:
+     let ty = lookup x g;
+     --------
+     establish  g |- var x : ty;
+   
+   branch const:
+     --------
+     establish  g |- const i : int;
+
+   branch app:
+     r fresh;
+     establish infer  g |- f : tf;
+     establish infer  g |- a : ta;
+     tf == ta -> r;
+     --------
+     establish  g |- app f a : r;
+
+   branch lam:
+     tx fresh;
+     establish infer  (extend x tx g) |- b : r;
+     --------
+     establish  g |- lam x b : tx -> r;
+
+   branch sigLam:
+     establish infer  (extend x tx g) |- b : r;
+     --------
+     establish  g |- sigLam x tx b : tx -> r;
+
+   branch fix:
+     t fresh;
+     establish infer  g |- f : t -> t;
+     --------
+     establish  g |- fix f : t;
+};
+
+
+derivation inputs args outputs ty
+{ branch main:
+    !expr == parse this.args;
+    establish infer  emptyenv |- expr : this.ty;
+}

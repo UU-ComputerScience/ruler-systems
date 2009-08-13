@@ -1,0 +1,291 @@
+MODULE {LambdaExpr} {} {}
+
+PRAGMA gendatas
+PRAGMA gentypesigs
+PRAGMA gencatas
+PRAGMA gensems
+
+imports {
+import RulerExpr
+import UU.Scanner.Position
+import Data.Set(Set)
+import qualified Data.Set as Set
+}
+
+
+DATA LamAGItf
+  | AGItf
+      body : Lambda
+
+DATA Lambda
+  | App
+      fun    : Expr
+      arg    : Expr
+  | Lam
+      pos    : Pos
+      params : Pats
+      body   : Expr
+  | Let
+      pos    : Pos
+      decls  : Decls
+      body   : Expr
+  | Case
+      pos    : Pos
+      scrut  : Expr
+      cases  : Cases
+  | Abstract
+      pos    : Pos
+      nm     : Ident
+      inputs : {[Ident]}
+      body   : Expr
+  | Hide
+      pos    : Pos
+      body   : Expr
+
+TYPE Decls = [Decl]
+DATA Decl
+  | Decl
+      pat  : PatTop
+      body : Expr
+
+TYPE Cases = [Case]
+DATA Case
+  | Case
+      pat    : PatTop
+      bodies : Bodies
+
+TYPE Bodies = [Body]
+DATA Body
+  | Unguarded
+      pos   : Pos
+      body  : Expr
+  | Guarded
+      pos   : Pos
+      guard : Expr
+      body  : Expr
+
+TYPE Pats = [PatTop]
+DATA PatTop
+  | Top
+      pat : Pat
+
+DATA Pat
+  | App
+      fun : Pat
+      arg : Pat
+  | Var
+      nm  : Ident
+  | Prim
+      pos : Pos
+      val : PrimVal
+  | Underscore
+      pos : Pos
+  | Escape
+      pos  : Pos
+      expr : Expr
+
+SET AllDecls   = Decls Decl
+SET AllCases   = Cases Case
+SET ALLPats    = Pats PatTop Pat
+SET AllBodies  = Bodies Body
+
+DERIVING * : Show
+
+
+ATTR LamAGItf [ | | expr : Expr ]
+
+{
+resNm :: Ident
+resNm = ident "__res"
+
+argNm :: Ident
+argNm = ident "__arg"
+
+altNm :: Ident
+altNm = ident "__alt"
+
+scrutNm :: Ident
+scrutNm = ident "__scrut"
+
+thisNm :: Ident
+thisNm = ident "__this"
+}
+
+-- Generate ruler expressions from Lambda expressions
+ATTR Lambda [ | | expr : Expr ]
+SEM Lambda
+  | App     loc.pos  = exprPos @fun
+            loc.fld  = Ident "__app" @loc.pos
+            lhs.expr = Expr_Seq [ Stmt_Inst @loc.pos @fun @loc.fld
+                                , Stmt_Equiv @loc.pos (Expr_Field @loc.fld argNm) @arg
+                                , Stmt_Establish @loc.pos @loc.fld Nothing
+                                ]
+                                (Expr_Field @loc.fld resNm)
+  | Lam     lhs.expr = let level (param,fvsParam) body = 
+                             Expr_Derivation @pos (Order_Relative [visitIdentMain])
+                               [ Param_Input visitIdentMain [argNm], Param_Output visitIdentMain [resNm] ]
+                               thisNm Level_Skip
+                               [ Alt_Alt altNm [] [ Stmt_Equiv @pos (Expr_Field thisNm resNm) (Expr_Seq (mkFreshStmts @pos fvsParam ++ [ Stmt_Bind @pos param (Expr_Field thisNm argNm) ]) body) ] ]
+                       in foldr level @body @params.bindings
+  | Let     decls.pos = @pos
+            lhs.expr  = Expr_Seq ( mkFreshStmts @pos @decls.fvs ++ @decls.stmts) @body
+  | Case    loc.fld   = Ident "__invoke" @pos
+            loc.deriv = Expr_Derivation @pos (Order_Relative [visitIdentMain]) [ Param_Output visitIdentMain [resNm] ] thisNm Level_Skip @cases.alts
+            lhs.expr  = Expr_Seq [ Stmt_Fresh @pos [scrutNm]
+                                 , Stmt_Equiv @pos (Expr_Var Mode_Def scrutNm) @scrut
+                                 , Stmt_Inst @pos @loc.deriv @loc.fld
+                                 , Stmt_Establish @pos @loc.fld Nothing
+                                 ]
+                                 (Expr_Field @loc.fld resNm)
+            cases.nr  = 1
+  | Abstract
+            loc.fld   = Ident "__abstract" @pos
+            loc.deriv = Expr_Derivation @pos (Order_Relative [visitIdentMain]) [ Param_Input visitIdentMain @inputs, Param_Output visitIdentMain [resNm] ] thisNm (Level_Abstract @nm)
+                          [ Alt_Alt altNm [] [ Stmt_Equiv @pos (Expr_Field thisNm resNm) @body ] ]
+            lhs.expr  = Expr_Seq (  [ Stmt_Inst @pos @loc.deriv @loc.fld ]
+                                 ++ map (\inp -> Stmt_Equiv @pos (Expr_Field @loc.fld inp) (Expr_Var Mode_Ref inp)) @inputs
+                                 ++ [ Stmt_Establish @pos @loc.fld Nothing ]
+                                 )
+                                 (Expr_Field @loc.fld resNm)
+  | Hide
+            loc.fld   = Ident "__hide" @pos
+            loc.deriv = Expr_Derivation @pos (Order_Relative [visitIdentMain]) [ Param_Output visitIdentMain [resNm] ] thisNm Level_Hide
+                          [ Alt_Alt altNm [] [ Stmt_Equiv @pos (Expr_Field thisNm resNm) @body ] ]
+            lhs.expr  = Expr_Seq [ Stmt_Inst @pos @loc.deriv @loc.fld, Stmt_Establish @pos @loc.fld Nothing ] (Expr_Field @loc.fld resNm)
+
+ATTR AllCases [ | nr : Int | alts USE {++} {[]} : Alts ]
+SEM Case
+  | Case  loc.pos = @pat.pos
+          loc.nm = Ident ("__case" ++ show @lhs.nr) @loc.pos
+          lhs.alts = [ Alt_Alt @loc.nm [] (@loc.matches ++ [ Stmt_Equiv @loc.pos (Expr_Field thisNm resNm) (combineAlts @loc.pos @bodies.exprs) ]) ]
+          lhs.nr = @lhs.nr + 1
+          loc.matches = mkFreshStmts @loc.pos @pat.fvs ++ [ Stmt_Bind @loc.pos @pat.expr (Expr_Var Mode_Ref scrutNm) ]
+
+{
+combineAlts :: Pos -> [Expr] -> Expr
+combineAlts _ [expr] = expr
+combineAlts pos exprs
+  = Expr_Seq [ Stmt_Inst pos ( Expr_Derivation pos (Order_Relative [visitIdentMain]) [Param_Output visitIdentMain [resNm]] thisNm Level_Skip
+                                 (zipWith (\n e -> Alt_Alt (Ident ("__guard" ++ show n) pos) []
+                                                     [Stmt_Equiv pos (Expr_Field thisNm resNm) e]) [1..] exprs)
+                             ) fld
+             , Stmt_Establish pos fld Nothing
+             ]
+             (Expr_Field fld resNm)
+  where
+    fld = Ident "__guard" pos
+}
+
+ATTR AllBodies [ | | exprs USE {++} {[]} : {[Expr]} ]
+SEM Body
+  | Unguarded
+      lhs.exprs = [@body]
+  | Guarded
+      lhs.exprs = [Expr_Seq [ Stmt_Equiv @pos @guard (Expr_Var Mode_Ref (Ident "true" @pos)) ] @body]
+
+ATTR AllDecls [ pos : Pos | | stmts USE {++} {[]} : Stmts ]
+SEM Decl
+  | Decl  loc.bindOp = if @pat.isSimple then Stmt_Equiv else Stmt_Bind
+          lhs.stmts = [ @loc.bindOp @lhs.pos @pat.expr @body ]
+
+{
+mkFreshStmts :: Pos -> Set Ident -> Stmts
+mkFreshStmts pos ids
+  | Set.null ids = []
+  | otherwise    = [ Stmt_Fresh pos (Set.toList ids) ]
+}
+
+
+--
+-- Generate matching expression for a pattern
+--
+
+ATTR PatTop Pat [ | | expr : Expr ]
+SEM Pat
+  | App  loc.pos  = @fun.pos
+         loc.fld  = Ident "__pat" @loc.pos
+         lhs.expr = Expr_Seq [ Stmt_Inst @loc.pos @fun.expr @loc.fld
+                             , Stmt_Equiv @loc.pos (Expr_Field @loc.fld argNm) @arg.expr
+                             , Stmt_Establish @loc.pos @loc.fld Nothing
+                             ]
+                             (Expr_Field @loc.fld resNm)
+  | Var         loc.mode  = if @lhs.isLhsOfApp
+                            then Mode_Ref
+                            else Mode_Def
+                lhs.expr  = Expr_Var @loc.mode @nm
+  | Prim        lhs.expr  = Expr_Prim @pos @val
+                lhs.isSimple = True
+  | Underscore  loc.ident = Ident "__fresh" @pos
+                lhs.expr  = Expr_Seq [Stmt_Fresh @pos [@loc.ident]] (Expr_Var Mode_Ref @loc.ident)
+  | Escape      lhs.expr  = @expr
+
+-- a pattern is simple if it is just a variable
+ATTR PatTop Pat [ | | isSimple USE {&&} {True} : Bool ]
+SEM Pat
+  | App     lhs.isSimple = False
+  | Escape  lhs.isSimple = False
+
+ATTR Pats [ | | bindings : {[(Expr, Set Ident)]} ]
+SEM Pats
+  | Cons  lhs.bindings = (@hd.expr, @hd.fvs) : @tl.bindings
+  | Nil   lhs.bindings = []
+
+--
+-- Patterns have a position
+--
+
+ATTR PatTop Pat [ | | pos : Pos ]
+SEM Pat
+  | App         lhs.pos = @fun.pos
+  | Var         lhs.pos = identPos @nm
+  | Prim        lhs.pos = @pos
+  | Underscore  lhs.pos = @pos
+  | Escape      lhs.pos = @pos
+
+
+--
+-- Collect free variables of a pattern
+--
+-- Idea: everything is a variable except the leftmost identifier of an
+--       application.
+--
+
+ATTR Pat [ isLhsOfApp : Bool | | ]
+SEM Pat
+  | App  fun.isLhsOfApp = True
+         arg.isLhsOfApp = False
+SEM PatTop
+  | Top  pat.isLhsOfApp = False
+
+ATTR AllDecls PatTop Pat [ | | fvs USE {`Set.union`} {Set.empty} : {Set Ident} ]
+SEM Pat
+  | Var  lhs.fvs = if @lhs.isLhsOfApp
+                   then Set.empty
+                   else Set.singleton @nm
+
+
+-- Let at the statement level
+DATA StmtLet
+  | Let
+      pos  : Pos
+      pat  : Pat
+      expr : Expr
+
+{
+mkStmtLet :: Bool -> Pos -> T_Pat -> Expr -> Stmts
+mkStmtLet b p pat e = sem_StmtLet_Let p pat e b
+}
+
+-- onDerivation is true if the let statement is "toplevel" in the derivation
+--   (or in other words, not in an ExprSeq)
+ATTR StmtLet [ onDerivation : Bool | | stmts : Stmts ]
+
+SEM StmtLet
+  | Let
+      loc.bindOp = if @pat.isSimple then Stmt_Equiv else Stmt_Bind
+      pat.isLhsOfApp = False
+      loc.freshStmts = if @lhs.onDerivation
+                       then []
+                       else [ Stmt_Fresh @pos (Set.toList @pat.fvs) ]
+      lhs.stmts = @loc.freshStmts ++ [ @loc.bindOp @pos @pat.expr @expr ]
+
