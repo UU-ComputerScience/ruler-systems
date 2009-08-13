@@ -1,0 +1,2 @@
+\(times :: Int -> Int -> Int) -> \(minus :: Int -> Int -> Int) ->
+  fix (\r -> \n -> times n (r (minus n 1)))

@@ -1,0 +1,18 @@
+cabal-version: >=1.2
+build-type: Simple
+name: ruler-interpreter
+version: 0.1
+license: GPL
+maintainer: Arie Middelkoop <ariem@cs.uu.nl>
+homepage: http://www.cs.uu.nl/wiki/HUT/WebHome
+description: Ruler-algorithmic interpreter
+category: Development
+stability: Experimental
+copyright: Arie Middelkoop
+
+executable ruler-interpreter
+  build-depends: base >= 3, containers, pretty, uulib, mtl, html, template-haskell, array
+  build-depends: haskell98
+  main-is: Ruler.hs
+  ghc-options: -fglasgow-exts
+  hs-source-dirs: src, derived
