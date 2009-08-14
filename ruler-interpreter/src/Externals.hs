@@ -334,23 +334,23 @@ extIdent v
 
 externals :: Map Ident External
 externals = Map.fromList ( 
-  [ mkExt True  "lookup" extEnvLookup
-  , mkExt False "extend" extEnvExtend
-  , mkExt False "emptyenv" extEnvEmpty
-  , mkExt False "message" extMessage
-  , mkExt True  "abort" extAbort
-  , mkExt False "show" extShow
-  , mkExt True  "fgv" extFgv
-  , mkExt False "concat" extConcat
-  , mkExt False "add" extAdd
-  , mkExt True  "min" extMin
-  , mkExt False "length" extLength
-  , mkExt False "head" extHead
-  , mkExt False "mkguess" extMkGuess
-  , mkExt False "fromguess" extFromGuess
-  , mkExt True  "isguess" extIsGuess
-  , mkExt True  "equalguess" extEqualGuess
-  , mkExt False "ident" extIdent
+  [ mkExt True  "lookup"       extEnvLookup
+  , mkExt False "extend"       extEnvExtend
+  , mkExt False "emptyenv"     extEnvEmpty
+  , mkExt True  "message"      extMessage
+  , mkExt True  "abort"        extAbort
+  , mkExt False "show"         extShow
+  , mkExt True  "fgv"          extFgv
+  , mkExt False "concat"       extConcat
+  , mkExt False "add"          extAdd
+  , mkExt True  "min"          extMin
+  , mkExt False "length"       extLength
+  , mkExt False "head"         extHead
+  , mkExt False "mkguess"      extMkGuess
+  , mkExt False "fromguess"    extFromGuess
+  , mkExt True  "isguess"      extIsGuess
+  , mkExt True  "equalguess"   extEqualGuess
+  , mkExt False "ident"        extIdent
   , mkExt True  "parseExpFile" extParseExpFile
   ] ++ dataExternals )
 

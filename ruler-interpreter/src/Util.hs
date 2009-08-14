@@ -13,9 +13,11 @@ import Data.Typeable
 import Data.IntMap(IntMap)
 import qualified Data.IntMap as IntMap
 import Control.Monad.State.Strict
+import Control.Monad.Reader
 import Control.Monad.Writer.Strict
 import UU.Scanner.Position
 import Data.List
+import Opts
 import Dot
 import Text.Html(Html,(+++))
 import qualified Text.Html as H
@@ -258,22 +260,21 @@ renderTableToDoc t
 -- DOT (graphviz) generation
 --
 
-treesBottomToTop :: Bool
-treesBottomToTop = True
-
 type TTMD a = TTM Dot a
 
 treeToDotStringTT :: Monad m => DerivationTree -> TTM m String
 treeToDotStringTT root
-  = switchStateIT (mapStateT render) genGraph
+  = do opts <- asks itOpts
+       let dir = if dirBT opts then "BT" else "TB"
+           header = "graph [fontsize=\"12\" fontname=\"Courier\" labelloc=\"t\" splines=\"true\" overlap=\"false\" rankdir=\"" ++ dir ++ "\" ];"
+       switchStateIT (mapStateT (render header)) genGraph
   where
-    render m = let (str,(_,s)) = showDot header m in return (str,s)
+    render h m = let (str,(_,s)) = showDot h m
+                 in return (str,s)
     genGraph = do (treeRefs, valRefs, gsInit) <- processReferences (wrap $ toDotTT (ident "root") root) wrap guessToDotTT
                   let refs = Set.toList treeRefs
                              ++ [ (g,p,g') | (g,ps) <- valRefs, (p,g') <- Set.toList ps ]
                   mapM_ (mkValArrow gsInit) refs
-    header = "graph [fontsize=\"12\" fontname=\"Courier\" labelloc=\"t\" splines=\"true\" overlap=\"false\" rankdir=\"" ++ dir ++ "\" ];"
-    dir = if treesBottomToTop then "BT" else "TB"
     wrap = switchStateIT $ mapStateT $ mkCluster
     mkCluster m = do (_,a) <- cluster $ do attribute ("style", "invis")
                                            m
@@ -282,7 +283,9 @@ treeToDotStringTT root
 
 toDotTT :: Ident -> DerivationTree -> TTMD (Set (Guess, Int, Guess))
 toDotTT name (DTNode uid title context inputs outputs visits status)
-  = do inps <- mapM (mkAttr inpAttr) inputs
+  = do opts <- asks itOpts
+       let treesBottomToTop = dirBT opts
+       inps <- mapM (mkAttr inpAttr) inputs
        outs <- mapM (mkAttr outAttr) outputs
        let subtrees = [ (t,vNm) | (DTVisit vNm subtrees _) <- visits, t <- subtrees ]
        let messages = [ (ms,vNm) | (DTVisit vNm _ ms) <- visits, not (null ms) ]
@@ -295,7 +298,7 @@ toDotTT name (DTNode uid title context inputs outputs visits status)
                 ++ [ H.td (identHtmlW title +++ grayFont (context)) H.! [ H.bgcolor "black", H.align "center" ] ]
                 ++ subtitle
                 ++ [ H.td $ smalltable $ H.concatHtml $ map fst (inps ++ outs) ]
-                ++ (if not $ null messages then map (\(ms,vNm) -> H.td $ smalltable $ H.concatHtml $ (msgTitle (show vNm) : zipWith mkMsg [1..] ms)) messages else [])
+                ++ (if not $ null messages then map (\(ms,vNm) -> H.td $ smalltable $ H.concatHtml $ ((if length messages <= 1 then id else (msgTitle (show vNm) :)) (zipWith mkMsg [1..] ms))) messages else [])
                 ++ (if treesBottomToTop then [] else subtreerows)
            subtreerows = (if not $ null subtrees then [ H.td (smalltable $ H.tr $ H.concatHtml (map mkChildRef subtrees)) H.! [ H.align "center", H.bgcolor "lightsteelblue2" ] ] else [])
            refs = Set.fromList $ concatMap (\(_,r) -> [ (uid,p,g') | (p,g') <- Set.toList r ]) (inps ++ outs)
@@ -337,7 +340,10 @@ identHtmlB' = identHtml blackFont whiteFont
 identHtmlW = identHtml whiteFont goldFont
 
 identHtml :: (String -> Html) -> (String -> Html) -> Ident -> Html
-identHtml f g nm = f (show nm) H.+++ g (" (" ++ l ++ "," ++ c ++ ")")
+identHtml f g nm = f (show nm)
+                   H.+++ ( if line p <= 0
+                           then H.noHtml
+                           else g (" (" ++ l ++ "," ++ c ++ ")") )
   where
     p = identPos nm
     l = show (line p)

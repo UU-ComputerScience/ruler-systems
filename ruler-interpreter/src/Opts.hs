@@ -11,6 +11,7 @@ data Opts
          , extraFiles   :: ![FilePath]
          , targetFormat :: !Format
          , expansion    :: !ExpansionMode
+         , dirBT        :: !Bool
          , debugLevel   :: !Int
          , dumpMessages :: !Bool
          , programArgs  :: ![String]
@@ -20,12 +21,13 @@ data Format = Text | Dot | Tex | None deriving Eq
 data ExpansionMode = ExpandNone | ExpandSome | ExpandFull deriving Eq
 
 opts :: [OptDescr (Opts -> Opts)]
-opts = [ Option "o" ["output"]   (OptArg oOutput "path")         "output .dot file"
-       , Option "T" ["target"]   (ReqArg oTarget "txt|dot|none") "output format of derivation"
-       , Option "d" ["debug"]    (OptArg oDebug "level")         "debug level"
-       , Option "m" ["messages"] (NoArg oMessages)               "output messages to stderr"
-       , Option "I" ["include"]  (ReqArg oInclude "path")        "include statements"
-       , Option "E" ["expand"] (ReqArg oExpand "none|some|full") "amount of attribute expansion during pretty"
+opts = [ Option "o" ["output"]   (OptArg oOutput "path")           "output .dot file"
+       , Option "T" ["target"]   (ReqArg oTarget "txt|dot|none")   "output format of derivation"
+       , Option "d" ["debug"]    (OptArg oDebug "level")           "debug level"
+       , Option "m" ["messages"] (NoArg oMessages)                 "output messages to stderr"
+       , Option "I" ["include"]  (ReqArg oInclude "path")          "include statements"
+       , Option "E" ["expand"]   (ReqArg oExpand "none|some|full") "amount of attribute expansion during pretty"
+       , Option "D" ["dir"]      (ReqArg oDir "BT|TB")             "grow direction of the derivation tree"
        ]
 
 oOutput :: Maybe FilePath -> Opts -> Opts
@@ -36,6 +38,11 @@ oTarget s o | s == "dot" = o { targetFormat = Dot  }
             | s == "txt" = o { targetFormat = Text }
             | s == "tex" = o { targetFormat = Tex  }
             | otherwise  = o
+
+oDir :: String -> Opts -> Opts
+oDir s o | s == "BT" = o { dirBT = True  }
+         | s == "TB" = o { dirBT = False }
+         | otherwise = o
 
 oDebug :: Maybe String -> Opts -> Opts
 oDebug Nothing  o = o { debugLevel = 1 }
@@ -57,6 +64,7 @@ defaultOpts = Opts { sourceFile   = ""
                    , outputFile   = Nothing
                    , extraFiles   = []
                    , targetFormat = Text
+                   , dirBT        = True
                    , expansion    = ExpandSome
                    , debugLevel   = 0
                    , dumpMessages = False

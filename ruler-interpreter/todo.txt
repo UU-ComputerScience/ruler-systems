@@ -18,6 +18,41 @@ The still-to-implement feature list
   memory.
 
 
+* meta child names
+
+  Allow the following meta fields:
+    successor
+    predecessor
+    any
+    last
+    first
+    none{<expression>}
+    all{<expression>}
+  For a child name in a field.
+  
+  A statement containing an e such a meta name is
+  instantiated for every concrete field that does not have a rule for the
+  instantiation in question.
+  
+  Examples:
+  * If a rule for an input attribute x is missing then:
+      any.x == predecessor.x;
+    takes either this.x or chld.x where chld is the nearest
+    predecessor of the "any" field.
+    I.e. this represents a copy-rule
+  * If a rule for an output attribute is missing then:
+    * to the last child that has x as an output
+        this.x == last.x;
+    * use a default value:
+        this.x == none{emptyset}.x;
+    * use a combination of the values from all children:
+        this.x == all{union}.x;
+  
+  The order in which these definitions occur in a derivation determines the
+  order in which instantiations are tried. Furthermore, for merged derivations,
+  the topmost derivations are considered first.
+
+
 * add a "ref" expression:
     ref nm
   where nm is the name of an established derivation.
@@ -113,6 +148,29 @@ The still-to-implement feature list
     fixed guesses are not guesses anymore after the fixate, and that during a
     lookup these can be translated to a data-type specific "fixed" value.
     (as was in my previous prototype).
+
+  Also add the more recently figured out mechanism to schedule defered
+  statements in a more deterministic fashion by specifying the phase order
+  of children of a derivation:
+
+    derivation ...
+    { branch ... order phase x chld3, child2, child1:
+        ...
+        inst ... as chld1;
+        ...
+        inst ... as chld2;
+        ...
+        inst ... as chld3;
+        ...
+      ...
+    }
+  
+  where the grammar of orders is:
+  
+    order ::= "order" ("phase" <nm> <chld-order>)+
+    chld-order ::= <nm>+
+                 | "leftfirst"
+                 | "rightfirst"
 
 
 * add type analysis
@@ -277,4 +335,38 @@ There is still a side-effect, because with "finalize" essentially a
 difference is made between guesses. But it's the only operation that can
 observe this difference, thus it isolates this "impureness" to a well-defined
 place.
+
+A more interesting but harder to implement variation would be the following
+idea. Suppose we have two forms of guesses. A "soft" guess and a "hard" guess.
+A hard guess can only be assigned to once. A soft guess can be redefined. When
+introducing a guess, we specify until what phase we want it to remain soft:
+
+x fresh soft phase3;
+
+Now consider the expression:
+
+  approx nm e
+
+Which could be used in e.g. the statement:
+
+  let ty' = approx ty instantiate;
+
+The idea is that ty' is first approximated as ty, and if through this means or
+other means more information is discovered about ty, then ty' is decoupled from
+ty, although it must still be producable from ty by means of "instantiate".
+
+For a hard guess, approx has the same semantics as "finalize" above. For a
+soft guess, however, approx nm e differs:
+* if nm is a soft guess, then approx returns an indirection to this guess and
+  installs a trigger on the guess. An indirection is a guess that is
+  not eliminated when reducing links in the substitution.
+* if this indirection is assigned to later during the execution, it unlinks the
+  association to the original guess, uses the original guess as input to
+  e and the indirection as output, then executes e.
+
+A note on scheduling. A choice:
+1) run the trigger as soon as information about the input guess is discovered.
+2) wait with executing the trigger to a well-defined point in time.
+Both options have their advantages and disadvantages. We can accomplish both
+possibilities by using a "defer" in e.
 
