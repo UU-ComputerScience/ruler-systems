@@ -6,87 +6,121 @@ import Control.Monad
 import RulerExpr
 import Data.Char
 import qualified Data.IntSet as IntSet
+import qualified Data.Set as Set
+import Data.Set(Set)
+import qualified Data.Map as Map
+import Data.Map(Map)
 import Util
+import Data.Maybe
+import Data.Typeable
+
+
+data GenInfo
+  = GenInfo Name                  -- name of the data type
+            Name                  -- name of the toIndirection function (or Indirection-constructor)
+            Name                  -- name of the fromIndirection function (or Indirection-constructor)
+            Bool                  -- generate Tabular instance (or not)
+
+data GenResult
+  = GenResult  [Dec]      -- declarations produced
+               [Name]     -- names of the ext fun produced
 
 
 --
 -- Generate externals based on data types
 --
 
-genDataExternals :: String -> Name -> [Name] -> Q [Dec]
-genDataExternals listname genNm types
-  = do results <- mapM genDataExternal types
-       let decs  = concatMap fst results
-           names = concatMap snd results
-       return (genExtList listname genNm names : decs)
+genDataExternals :: String -> [GenInfo] -> Q [Dec]
+genDataExternals listname genInfos
+  = do results <- mapM genDataExternal genInfos
+       let decs  = concatMap (\(GenResult d _) -> d) results
+           names = concatMap (\(GenResult _ n) -> n) results
+       return (genExtList listname names : decs)
 
-genExtList :: String -> Name -> [Name] -> Dec
-genExtList name genNm names
+genExtList :: String -> [Name] -> Dec
+genExtList name names
   = ValD (VarP (mkName name)) (NormalB $ ListE $ map genEntry names) []
-  where genEntry nm = foldl AppE (VarE genNm) [ strNm nm, VarE nm ]
+  where genEntry nm = foldl AppE (VarE 'mkExtData) [ strNm nm, VarE nm ]
         strNm = LitE . StringL . transf . nameBase
         transf s = let (c:s') = drop 3 s
                    in toLower c : s'
 
-genDataExternal :: Name -> Q ([Dec], [Name])
-genDataExternal tp
+genDataExternal :: GenInfo -> Q GenResult
+genDataExternal (GenInfo tp toIndFun fromIndFun genTbl)
   = do (TyConI (DataD _ nmD tyvars cons _)) <- reify tp
-       dec <- genUnifyableInst nmD tyvars cons
-       (decs, names) <- fmap unzip $ mapM (genExtFun nmD) cons
-       return (dec : decs, names)
+       dec <- genRulerValueInst nmD tyvars cons toIndFun fromIndFun
+       (decs, names) <- fmap (unzip . catMaybes) $ mapM (genExtFun nmD) cons
+       let decs2 = dec : decs
+       decs3 <- if genTbl
+                then do decTbl <- genTabularInstance tp
+                        return (decTbl : decs2)
+                else return decs2
+       decs4 <- if length tyvars > 0
+                then do ds <- genDummyTypeable nmD tyvars
+                        return (ds ++ decs3)
+                else return decs3
+       return $ GenResult decs4 names
 
-genExtFun :: Name -> Con -> Q (Dec, Name)
+genExtFun :: Name -> Con -> Q (Maybe (Dec, Name))
 genExtFun nmD con
   | n == 0
-      = return ( ValD (VarP nmF) (NormalB $ AppE (VarE 'mkResult1) $ ConE conNm) []
-               , nmF )
+      = return $ Just ( ValD (VarP nmF) (NormalB $ AppE (VarE 'mk1ResultTup) $ ConE conNm) []
+                      , nmF )
+  | isInd
+      = return Nothing
   | otherwise
       = do params <- mkParams "v" n
-           values <- mkParams "x" n
-           return ( FunD nmF
-             [ Clause [ VarP n | n <- params ]
-                      ( NormalB $ DoE (
-                          [ if b
-                            then BindS (VarP x) $ AppE (VarE 'return) (VarE v)
-                            else BindS (VarP x) $ AppE (VarE 'resolve) (VarE v)
-                            | (b,v,x) <- zip3 flds params values ]
-                          ++ [ NoBindS $ AppE (VarE 'mkResult1) $ foldl AppE (ConE conNm) (map VarE values) ])
+           return $ Just ( FunD nmF
+             [ Clause ( map VarP params )
+                      ( NormalB $ AppE (VarE 'mk1ResultTup) $ foldl AppE (ConE conNm) (map VarE params)
                       ) []
              ]
              , nmF)
   where
-    (conNm, flds) = conInfo con
+    (conNm, flds, gFields) = conInfo con
     n = length flds
     nmF = mkName ("ext" ++ nameBase conNm)
+    isInd = or gFields
 
-conInfo :: Con -> (Name, [Bool])
-conInfo (NormalC nmC fields) = (nmC, map isValueField fields)
-conInfo (RecC nmC fields)    = (nmC, map isValueField' fields)
-conInfo (InfixC f1 nmC f2)   = (nmC, map isValueField [f1, f2])
+conInfo :: Con -> (Name, [Bool], [Bool])
+conInfo (NormalC nmC fields) = (nmC, map isVarField fields, map isGuessField fields)
+conInfo (RecC nmC fields)    = (nmC, map isVarField' fields, map isGuessField' fields)
+conInfo (InfixC f1 nmC f2)   = (nmC, map isVarField [f1, f2], map isGuessField [f1, f2])
 conInfo (ForallC _ _ con)    = conInfo con
 
-isValueField (_, tp) = isValueTp tp
-isValueField' (_, _, tp) = isValueTp tp
+isVarField (_, tp) = isVarTp tp
+isVarField' (_, _, tp) = isVarTp tp
 
-isValueTp (ConT v) = v == ''Value
-isValueTp _        = False
+isGuessField (_, tp) = isGuessTp tp
+isGuessField' (_, _, tp) = isGuessTp tp
+
+isVarTp (VarT _) = True
+isVarTp _        = False
+
+isGuessTp (ConT v) = v == ''IndInfo
+isGuessTp _        = False
 
 mkParams :: String -> Int -> Q [Name]
 mkParams prefix n = mapM (\i -> newName (prefix ++ show i)) [1..n]
 
-genUnifyableInst :: Name -> [Name] -> [Con] -> Q Dec
-genUnifyableInst nmD tyvars cons
+genRulerValueInst :: Name -> [Name] -> [Con] -> Name -> Name -> Q Dec
+genRulerValueInst nmD tyvars cons toIndFun fromIndFun
   = do unifyClauses <- mapM genUnifyClause cons
        fallthroughClauses <- fallthrough
        fgvClauses <- mapM genFgvClause cons
        expClauses <- mapM genExpClause cons
        dgvClauses <- mapM genDgvClause cons
-       return $ InstanceD (map (AppT (ConT ''Unifyable) . VarT) tyvars)
-                  (AppT (ConT ''Unifyable) tp)
-                  [ FunD 'unify (unifyClauses ++ fallthroughClauses)
-                  , FunD 'fgv fgvClauses
-                  , FunD 'dgv dgvClauses
-                  , FunD 'expAll expClauses]
+       toIndClauses   <- genToIndClauses nmD toIndFun
+       fromIndClauses <- genFromIndClauses fromIndFun
+       return $ InstanceD []
+                  (AppT (ConT ''RulerValue) tp)
+                  [ FunD 'unifyS (unifyClauses ++ fallthroughClauses)
+                  , FunD 'fgvS fgvClauses
+                  , FunD 'dgvS dgvClauses
+                  , FunD 'expAllS expClauses
+                  , FunD 'toIndirection toIndClauses
+                  , FunD 'fromIndirection fromIndClauses
+                  ]
   where
     tp = foldl AppT (ConT nmD) (map VarT tyvars)
 
@@ -94,17 +128,54 @@ genUnifyableInst nmD tyvars cons
                   then do a <- newName "a"
                           b <- newName "b"
                           return [ Clause [VarP a, VarP b] ( NormalB $ AppE (VarE 'failure) (AppE (VarE 'concat)
-                                   (ListE [ AppE (VarE 'show) (VarE a)
-                                          , LitE $ StringL " conflicts with "
+                                   (ListE [ LitE $ StringL "unification error: `"
+                                          , AppE (VarE 'show) (VarE a)
+                                          , LitE $ StringL "' with `"
                                           , AppE (VarE 'show) (VarE b)
+                                          , LitE $ StringL "'"
                                           ]))) [] ]
                   else return []
+
+
+genDummyTypeable :: Name -> [Name] -> Q [Dec]
+genDummyTypeable nm vars
+  = do nmD <- newName "Dummy"
+       nmC <- newName "DummyCon"
+       return [ DataD [] nmD [] [NormalC nmC []] [''Typeable]
+              , InstanceD [] (AppT (ConT ''Typeable) $ foldl AppT (ConT nm) (map VarT vars))
+                  [ FunD 'typeOf [ Clause [WildP] (NormalB $ AppE (VarE 'typeOf) (ConE nmC)) [] ]
+                  ]
+              ]
+
+genFromIndClauses :: Name -> Q [Clause]
+genFromIndClauses nm
+  = do info <- reify nm
+       case info of
+         DataConI _ _ _ _ -> do x <- newName "x"
+                                return [ Clause [ ConP nm [ VarP x, WildP ] ] ( NormalB $ AppE (ConE 'Just) (VarE x) ) []
+                                       , Clause [ WildP ] ( NormalB $ ConE 'Nothing ) []
+                                       ]
+         _                -> return [ Clause [] ( NormalB $ VarE nm ) [] ]
+
+genToIndClauses :: Name -> Name -> Q [Clause]
+genToIndClauses _ nm
+  = do info <- reify nm
+       case info of
+         DataConI _ _ _ _ -> do x <- newName "x"
+                                v <- newName "v"
+                                return [ Clause [ VarP x, VarP v ] ( NormalB $ AppE (VarE 'ireturn) $ foldl AppE (ConE nm) [ VarE x, VarE v] ) [] ]
+         _                -> return [ Clause [] ( NormalB $ AppE (VarE 'ireturn) $ VarE nm ) [] ]
 
 genUnifyClause :: Con -> Q Clause
 genUnifyClause con
   | n == 0
       = return $ Clause [ conPat conNm [], conPat conNm [] ]
                    ( NormalB $ AppE (VarE 'ireturn) (TupE []) ) []
+  | isIndNode
+      = let pat = ConP conNm (map (const WildP) flds)
+        in return $ Clause [ pat, pat ]
+                      ( NormalB $ AppE (VarE 'abort) (LitE $ StringL "cannot unify indirections")
+                      ) []
   | otherwise 
       = do paramsA <- mkParams "a" n
            paramsB <- mkParams "b" n
@@ -114,8 +185,9 @@ genUnifyClause con
                           paramsA paramsB
                       ) []
   where
-    (conNm, flds) = conInfo con
+    (conNm, flds, gFields) = conInfo con
     n = length flds
+    isIndNode = or gFields
 
 conPat :: Name -> [Name] -> Pat
 conPat conNm ps = ConP conNm (map VarP ps)
@@ -126,6 +198,11 @@ genFgvClause con
       = do acc <- newName "acc"
            return $ Clause [VarP acc, conPat conNm []]
                       ( NormalB $ AppE (VarE 'ireturn) (VarE acc) ) []
+  | isIndNode
+      = let pat = ConP conNm (map (const WildP) flds)
+        in return $ Clause [ WildP, pat ]
+                      ( NormalB $ AppE (VarE 'abort) (LitE $ StringL "not allowed to call fgvS on indirections")
+                      ) []
   | otherwise
       = do params <- mkParams "x" n
            results <- mkParams "vs" n
@@ -137,13 +214,19 @@ genFgvClause con
                           ++ [ NoBindS $ AppE (VarE 'ireturn) $ VarE $ last accs ] )
                       ) []
   where
-    (conNm, flds) = conInfo con
+    (conNm, flds, gFields) = conInfo con
     n = length flds
+    isIndNode = or gFields
 
 genDgvClause :: Con -> Q Clause
 genDgvClause con
   | n == 0
       = return $ Clause [conPat conNm []] (NormalB $ AppE (VarE 'ireturn) (VarE 'IntSet.empty)) []
+  | isIndNode
+      = let pat = ConP conNm (map (const WildP) flds)
+        in return $ Clause [ pat ]
+                      ( NormalB $ AppE (VarE 'abort) (LitE $ StringL "not allowed to call dgvS on indirections")
+                      ) []
   | otherwise
       = do params  <- mkParams "x" n
            results <- mkParams "ds" n
@@ -153,13 +236,19 @@ genDgvClause con
                           ++ [ NoBindS $ AppE (VarE 'ireturn) $ AppE (VarE 'IntSet.unions) $ ListE (map VarE results) ] )
                       ) []
   where
-    (conNm, flds) = conInfo con
+    (conNm, flds, gFields) = conInfo con
     n = length flds
+    isIndNode = or gFields
 
 genExpClause :: Con -> Q Clause
 genExpClause con
   | n == 0
       = return $ Clause [WildP, conPat conNm []] (NormalB $ AppE (VarE 'return) (ConE conNm)) []
+  | isIndNode
+      = let pat = ConP conNm (map (const WildP) flds)
+        in return $ Clause [ WildP, pat ]
+                      ( NormalB $ AppE (VarE 'fail) (LitE $ StringL "not allowed to call expAllS on indirections")
+                      ) []
   | otherwise
       = do params  <- mkParams "x" n
            results <- mkParams "v" n
@@ -171,8 +260,9 @@ genExpClause con
                           )
                       ) []
   where
-    (conNm, flds) = conInfo con
+    (conNm, flds, gFields) = conInfo con
     n = length flds
+    isIndNode = or gFields
 
 
 --
@@ -188,10 +278,10 @@ genTabularInstances :: [Name] -> Q [Dec]
 
 genTabularInstance :: Name -> Q Dec
 genTabularInstance nm
-  = do (TyConI (DataD _ _ _ cons _)) <- reify nm
+  = do (TyConI (DataD _ _ vars cons _)) <- reify nm
        tblBody <- mkTablify cons
        sizeBody <- mkMinLength cons
-       return (InstanceD [] (AppT (ConT ''Tabular) (ConT nm)) [tblBody, sizeBody])
+       return (InstanceD [] (AppT (ConT ''Tabular) (foldl AppT (ConT nm) (map VarT vars))) [tblBody, sizeBody])
 
 mkTablify :: [Con] -> Q Dec
 mkTablify cons

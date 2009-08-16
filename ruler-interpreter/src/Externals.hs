@@ -22,9 +22,10 @@ import UU.Parsing
 
 
 --
--- Generate external functions for data types (including corresponding Unifyable instances)
+-- Generate external functions for data types (including corresponding RulerValue instances)
 --
 
+{-
 data Ty
   = TyVar !Value
   | TyCon !Value
@@ -196,23 +197,52 @@ data Tuple
   | Tuple4 !Value !Value !Value !Value
   | Tuple5 !Value !Value !Value !Value !Value
   deriving (Show, Typeable)
+-}
 
 chooseTup :: Int -> Ident
 chooseTup 0 = ident "empty"
 chooseTup 1 = ident "single"
 chooseTup n = ident ("tuple" ++ show n)
 
+{-
 data List
   = Nil
   | Cons Value Value
   deriving (Show, Typeable)
+-}
+
+data Void
+  = Empty
+  | IndVoid !IndInfo !(Maybe Void)
+  deriving (Show, Typeable)
+
+
+data List a
+  = Nil
+  | Cons (PolyInd a) (List a)
+  | IndList IndInfo (Maybe (List a))
+
+instance Show (List a) where
+  show Nil = []
+  show (Cons ind xs) = show ind ++ ":" ++ show xs
+  show (IndList _ (Just l)) = show l
+  show (IndList i Nothing)  = show i
 
 -- note: the list members do not participate in fgv calls on the list
-convertList :: (Typeable a, Show a, Unifyable a, Tabular a) => [a] -> Value
-convertList = foldr (\l r -> mkFullyOpaque $ Cons l r) (mkFullyOpaque Nil) . map mkFullyOpaque
+-- convertList :: (Typeable a, Show a, RulerValue a, Tabular a) => [a] -> Value
+-- convertList = foldr (\l r -> mkFullyOpaque $ Cons l r) (mkFullyOpaque Nil) . map mkFullyOpaque
 
-$(genDataExternals "dataExternals" 'mkExtData [''Tuple, ''List, ''Bool, ''Exp, ''CaseAlt, ''ParseRes, ''Ty, ''Tree ])
-$(genTabularInstances [''Tuple, ''List, ''Bool, ''Exp, ''CaseAlt, ''ParseRes, ''Ty, ''Tree])
+-- $(genTabularInstances [''Tuple, ''List, ''Exp, ''CaseAlt, ''ParseRes, ''Ty, ''Tree])
+-- $(genDataExternals "dataExternals" [''Tuple, ''List, ''Exp, ''CaseAlt, ''ParseRes, ''Ty, ''Tree ] Map.empty)
+
+$(let genInfos :: [GenInfo]
+      genInfos
+        = [ GenInfo ''PrimString 'IndPS 'IndPS False
+          , GenInfo ''PrimInt 'IndPI 'IndPI True
+          , GenInfo ''List 'IndList 'IndList True
+          , GenInfo ''Void 'IndVoid 'IndVoid True
+          ]
+  in genDataExternals "dataExternals" genInfos)
 
 
 --
@@ -237,10 +267,14 @@ extEnvEmpty :: I (Value, ())
 extEnvEmpty
   = mkResult1 (Map.empty :: Map Ident Value)
 
-extMessage :: Value -> I ()
-extMessage msg
-  = do (PS s) <- resolve msg :: I PrimString
-       message s
+extMessage :: PrimString -> I ()
+extMessage ps
+  = extExpand ps >>= extMessage'
+  where
+    extMessage' (IndPS i Nothing)   = abort ("extMessage requires a string, not the unresolved guess: " ++ show i)
+    extMessage' (IndPS _ (Just ps)) = extMessage ps
+    extMessage' (PS s)
+      = message s
 
 extAbort :: Value -> I ()
 extAbort msg
@@ -252,10 +286,12 @@ extShow v
   = do v' <- expAll guessLookup v
        mkResult1 $ PS $ show v'
 
+{-
 extFgv :: Value -> I (Value, ())
 extFgv v
   = do vs <- fgv IntSet.empty v
        return (convertList (IntSet.toList vs), ())
+-}
 
 extConcat :: Value -> Value -> I (Value, ())
 extConcat v1 v2
@@ -334,13 +370,16 @@ extIdent v
 
 externals :: Map Ident External
 externals = Map.fromList ( 
-  [ mkExt True  "lookup"       extEnvLookup
+  [ mkExt True  "message"      extMessage
+  
+  {- mkExt True  "lookup"       extEnvLookup
   , mkExt False "extend"       extEnvExtend
   , mkExt False "emptyenv"     extEnvEmpty
-  , mkExt True  "message"      extMessage
+  , 
   , mkExt True  "abort"        extAbort
-  , mkExt False "show"         extShow
-  , mkExt True  "fgv"          extFgv
+  , mkExt False "show"         extShow -}
+--  , mkExt True  "fgv"          extFgv
+{-
   , mkExt False "concat"       extConcat
   , mkExt False "add"          extAdd
   , mkExt True  "min"          extMin
@@ -351,7 +390,8 @@ externals = Map.fromList (
   , mkExt True  "isguess"      extIsGuess
   , mkExt True  "equalguess"   extEqualGuess
   , mkExt False "ident"        extIdent
-  , mkExt True  "parseExpFile" extParseExpFile
+-}
+--  , mkExt True  "parseExpFile" extParseExpFile
   ] ++ dataExternals )
 
 execExternal :: Ident -> Params -> I ()

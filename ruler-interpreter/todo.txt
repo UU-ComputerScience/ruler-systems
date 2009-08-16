@@ -1,5 +1,14 @@
 The still-to-implement feature list
 
+* Cleanup Externals.hs
+
+  Hide the "Value" wrapper data type. Like in my previous prototype, I just
+  need to put a function in the type class to convert guesses to a value of
+  the real data types.
+  
+  Status: almost done, need to rewrite some of the external functions.
+
+
 * add fixpoint statement:
     fixpoint e1 e2;
   where e1 is an unestablished single-visit derivation from some inputs to
@@ -191,6 +200,10 @@ The still-to-implement feature list
             outputs: ty visit __main
             order: __main
           }
+  
+  As a simplification, we can assume a mono-variant analysis, and
+  instead of using a extensible-record like analysis, just use a
+  record-like analysis. This would make code generation also easier.
 
   The caller to checktype now needs to guarantee that an instantiatable-
   derivation is passed that has at least the given inputs and outputs, and

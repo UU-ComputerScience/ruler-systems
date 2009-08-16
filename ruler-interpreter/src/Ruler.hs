@@ -535,6 +535,7 @@ resultHandler opts root = do tree <- if expansion opts == ExpandFull
 
 main :: IO ()
 main = do opts <- commandlineArgs
+          -- let opts = defaultOpts { sourceFile = "examples/helloworld.rul" }
           mbExpr  <- tryInclude ExprParser (sourceFile opts)
           mbStmts <- mapM (tryInclude StmtsParser) (extraFiles opts)
           case mbExpr of

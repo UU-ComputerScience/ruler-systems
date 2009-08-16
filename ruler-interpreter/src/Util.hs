@@ -1,4 +1,4 @@
-{-# OPTIONS_GHC -fglasgow-exts #-}
+{-# OPTIONS_GHC -fglasgow-exts -XScopedTypeVariables #-}
 module Util where
 
 import RulerExpr
@@ -174,25 +174,28 @@ attrsExpand
 -- Externals
 --
 
-data TupExtract = forall r . IsTuple r => Head Value r
+data TupExtract = forall r . IsTuple r => Head (I Value) r | TupEnd
 
 class IsTuple t where
   extractOne :: t -> TupExtract
   components :: t -> Int
 
-instance IsTuple r => IsTuple (Value, r) where
-  extractOne (v,r) = Head v r
+instance (RulerValue a, IsTuple r) => IsTuple (a, r) where
+  extractOne (a,r) = Head (createWrapper a) r
   components ~(_,r) = 1 + components r
 
 instance IsTuple () where
-  extractOne _ = error "extractOne: empty tuple does not have a value."
+  extractOne _ = TupEnd
   components _ = 0
 
-tupToList :: IsTuple r => r -> [Value]
+tupToList :: IsTuple r => r -> I [Value]
 tupToList t = case extractOne t of
-                Head v r -> v : tupToList r
+                Head m r -> do v <- m
+                               vs <- tupToList r
+                               return (v : vs)
+                TupEnd   -> return []
 
-data AppStep = forall r . IsExternal r => TookOneArg r
+data AppStep = forall r . IsExternal r => TookOneArg (I r)
 
 class IsExternal f where
   appOneArg   :: f -> Value -> AppStep
@@ -200,8 +203,9 @@ class IsExternal f where
   arguments   :: f -> Int
   results     :: f -> Int
 
-instance IsExternal r => IsExternal (Value -> r) where
-  appOneArg f v = TookOneArg (f v)
+instance (RulerValue a, IsExternal r) => IsExternal (a -> r) where
+  appOneArg f v = TookOneArg $ do a <- removeWrapper v
+                                  return (f a)
   appFinished _ = error "appFinished: function takes still some arguments."
   arguments f   = 1 + arguments (f (error "arguments: too much evaluation"))
   results   f   = results (f (error "results: too much evaluation"))
@@ -209,15 +213,37 @@ instance IsExternal r => IsExternal (Value -> r) where
 instance IsTuple t => IsExternal (I t) where
   appOneArg _ _ = error "appOneArg: function is not expecting any arguments anymore."
   appFinished m = do t <- m
-                     return (tupToList t)
+                     tupToList t
   arguments _   = 0
   results f = let z :: I t -> t
                   z _ = error "results: too much evaluation"
               in components (z f)
 
+removeWrapper :: forall a . RulerValue a => Value -> I a
+removeWrapper (ValueOpaque _ a _)
+  = case cast a of
+      Just r  -> return r
+      Nothing -> abort ("failed to remove wrapper around " ++ show a ++ ", contained value has type: " ++ show (typeOf a) ++ ", while expecting: " ++ show (typeOf (undefined :: a)))
+removeWrapper (ValueGuess g) = toIndirection (IndInfo g) Nothing
+removeWrapper v              = abort ("not an opaque value nor a guess: " ++ show v)
+
+createWrapper :: RulerValue a => a -> I Value
+createWrapper a
+  = case fromIndirection a of
+      Just (IndInfo g) -> return $ ValueGuess g
+      Nothing          -> mkOpaque a
+
 appExternal :: IsExternal f => f -> [Value] -> I [Value]
-appExternal f = run . foldl (\(TookOneArg r) v -> appOneArg r v) (TookOneArg f)
-  where run (TookOneArg f) = appFinished f
+appExternal f = run . foldl next init
+  where
+    run m = do (TookOneArg r) <- m
+               f <- r
+               appFinished f
+    init = return $ TookOneArg $ return f
+    next rec v
+      = do (TookOneArg r) <- rec
+           f <- r
+           return $ appOneArg f v
 
 data External = forall f . IsExternal f => External f Bool
 
@@ -227,10 +253,13 @@ mkExt isVisible n f = (ident n, External f isVisible)
 mkExtData :: IsExternal f => String -> f -> (Ident, External)
 mkExtData = mkExt False
 
-mkResult1 :: (Show a, Typeable a, Unifyable a, Tabular a) => a -> I (Value, ())
+mkResult1 :: (Show a, Typeable a, RulerValue a, Tabular a) => a -> I (Value, ())
 mkResult1 x
   = do v' <- mkOpaque x
        return (v', ())
+
+mk1ResultTup :: RulerValue a => a -> I (a, ())
+mk1ResultTup x = return (x, ())
 
 
 --

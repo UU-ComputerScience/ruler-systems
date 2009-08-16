@@ -11,6 +11,7 @@ import SyntaxExt
 import Data.List(partition,sortBy)
 import Data.Map(Map)
 import qualified Data.Map as Map
+import Externals -- get some instances
 
 type RulerParser a = Parser Token a
 data LamCall e = LamCall Ident [(Int,e)]
