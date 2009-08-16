@@ -1,0 +1,9 @@
+-- example involving lists
+
+derivation inputs args
+{ branch main:
+    eval message "hoi";
+    x fresh;
+    (cons empty nil) == x;
+    x == nil;
+}
