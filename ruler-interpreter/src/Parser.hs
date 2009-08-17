@@ -259,7 +259,7 @@ parse s tks = parseTokens (sel s)
 
     pPrimVal :: RulerParser (Pos, PrimVal)
     pPrimVal
-      =   (\(s,p) -> (p, PrimVal $ readInt s)) <$> pIntegerPos
+      =   (\(s,p) -> (p, PrimVal $ PI $ readInt s)) <$> pIntegerPos
       <|> (\(s,p) -> (p, PrimVal $ PS $ readString s)) <$> pStringPos
 
     pToplevelExpr :: RulerParser Expr
@@ -339,7 +339,7 @@ parse s tks = parseTokens (sel s)
       where
         exprWith    = if isOutput then pOutputExpr else pExpr
         exprWithout = if isOutput then pOutputExprWithoutLambda else pExprWithoutLambda
-        mkIte p g t e = sem_Lambda_Case p g (sem_Cases_Cons (pat p (Ident "true" p) t) $ sem_Cases_Cons (pat p (Ident "false" p) e) sem_Cases_Nil)
+        mkIte p g t e = sem_Lambda_Case p g (sem_Cases_Cons (pat p (Ident "bTrue" p) t) $ sem_Cases_Cons (pat p (Ident "bFalse" p) e) sem_Cases_Nil)
         pat p i e = sem_Case_Case (sem_PatTop_Top $ sem_Pat_Escape p (Expr_Var Mode_Ref i)) (sem_Body_Unguarded p e)
 
     pDecl :: RulerParser T_Decl

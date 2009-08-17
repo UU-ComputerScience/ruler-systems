@@ -448,14 +448,13 @@ evaluate f opts stmts e
     e' = Expr_Seq ( externalsToStmts externals ++ stmts ++
                     [ Stmt_Inst sysPos e mainId
                     , Stmt_Equiv sysPos (Expr_Var Mode_Ref mainId) (Expr_Var Mode_Ref rootId)
-                    , Stmt_Equiv sysPos (Expr_Field mainId argsId) (Expr_Prim sysPos $ PrimVal $ map mkFullyOpaque $ map PS $ programArgs opts)
+                    , Stmt_Equiv sysPos (Expr_Field mainId argsId) (Expr_Prim sysPos $ PrimVal $ convertList $ map PS $ programArgs opts)
                     , Stmt_Establish sysPos mainId Nothing
                     ])
                   (Expr_Var Mode_Def mainId)
     pipeline = do (eErrRes,_) <- tryExec (evalExpr e')
                   assertFinished vRoot
                   t <- toDerivation vRoot
-                  substCollectGarbage True
                   subst <- gets ssSubst
                   let a = runIT (f t) (ITIn { itSubst = subst, itOpts = opts })
                   case eErrRes of
@@ -476,7 +475,7 @@ toDerivation root
 
     to1 g (ValueThunk _ lvl lbls _ params bindings _ branch outcome)
       = do (visits,status) <- getOutcome outcome
-           nmBranch  <- tryResolve branch (ident "_unknown_")
+           nmBranch  <- tryResolve branch (ident "_undetermined_")
            let inps = inputs params
                title = case lvl of
                          Level_Abstract nm -> nm
