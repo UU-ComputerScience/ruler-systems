@@ -19,108 +19,112 @@ import Unsafe.Coerce
 import System.IO.Unsafe
 import UU.Scanner
 import UU.Parsing
+import Data.Maybe
 
 
 --
 -- Generate external functions for data types (including corresponding RulerValue instances)
 --
 
-{-
-data Ty
-  = TyVar !Value
-  | TyCon !Value
-  | TyArrow !Value !Value
-  | TyForall !Value !Value
-  deriving (Show, Typeable)
 
-mkTyVar nm = mkFullyOpaque $ TyVar nm
-mkTyConst nm = mkFullyOpaque $ TyCon nm
-mkTyArrow a r = mkFullyOpaque $ TyArrow a r
-mkTyForall n t = mkFullyOpaque $ TyForall n t
+--
+-- Expression and type-like data types
+--
+
+data Ty
+  = TyVar !Name
+  | TyCon !Name
+  | TyArrow !Ty !Ty
+  | TyForall !(List Name) !Ty
+  | TyInd !IndInfo !(Maybe Ty)
+  deriving (Show, Typeable)
 
 data Exp
-  = Var !Value
-  | Con !Value
-  | Const !Value
-  | App !Value !Value
-  | Lam !Value !Value
-  | SigLam !Value !Value !Value
-  | Bind !Value !Value !Value
-  | Fix !Value
-  | Case !Value !Value
+  = ExpVar   !Name
+  | ExpCon   !Name
+  | ExpConst !PrimInt
+  | ExpApp   !Exp !Exp
+  | ExpLam   !Name !Exp
+  | ExpTLam  !Name !Ty !Exp
+  | ExpLet   !Name !Exp !Exp
+  | ExpFix   !Exp
+  | ExpCase  !Exp !(List CaseAlt)
+  | ExpInd   !IndInfo !(Maybe Exp)
   deriving (Show, Typeable)
-
-mkIdent n p = mkFullyOpaque (Ident n p)
-
-mkVar v = mkFullyOpaque (Var v)
-mkCon v = mkFullyOpaque (Con v)
-mkConst v = mkFullyOpaque (Const v)
-mkApp f a = mkFullyOpaque (App f a)
-mkLam x b = mkFullyOpaque (Lam x b)
-mkSigLam x t b = mkFullyOpaque (SigLam x t b)
-mkBind x e b = mkFullyOpaque (Bind x e b)
-mkFix f = mkFullyOpaque (Fix f)
-mkCase v cs = mkFullyOpaque (Case v (convertList cs))
-mkCaseAlt c xs b = mkFullyOpaque (CaseAlt c (convertList xs) b)
 
 data CaseAlt
-  = CaseAlt !Value !Value !Value
+  = CaseAlt !Name !(List Name) !Exp
+  | CaseInd !IndInfo !(Maybe CaseAlt)
   deriving (Show, Typeable)
 
-data ParseRes
-  = ParseFail !Value | ParseSuccess !Value
-  deriving (Show, Typeable)
+data ParseRes a
+  = ParseFail    !PrimString
+  | ParseSuccess !(PolyInd a)
+  | ParseInd !IndInfo !(Maybe (ParseRes a))
 
-type ExpParser a = Parser Token a
+instance Show (ParseRes a) where
+  show (ParseFail s)         = "{Failed: " ++ show s ++ "}"
+  show (ParseSuccess a)      = "{Parsed: " ++ show a ++ "}"
+  show (ParseInd _ (Just t)) = show t
+  show (ParseInd i Nothing)  = show i
 
-pVarIdent :: ExpParser Value
-pVarIdent = uncurry mkIdent <$> pVaridPos
 
-pConIdent :: ExpParser Value
-pConIdent = uncurry mkIdent <$> pConidPos
+type ExtParser a = Parser Token a
 
-pExp :: ExpParser Value
+-- common parsers
+pVarIdent :: ExtParser Name
+pVarIdent = uncurry (\n p -> Name (Ident n p)) <$> pVaridPos
+
+pConIdent :: ExtParser Name
+pConIdent = uncurry (\n p -> Name (Ident n p)) <$> pConidPos
+
+pIndList :: RulerValue a => ExtParser [a] -> ExtParser (List a)
+pIndList p = (foldr (\x r -> Cons (PolyKnown x) r) Nil) <$> p
+
+pPrimInt :: ExtParser PrimInt
+pPrimInt = (PI . read) <$> pInteger
+
+-- parser for types
+pTy :: ExtParser Ty
+pTy = TyForall <$ pKeyPos "forall" <*> pIndList (pList_ng pVarIdent) <* pKeyPos "." <*> pTyApp
+      <|> pTyApp
+
+pTyApp :: ExtParser Ty
+pTyApp = pChainr_ng (TyArrow <$ pKeyPos "->") pTyBase
+
+pTyBase :: ExtParser Ty
+pTyBase =     TyVar <$> pVarIdent
+          <|> TyCon <$> pConIdent
+          <|> pParens pTy
+
+-- parser for expressions
+pExp :: ExtParser Exp
 pExp = pExpLam
 
-pExpLam :: ExpParser Value
-pExpLam =   mkLam <$ pKeyPos "\\" <*> pVarIdent <* pKeyPos "->" <*> pExpLam
-        <|> mkSigLam <$ pKeyPos "\\" <* pOParen <*> pVarIdent <* pKeyPos "::" <*> pType <* pCParen <* pKeyPos "->" <*> pExpLam
-        <|> mkBind <$ pKeyPos "let" <*> pVarIdent <* pKeyPos "=" <*> pExp <* pKeyPos "in" <*> pExpLam
+pExpLam :: ExtParser Exp
+pExpLam =   ExpLam <$ pKeyPos "\\" <*> pVarIdent <* pKeyPos "->" <*> pExpLam
+        <|> ExpTLam <$ pKeyPos "\\" <* pOParen <*> pVarIdent <* pKeyPos "::" <*> pTy <* pCParen <* pKeyPos "->" <*> pExpLam
+        <|> ExpLet <$ pKeyPos "let" <*> pVarIdent <* pKeyPos "=" <*> pExp <* pKeyPos "in" <*> pExpLam
         <|> pExpApp
 
-pExpApp :: ExpParser Value
-pExpApp = pChainl_ng (pSucceed mkApp) pExpBase
+pExpApp :: ExtParser Exp
+pExpApp = pChainl_ng (pSucceed ExpApp) pExpBase
 
-pExpBase :: ExpParser Value
+pExpBase :: ExtParser Exp
 pExpBase
-  =   mkVar <$> pVarIdent
-  <|> mkCon <$> pConIdent
-  <|> (mkConst . mkFullyOpaque . readInt) <$> pInteger
-  <|> mkFix <$ pKeyPos "fix" <*> pExpBase
-  <|> mkCase <$ pKeyPos "case" <*> pExp <* pKeyPos "of" <*> pCurly (pList1Sep_ng pSemi pCaseAlt)
+  =   ExpVar   <$> pVarIdent
+  <|> ExpCon   <$> pConIdent
+  <|> ExpConst <$> pPrimInt
+  <|> ExpFix   <$ pKeyPos "fix" <*> pExpBase
+  <|> ExpCase  <$ pKeyPos "case" <*> pExp <* pKeyPos "of" <*> pIndList (pCurly (pList1Sep_ng pSemi pCaseAlt))
   <|> pParens pExp
 
-pType :: ExpParser Value
-pType = mkTyForall <$ pKeyPos "forall" <*> pVarIdent <* pKeyPos "." <*> pTypeApp
-      <|> pTypeApp
-
-pTypeApp :: ExpParser Value
-pTypeApp = pChainr_ng (mkTyArrow <$ pKeyPos "->") pTypeBase
-
-pTypeBase :: ExpParser Value
-pTypeBase =   mkTyVar <$> pVarIdent
-          <|> mkTyConst <$> pConIdent
-          <|> pParens pType
-
-readInt :: String -> Int
-readInt = read
-
-pCaseAlt :: ExpParser Value
+pCaseAlt :: ExtParser CaseAlt
 pCaseAlt
-  = mkCaseAlt <$> pConIdent <*> pList_ng pVarIdent <* pKeyPos "->" <*> pExp
+  = CaseAlt <$> pConIdent <*> pIndList (pList_ng pVarIdent) <* pKeyPos "->" <*> pExp
 
 
-parseTokens :: ExpParser a -> [Token] -> Either [String] a
+parseTokens :: ExtParser a -> [Token] -> Either [String] a
 parseTokens p tks
   = if null msgs
     then final `seq` Right v
@@ -130,97 +134,101 @@ parseTokens p tks
     msgs  = getMsgs steps
     (Pair v final) = evalSteps steps
 
-parseExpFile :: PrimString -> ParseRes
-parseExpFile (PS path)
+parseExpFile :: String -> ParseRes Exp
+parseExpFile path
   = unsafePerformIO
     ( do tks <- scanFile ["let","in","fix","case","of","forall"] ["->","::"] "=.\\()" "->:" path
          case parseTokens pExp tks of
-           Left strs -> return $ ParseFail $ mkFullyOpaque $ PS $ unlines strs
-           Right exp -> return $ ParseSuccess exp
-    `catch` (return . ParseFail . mkFullyOpaque . PS . show)
+           Left strs -> return $ ParseFail $ PS $ unlines strs
+           Right exp -> return $ ParseSuccess $ PolyKnown exp
+    `catch` (return . ParseFail . PS . show)
     )
 
-extParseExpFile :: Value -> I (Value, ())
-extParseExpFile file
-  = do path <- resolve file
-       let outcome = parseExpFile path
-       seq outcome $ case outcome of
-                       ParseSuccess exp -> do v <- mapValue exprInsertIndirections exp
-                                              mkResult1 (ParseSuccess v)
-                       o                -> mkResult1 o
-  where
-    mapValue :: (Exp -> I Exp) -> Value -> I Value
-    mapValue f (ValueOpaque g a gs) = case cast a of
-                                        Just a1 -> do a2 <- f a1
-                                                      return (ValueOpaque g a2 gs)
+extParseExpFile :: FixedInOnly PrimString -> I (SingleRes (ParseRes Exp))
+extParseExpFile (FixedInOnly (PS path))
+  = do let outcome = parseExpFile path
+       outcome' <- case outcome of
+                          ParseFail _ -> return outcome
+                          ParseSuccess e -> do e' <- mapInd expInsertIndirections e
+                                               return (ParseSuccess e')
+       extSingleResult outcome'
 
 -- insert indirections through variables. This in order to allow the pretty printer
 -- to print only the part up to a guess.
-exprInsertIndirections :: Exp -> I Exp
-exprInsertIndirections = chase
+expInsertIndirections :: Exp -> I Exp
+expInsertIndirections = ind
   where
-    chase (App f a) = do f' <- ind f
-                         a' <- ind a
-                         return $ App f' a'
-    chase (Lam x b) = do b' <- ind b
-                         return $ Lam x b'
-    chase (SigLam t x b) = do b' <- ind b
-                              return $ SigLam t x b'
-    chase (Bind x e b) = do e' <- ind e
-                            b' <- ind b
-                            return $ Bind x e' b'
-    chase (Fix e) = do e' <- ind e
-                       return $ Fix e'
-    chase (Case e cs) = do e' <- ind e
-                           return $ Case e' cs
-    chase v = return v
-    
-    ind (ValueOpaque g a gs)
-      = case cast a of
-          Just e -> do e' <- chase e
-                       let v' = ValueOpaque g e' gs
-                       x <- fresh
-                       unify x v'
-                       return x
-    ind v = return v
+    chase (ExpApp f a) = do f' <- ind f
+                            a' <- ind a
+                            return $ ExpApp f' a'
+    chase (ExpLam x b) = do b' <- ind b
+                            return $ ExpLam x b'
+    chase (ExpTLam t x b) = do b' <- ind b
+                               return $ ExpTLam t x b'
+    chase (ExpLet x e b) = do e' <- ind e
+                              b' <- ind b
+                              return $ ExpLet x e' b'
+    chase (ExpFix e) = do e' <- ind e
+                          return $ ExpFix e'
+    chase (ExpCase e cs) = do e' <- ind e
+                              return $ ExpCase e' cs
+    chase e = return e
 
-data Tree
-  = Node Value Value
-  | Leaf Value
+    ind :: Exp -> I Exp
+    ind e = do e1 <- chase e
+               e2 <- extFresh
+               unify e1 e2
+               return e2
+
+
+--
+-- Custom data types
+--
+
+data Tree a
+  = Node !(Tree a) !(Tree a)
+  | Leaf !(PolyInd a)
+  | IndTree !IndInfo (Maybe (Tree a))
   deriving (Show, Typeable)
 
-data Tuple
-  = Empty
-  | Single !Value
-  | Tuple  !Value !Value
-  | Tuple3 !Value !Value !Value
-  | Tuple4 !Value !Value !Value !Value
-  | Tuple5 !Value !Value !Value !Value !Value
-  deriving (Show, Typeable)
--}
 
-chooseTup :: Int -> Ident
-chooseTup 0 = ident "empty"
-chooseTup 1 = ident "single"
-chooseTup n = ident ("tuple" ++ show n)
-
-{-
-data List
-  = Nil
-  | Cons Value Value
-  deriving (Show, Typeable)
--}
+--
+-- General common data types
+--
 
 data Void
-  = Empty
+  = Void
   | IndVoid !IndInfo !(Maybe Void)
   deriving (Show, Typeable)
 
+data Tuple a b
+  = Tuple !(PolyInd a) !(PolyInd b)
+  | IndTuple !IndInfo !(Maybe (Tuple a b))
+
+data Tuple3 a b c
+  = Tuple3 !(PolyInd a) !(PolyInd b) !(PolyInd c)
+  | IndTuple3 !IndInfo !(Maybe (Tuple3 a b c))
+
+instance Show (Tuple a b) where
+  show (Tuple a b)           = "(" ++ show a ++ ", " ++ show b ++ ")"
+  show (IndTuple _ (Just t)) = show t
+  show (IndTuple i Nothing)  = show i
+
+instance Show (Tuple3 a b c) where
+  show (Tuple3 a b c)         = "(" ++ show a ++ ", " ++ show b ++ ", " ++ show c ++ ")"
+  show (IndTuple3 _ (Just t)) = show t
+  show (IndTuple3 i Nothing)  = show i
+
+data Boolean
+  = BTrue
+  | BFalse
+  | IndBoolean !IndInfo !(Maybe Boolean)
+  deriving (Show, Typeable)
 
 data List a
   = Nil
-  | Cons (PolyInd a) (List a)
-  | IndList IndInfo (Maybe (List a))
+  | Cons !(PolyInd a) !(List a)
+  | IndList !IndInfo !(Maybe (List a))
 
 instance Show (List a) where
   show Nil = []
@@ -228,19 +236,43 @@ instance Show (List a) where
   show (IndList _ (Just l)) = show l
   show (IndList i Nothing)  = show i
 
--- note: the list members do not participate in fgv calls on the list
--- convertList :: (Typeable a, Show a, RulerValue a, Tabular a) => [a] -> Value
--- convertList = foldr (\l r -> mkFullyOpaque $ Cons l r) (mkFullyOpaque Nil) . map mkFullyOpaque
+data Env a
+  = Env !(Map Ident (PolyInd a))
+  | IndEnv !IndInfo !(Maybe (Env a))
 
--- $(genTabularInstances [''Tuple, ''List, ''Exp, ''CaseAlt, ''ParseRes, ''Ty, ''Tree])
--- $(genDataExternals "dataExternals" [''Tuple, ''List, ''Exp, ''CaseAlt, ''ParseRes, ''Ty, ''Tree ] Map.empty)
+instance Show (Env a) where
+  show (Env mp)            = show mp
+  show (IndEnv _ (Just e)) = show e
+  show (IndEnv i Nothing)  = show i
 
+data Name
+  = Name !Ident
+  | IndName !IndInfo !(Maybe Name)
+  deriving Typeable
+
+instance Show Name where
+  show (Name nm) = show nm
+  show (IndName _ (Just nm)) = show nm
+  show (IndName i Nothing)   = show i
+
+
+-- Splice in generated code from the above data types
 $(let genInfos :: [GenInfo]
       genInfos
         = [ GenInfo ''PrimString 'IndPS 'IndPS False
-          , GenInfo ''PrimInt 'IndPI 'IndPI True
+          , GenInfo ''PrimInt 'IndPI 'IndPI False
+          , GenInfo ''Boolean 'IndBoolean 'IndBoolean True
           , GenInfo ''List 'IndList 'IndList True
           , GenInfo ''Void 'IndVoid 'IndVoid True
+          , GenInfo ''Tuple 'IndTuple 'IndTuple True
+          , GenInfo ''Tuple3 'IndTuple3 'IndTuple3 True
+          , GenInfo ''Name 'IndName 'IndName True
+          , GenInfo ''Env 'IndEnv 'IndEnv True
+          , GenInfo ''Tree 'IndTree 'IndTree True
+          , GenInfo ''Ty 'TyInd 'TyInd True
+          , GenInfo ''Exp 'ExpInd 'ExpInd True
+          , GenInfo ''CaseAlt 'CaseInd 'CaseInd True
+          , GenInfo ''ParseRes 'ParseInd 'ParseInd True
           ]
   in genDataExternals "dataExternals" genInfos)
 
@@ -249,119 +281,141 @@ $(let genInfos :: [GenInfo]
 -- Common external routines
 --
 
-extEnvLookup :: Value -> Value -> I (Value, ())
-extEnvLookup x g
-  = do x' <- resolve x :: I Ident
-       g' <- resolve g :: I (Map Ident Value)
-       case Map.lookup x' g' of
-         Just t  -> return (t, ())
-         Nothing -> abort ("extLookup: no identifier " ++ show x' ++ " in environment " ++ show g')
 
-extEnvExtend :: Value -> Value -> Value -> I (Value, ())
-extEnvExtend x t g
-  = do x' <- resolve x :: I Ident
-       g' <- resolve g :: I (Map Ident Value)
-       mkResult1 $ Map.insert x' t g'
+-- Concerning the result tuples
+chooseTup :: Int -> Ident
+chooseTup 0 = ident "void"
+chooseTup 1 = ident "single"
+chooseTup 2 = ident "tuple"
+chooseTup n = ident ("tuple" ++ show n)
 
-extEnvEmpty :: I (Value, ())
-extEnvEmpty
-  = mkResult1 (Map.empty :: Map Ident Value)
 
-extMessage :: PrimString -> I ()
-extMessage ps
-  = extExpand ps >>= extMessage'
+-- Debugging and printing
+extMessage :: FixedInOnly PrimString -> I ()
+extMessage (FixedInOnly (PS s))
+  = message s
+
+extAbort :: FixedInOnly PrimString -> I ()
+extAbort (FixedInOnly (PS s))
+  = abort s
+
+
+-- Guess operations
+
+-- throws failure if the passed value is not a guess.
+extGetGuess :: Poly -> I (SingleRes PrimInt)
+extGetGuess (Poly a)
+  | isJust mbG && isNothing mbV = extSingleResult $ PI g
+  | otherwise                   = failure "getguess: input value is not a guess"
   where
-    extMessage' (IndPS i Nothing)   = abort ("extMessage requires a string, not the unresolved guess: " ++ show i)
-    extMessage' (IndPS _ (Just ps)) = extMessage ps
-    extMessage' (PS s)
-      = message s
-
-extAbort :: Value -> I ()
-extAbort msg
-  = do (PS s) <- resolve msg :: I PrimString
-       abort s
-
-extShow :: Value -> I (Value, ())
-extShow v
-  = do v' <- expAll guessLookup v
-       mkResult1 $ PS $ show v'
-
-{-
-extFgv :: Value -> I (Value, ())
-extFgv v
-  = do vs <- fgv IntSet.empty v
-       return (convertList (IntSet.toList vs), ())
--}
-
-extConcat :: Value -> Value -> I (Value, ())
-extConcat v1 v2
-  = do (PS s1) <- resolve v1 :: I PrimString
-       (PS s2) <- resolve v2 :: I PrimString
-       mkResult1 $ PS (s1 ++ s2)
-
-extAdd :: Value -> Value -> I (Value, ())
-extAdd v1 v2
-  = do i1 <- resolve v1 :: I Int
-       i2 <- resolve v2 :: I Int
-       mkResult1 (i1 + i2)
-
-extMin :: Value -> Value -> I (Value, ())
-extMin v1 v2
-  = do i1 <- resolve v1 :: I Int
-       i2 <- resolve v2 :: I Int
-       mkResult1 (i1 `min` i2)
-
-extLength :: Value -> I (Value, ())
-extLength v
-  = expand v >>= extLength'
-  where
-    extLength' (ValueOpaque _ l _)
-      | (tyConString $ typeRepTyCon $ typeOf l) == "[]"
-          = mkResult1 $ length $ unsafeCoerce l
-      | otherwise = abort ("expecting a list, but the type is: " ++ show (typeOf l))
-    extLength' v = abort ("expecting an opaque value containing a list, but encountered: " ++ show v)
-
-extHead :: Value -> I (Value, ())
-extHead v
-  = do xs <- resolve v :: I [Value]
-       case xs of
-         x : _ -> return (x, ())
-         _     -> abort "head on empty list"
-
-extMkGuess :: Value -> I (Value, ())
-extMkGuess v
-  = do n <- resolve v :: I Guess
-       return (ValueGuess n, ())
-
-extFromGuess :: Value -> I (Value, ())
-extFromGuess v
-  = do v' <- expand v
-       case v' of
-         ValueGuess g -> mkResult1 g
-         _            -> failure "fromGuess: not a guess"
-
-extIsGuess :: Value -> I (Value, ())
-extIsGuess v
-  = do v' <- expand v
-       case v' of
-         ValueGuess _ -> mkResult1 True
-         _            -> mkResult1 False
+    (mbG, mbV)  = fromIndirection a
+    (IndInfo g) = fromJust mbG
 
 -- throws a failure unless the two given guesses are equal
--- note: this function could be defined in terms of isGuess and fromGuess
-extEqualGuess :: Value -> Value -> I ()
-extEqualGuess v1 v2
-  = do g <- resolve v1 :: I Guess
-       v <- expand v2  :: I Value
-       case v of
-         ValueGuess g' | g == g'   -> return ()
-                       | otherwise -> failure "equalguess: comparing to another guess"
-         _                         -> failure "equalguess: comparing to no guess"
+extEqualGuess :: Poly -> Poly -> I ()
+extEqualGuess p1 p2
+  = do (SingleRes g1) <- extGetGuess p1
+       (SingleRes g2) <- extGetGuess p2
+       if g1 == g2
+        then return ()
+        else failure "equalguess: the guesses are unequal"
 
-extIdent :: Value -> I (Value, ())
-extIdent v
-  = do (PS s) <- resolve v
-       mkResult1 (ident s)
+extFgv :: PolyArg a -> I (SingleRes (List PrimInt))
+extFgv (PolyArg (Poly v))
+  = do vs <- fgv IntSet.empty v
+       extSingleResult (convertList $ map PI $ IntSet.toList vs)
+
+
+-- string operations
+extShow :: Poly -> I (SingleRes PrimString)
+extShow (Poly a)
+  = do a' <- expAll guessLookup a
+       extSingleResult $ PS $ show a'
+
+extStrcat :: FixedInOnly PrimString -> FixedInOnly PrimString -> I (SingleRes PrimString)
+extStrcat (FixedInOnly (PS s1)) (FixedInOnly (PS s2))
+  = extSingleResult $ PS (s1 ++ s2)
+
+
+-- integer operations
+extAdd = binIntOp (+)
+extSub = binIntOp (-)
+extMul = binIntOp (*)
+extDiv = binIntOp div
+extMin = binIntOp min
+extMax = binIntOp max
+
+binIntOp :: (Int -> Int -> Int) -> FixedInOnly PrimInt -> FixedInOnly PrimInt -> I (SingleRes PrimInt)
+binIntOp op (FixedInOnly (PI i1)) (FixedInOnly (PI i2))
+  = extSingleResult $ PI $ op i1 i2
+
+extLessThen         = boolBinIntOp (<)
+extGreaterThen      = boolBinIntOp (>)
+extLessThenEqual    = boolBinIntOp (<=)
+extGreaterThenEqual = boolBinIntOp (>=)
+extIntEqual         = boolBinIntOp (==)
+extIntUnequal       = boolBinIntOp (/=)
+
+boolBinIntOp :: (Int -> Int -> Bool) -> FixedInOnly PrimInt -> FixedInOnly PrimInt -> I (SingleRes Boolean)
+boolBinIntOp op (FixedInOnly (PI i1)) (FixedInOnly (PI i2))
+  = case op i1 i2 of
+      True  -> extSingleResult BTrue
+      False -> extSingleResult BFalse
+
+
+-- identifier operations
+extIdent :: FixedInOnly PrimString -> I (SingleRes Name)
+extIdent (FixedInOnly (PS nm))
+  = extSingleResult $ Name (ident nm)
+
+
+-- list operations
+convertList :: RulerValue a => [a] -> List a
+convertList = foldr (\x -> Cons (PolyKnown x)) Nil
+
+extConcat :: List a -> List a -> I (SingleRes (List a))
+extConcat xs ys
+  = do xs' <- glue xs
+       extSingleResult xs'
+  where
+    glue l = extExpand l >>= glue'
+
+    glue' Nil = return ys
+    glue' (Cons a r) = do r' <- glue r
+                          return (Cons a r')
+    glue' (IndList _ (Just r)) = glue r
+    glue' (IndList _ Nothing)  = abort "cannot concat a list that is itself a variable"
+
+extLength :: List a -> I (SingleRes PrimInt)
+extLength xs
+  = do i <- chase xs
+       extSingleResult $ PI i
+  where
+    chase l = extExpand l >>= chase'
+    chase' Nil        = return 0
+    chase' (Cons _ r) = do r' <- chase r
+                           return (1+r')
+    chase' (IndList _ (Just r)) = chase r
+    chase' (IndList _ Nothing)  = abort "cannot determine the length of a list containing a variable"
+
+extHead :: FixedInOnly (List (PolyArg a)) -> I (SingleRes (PolyArg a))
+extHead (FixedInOnly Nil) = abort "head on an empty list"
+extHead (FixedInOnly (Cons a _)) = extSingleResult (indToPoly a)
+
+
+-- environment operations
+extEnvLookup :: FixedInOnly Name -> FixedInOnly (Env (PolyArg a)) -> I (SingleRes (PolyArg a))
+extEnvLookup (FixedInOnly (Name x)) (FixedInOnly (Env gam))
+  = case Map.lookup x gam of
+      Nothing -> abort ("lookup: identifier " ++ show x ++ " not in environment " ++ show gam)
+      Just p  -> extSingleResult (indToPoly p)
+
+extEnvExtend :: FixedInOnly Name -> PolyArg a -> FixedInOnly (Env a) -> I (SingleRes (Env a))
+extEnvExtend (FixedInOnly (Name nm)) v (FixedInOnly (Env mp))
+  = extSingleResult $ Env $ Map.insert nm (polyToInd v) mp
+
+extEnvEmpty :: I (SingleRes (Env a))
+extEnvEmpty = extSingleResult (Env Map.empty)
 
 
 --
@@ -370,28 +424,47 @@ extIdent v
 
 externals :: Map Ident External
 externals = Map.fromList ( 
-  [ mkExt True  "message"      extMessage
-  
-  {- mkExt True  "lookup"       extEnvLookup
-  , mkExt False "extend"       extEnvExtend
-  , mkExt False "emptyenv"     extEnvEmpty
-  , 
+  [ -- debugging and error reporting
+    mkExt True  "message"      extMessage
   , mkExt True  "abort"        extAbort
-  , mkExt False "show"         extShow -}
---  , mkExt True  "fgv"          extFgv
-{-
+
+  -- guess operations
+  , mkExt False "getguess"     extGetGuess
+  , mkExt True  "equalguess"   extEqualGuess
+  , mkExt True  "fgv"          extFgv
+
+  -- string operations
+  , mkExt False "show"         extShow
+  , mkExt False "strcat"       extStrcat
+
+  -- integer operations
+  , mkExt True "add"                extAdd
+  , mkExt True "sub"                extSub
+  , mkExt True "mul"                extMul
+  , mkExt True "div"                extDiv
+  , mkExt True "min"                extMin
+  , mkExt True "max"                extMax
+  , mkExt True "lessthen"           extLessThen
+  , mkExt True "greaterthen"        extGreaterThen
+  , mkExt True "lessthenequal"      extLessThen
+  , mkExt True "greaterthenequal"   extGreaterThen
+  , mkExt True "intequal"           extIntEqual
+  , mkExt True "intunequal"         extIntUnequal
+
+  -- identifier operations
+  , mkExt False "ident"        extIdent
+
+  -- list operations
   , mkExt False "concat"       extConcat
-  , mkExt False "add"          extAdd
-  , mkExt True  "min"          extMin
   , mkExt False "length"       extLength
   , mkExt False "head"         extHead
-  , mkExt False "mkguess"      extMkGuess
-  , mkExt False "fromguess"    extFromGuess
-  , mkExt True  "isguess"      extIsGuess
-  , mkExt True  "equalguess"   extEqualGuess
-  , mkExt False "ident"        extIdent
--}
---  , mkExt True  "parseExpFile" extParseExpFile
+
+  -- environment operations
+  , mkExt True  "lookup"       extEnvLookup
+  , mkExt False "extend"       extEnvExtend
+  , mkExt False "emptyenv"     extEnvEmpty
+
+  , mkExt True  "parseExpFile" extParseExpFile
   ] ++ dataExternals )
 
 execExternal :: Ident -> Params -> I ()
@@ -432,7 +505,7 @@ externalToStmts nm (External f isVisible)
             ++ map (\n -> Stmt_Equiv extPos (Expr_Field nmCall n) (Expr_Var Mode_Ref n)) inputs
             ++ [ Stmt_Establish extPos nmCall Nothing ]
     expr = if null outputs
-           then Expr_Var Mode_Ref (ident "empty")
+           then Expr_Var Mode_Ref (ident "void")
            else if length outputs == 1
                 then Expr_Field nmCall (head outputs)
                 else foldl sem_Lambda_App (Expr_Var Mode_Ref $ chooseTup (length outputs))

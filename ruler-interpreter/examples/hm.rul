@@ -14,8 +14,8 @@ equal fresh;
 !equal == \a b -> abstract equal inputs a, b
                     ( inst (derivation outputs res
                              { branch equal:   a == b;
-                                               this.res == true;
-                               branch unequal: this.res == false;
+                                               this.res == bTrue;
+                               branch unequal: this.res == bFalse;
                              }) as test;
                       establish test;
                       test.res
@@ -50,9 +50,9 @@ foldr fresh;
 
 elem fresh;
 !elem == \x ys -> foldr (\y r -> if equal x y
-                                 then true
+                                 then bTrue
                                  else r
-                        ) false ys;
+                        ) bFalse ys;
 
 difference fresh;
 !difference == \xs ys -> foldr (\x r -> if elem x ys
@@ -64,7 +64,7 @@ subst fresh;
 !subst == \g x t -> case t of
                     { tyArrow a r  -> tyArrow (subst g x a) (subst g x r);
                       tyForall n b -> tyForall n (subst g x b);
-                      _            -> if equal (fromguess t) g
+                      _            -> if equal (getguess t) g
                                       then x
                                       else t;
                     };
@@ -80,16 +80,16 @@ generalize fresh;
 inferBase fresh;
 !inferBase == \rec -> derivation inputs e
 { branch var exposes nm:
-    var !nm == this.e;
+    expVar !nm == this.e;
 
   branch con exposes nm:
-    var !nm == this.e;
+    expCon !nm == this.e;
 
   branch const exposes val:
-    const !val == this.e;
+    expConst !val == this.e;
 
   branch app exposes fderiv, aderiv:
-    app !f !a == this.e;
+    expApp !f !a == this.e;
 
     inst rec as fderiv;
     fderiv.e == f;
@@ -100,21 +100,21 @@ inferBase fresh;
     establish aderiv;
 
   branch lam exposes x, bderiv:
-    lam !x !b == this.e;
+    expLam !x !b == this.e;
 
     inst rec as bderiv;
     bderiv.e == b;
     establish bderiv;
 
   branch sigLam exposes x, t, bderiv:
-    sigLam !x !t !b == this.e;
+    expTLam !x !t !b == this.e;
 
     inst rec as bderiv;
     bderiv.e == b;
     establish bderiv;
 
   branch bind exposes x, xderiv, bderiv:
-    bind !x !ex !b == this.e;
+    expLet !x !ex !b == this.e;
 
     inst rec as xderiv;
     xderiv.e == ex;
@@ -125,7 +125,7 @@ inferBase fresh;
     establish bderiv;
 
   branch fix exposes fderiv:
-    fix !f == this.e;
+    expFix !f == this.e;
 
     inst rec as fderiv;
     fderiv.e == f;

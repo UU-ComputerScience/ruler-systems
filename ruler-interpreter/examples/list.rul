@@ -1,9 +1,8 @@
 -- example involving lists
 
-derivation inputs args
+derivation inputs args outputs res
 { branch main:
-    eval message "hoi";
     x fresh;
     (cons empty nil) == x;
-    x == nil;
+    this.res == x;
 }

@@ -1,4 +1,4 @@
-{-# OPTIONS_GHC -fglasgow-exts -XScopedTypeVariables #-}
+{-# OPTIONS_GHC -fglasgow-exts -XScopedTypeVariables -XOverlappingInstances -XFlexibleContexts -XIncoherentInstances -XUndecidableInstances #-}
 module Util where
 
 import RulerExpr
@@ -174,15 +174,55 @@ attrsExpand
 -- Externals
 --
 
+newtype SingleRes a = SingleRes a
+newtype DoubleRes a b = DoubleRes (a,b)
+newtype InOnly a = InOnly a             -- a value that is only going in the function
+newtype Fixed a = Fixed a               -- a non-guess value that is going in the function
+newtype FixedInOnly a = FixedInOnly a   -- a non-guess value that is only going in the function
+
+class RulerValueOrPoly a where
+  mkWrapper :: a -> I Value
+  rmWrapper :: Value -> I a
+
+instance RulerValueOrPoly Poly where
+  mkWrapper = createPolyWrapper
+  rmWrapper = removeWrapperPoly
+
+instance RulerValueOrPoly (PolyArg a) where
+  mkWrapper (PolyArg p) = createPolyWrapper p
+  rmWrapper v = removeWrapperPoly v >>= return . PolyArg
+
+instance RulerValue a => RulerValueOrPoly a where
+  mkWrapper = createWrapper
+  rmWrapper = removeWrapper
+
+
 data TupExtract = forall r . IsTuple r => Head (I Value) r | TupEnd
 
 class IsTuple t where
   extractOne :: t -> TupExtract
   components :: t -> Int
 
-instance (RulerValue a, IsTuple r) => IsTuple (a, r) where
-  extractOne (a,r) = Head (createWrapper a) r
+instance IsTuple TupExtract where
+  extractOne = id
+  components (Head _ r) = 1 + components r
+  components TupEnd     = 0
+
+instance (RulerValueOrPoly a, IsTuple r) => IsTuple (a, r) where
+  extractOne (a,r) = Head (mkWrapper a) r
   components ~(_,r) = 1 + components r
+
+instance RulerValueOrPoly a => IsTuple (SingleRes a) where
+  extractOne (SingleRes a) = Head (mkWrapper a) TupEnd
+  components _ = 1
+
+instance (RulerValueOrPoly a, RulerValueOrPoly b) => IsTuple (DoubleRes a b) where
+  extractOne (DoubleRes (a,b)) = Head (mkWrapper a) $ Head (mkWrapper b) TupEnd
+  components _ = 2
+
+instance (RulerValueOrPoly a, RulerValueOrPoly b, RulerValueOrPoly c) => IsTuple (a, b, c) where
+  extractOne (a, b, c) = Head (mkWrapper a) $ Head (mkWrapper b) $ Head (mkWrapper c) TupEnd
+  components _ = 3
 
 instance IsTuple () where
   extractOne _ = TupEnd
@@ -203,8 +243,29 @@ class IsExternal f where
   arguments   :: f -> Int
   results     :: f -> Int
 
-instance (RulerValue a, IsExternal r) => IsExternal (a -> r) where
-  appOneArg f v = TookOneArg $ do a <- removeWrapper v
+instance (RulerValueOrPoly a, IsExternal r) => IsExternal (a -> r) where
+  appOneArg f v = TookOneArg $ do a <- rmWrapper v
+                                  return (f a)
+  appFinished _ = error "appFinished: function takes still some arguments."
+  arguments f   = 1 + arguments (f (error "arguments: too much evaluation"))
+  results   f   = results (f (error "results: too much evaluation"))
+
+instance (RulerValue a, IsExternal r) => IsExternal (InOnly a -> r) where
+  appOneArg f v = TookOneArg $ do a <- removeWrapperInOnly v
+                                  return (f a)
+  appFinished _ = error "appFinished: function takes still some arguments."
+  arguments f   = 1 + arguments (f (error "arguments: too much evaluation"))
+  results   f   = results (f (error "results: too much evaluation"))
+
+instance (RulerValue a, IsExternal r) => IsExternal (Fixed a -> r) where
+  appOneArg f v = TookOneArg $ do a <- removeWrapperFixed v
+                                  return (f a)
+  appFinished _ = error "appFinished: function takes still some arguments."
+  arguments f   = 1 + arguments (f (error "arguments: too much evaluation"))
+  results   f   = results (f (error "results: too much evaluation"))
+
+instance (RulerValue a, IsExternal r) => IsExternal (FixedInOnly a -> r) where
+  appOneArg f v = TookOneArg $ do a <- removeWrapperFixedInOnly v
                                   return (f a)
   appFinished _ = error "appFinished: function takes still some arguments."
   arguments f   = 1 + arguments (f (error "arguments: too much evaluation"))
@@ -227,11 +288,46 @@ removeWrapper (ValueOpaque _ a _)
 removeWrapper (ValueGuess g) = toIndirection (IndInfo g) Nothing
 removeWrapper v              = abort ("not an opaque value nor a guess: " ++ show v)
 
+removeWrapperInOnly :: RulerValue a => Value -> I (InOnly a)
+removeWrapperInOnly v
+  = do a <- removeWrapper v
+       a1 <- extExpand a
+       case fromIndirection a1 of
+         (_, Just a2) -> return (InOnly a2)
+         _            -> return (InOnly a1)
+
+removeWrapperFixed :: RulerValue a => Value -> I (Fixed a)
+removeWrapperFixed v
+  = do a <- removeWrapper v
+       a1 <- extExpand a
+       case fromIndirection a1 of
+         (_, Nothing) -> abort ("expecting a concrete value, instead of guess " ++ show v)
+         _            -> return (Fixed a1)
+
+removeWrapperFixedInOnly :: RulerValue a => Value -> I (FixedInOnly a)
+removeWrapperFixedInOnly v
+  = do a <- removeWrapper v
+       a1 <- extExpand a
+       case fromIndirection a1 of
+         (_, Nothing) -> abort ("expecting a concrete value, instead of guess " ++ show v)
+         (_, Just a2) -> return (FixedInOnly a2)
+
+removeWrapperPoly :: Value -> I Poly
+removeWrapperPoly v
+  = do v' <- expand v
+       case v' of
+         ValueOpaque g a _ -> do a' <- toIndirection (IndInfo g) (Just a)
+                                 return (Poly a)
+         _                 -> return (Poly v')  -- polymorphism trick
+
 createWrapper :: RulerValue a => a -> I Value
 createWrapper a
   = case fromIndirection a of
-      Just (IndInfo g) -> return $ ValueGuess g
-      Nothing          -> mkOpaque a
+      (Just (IndInfo g), _) -> return $ ValueGuess g
+      (Nothing, _)          -> mkOpaque a
+
+createPolyWrapper :: Poly -> I Value
+createPolyWrapper (Poly a) = createWrapper a
 
 appExternal :: IsExternal f => f -> [Value] -> I [Value]
 appExternal f = run . foldl next init
@@ -260,6 +356,61 @@ mkResult1 x
 
 mk1ResultTup :: RulerValue a => a -> I (a, ())
 mk1ResultTup x = return (x, ())
+
+extVoidResult :: I ()
+extVoidResult = return ()
+
+extSingleResult :: RulerValueOrPoly a => a -> I (SingleRes a)
+extSingleResult x = return (SingleRes x)
+
+extDoubleResult :: (RulerValue a, RulerValue b) => a -> b -> I (DoubleRes a b)
+extDoubleResult x y = return (DoubleRes (x, y))
+
+extTrippleResult :: (RulerValue a, RulerValue b, RulerValue c) => a -> b -> c -> I (a, b, c)
+extTrippleResult x y z = return (x, y, z)
+
+
+{-
+data AppStep' = forall r a . IsExternal' r a => TookOneArg' (I r)
+
+class IsExternal f => IsExternal' f a | f -> a where
+  appOneArg'   :: f -> a -> AppStep'
+  appFinished' :: f -> I a
+
+instance (RulerValueOrPoly a, RulerValueOrPoly b, IsExternal' r b) => IsExternal' (a -> r) a where
+  appOneArg' f a = TookOneArg' $ do v <- mkWrapper a
+                                    b <- rmWrapper v
+                                    return (f b)
+  appFinished' _ = error "external function still accepts some more arguments"
+
+instance (IsExternal t, IsTuple' t a) => IsExternal' t a where
+  appOneArg' _ _ = error "external function does not accept more arguments"
+  appFinished' m = do t <- m
+                      tupToList' t
+
+data TupExtract' a = forall r b . IsTuple' r b => Head' (I a) r | TupEnd'
+
+class IsTuple t => IsTuple' t a | t -> a where
+  extractOne' :: t -> TupExtract' a
+
+instance RulerValueOrPoly a => IsTuple' (TupExtract' a) a where
+  extractOne' = id
+
+instance RulerValueOrPoly a => IsTuple (TupExtract' a) where
+  extractOne (Head' m r) = Head (m >>= mkWrapper) r
+  extractOne TupEnd'     = TupEnd
+  components (Head' _ r) = 1 + components r
+  components TupEnd'     = 0
+
+instance (RulerValueOrPoly a, RulerValueOrPoly b, IsTuple' r b) => IsTuple' (a, r) a where
+  extractOne' (a,r) = Head' (mkWrapper a >>= rmWrapper) r
+
+instance RulerValueOrPoly a => IsTuple' (SingleRes a) a where
+  extractOne' (SingleRes a) = Head' (mkWrapper a >>= rmWrapper) (TupEnd' :: TupExtract' ())
+
+instance IsTuple' () a where
+  extractOne' _ = TupEnd'
+-}
 
 
 --

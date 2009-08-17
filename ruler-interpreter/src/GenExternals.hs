@@ -151,9 +151,11 @@ genFromIndClauses :: Name -> Q [Clause]
 genFromIndClauses nm
   = do info <- reify nm
        case info of
-         DataConI _ _ _ _ -> do x <- newName "x"
-                                return [ Clause [ ConP nm [ VarP x, WildP ] ] ( NormalB $ AppE (ConE 'Just) (VarE x) ) []
-                                       , Clause [ WildP ] ( NormalB $ ConE 'Nothing ) []
+         DataConI _ _ _ _ -> do ind <- newName "ind"
+                                mb  <- newName "mb"
+                                x   <- newName "x"
+                                return [ Clause [ ConP nm [ VarP ind, VarP mb] ] ( NormalB $ TupE [AppE (ConE 'Just) (VarE ind), VarE mb] ) []
+                                       , Clause [ VarP x ] ( NormalB $ TupE [ ConE 'Nothing, AppE (ConE 'Just) (VarE x) ] ) []
                                        ]
          _                -> return [ Clause [] ( NormalB $ VarE nm ) [] ]
 
@@ -288,23 +290,36 @@ mkTablify cons
   = do clauses <- mapM mkClause cons
        return $ FunD 'tablify clauses
   where
-    mkClause (NormalC nmC tps)
-      = do xs         <- mapM (const (newName "x")) tps
-           prioNm     <- newName "prio"
-           maxSizeNm  <- newName "maxSize"
-           initSizeNm <- newName "initSize"
-           tblNms     <- mapM (const (newName "t")) tps
-           accumNms   <- mapM (const (newName "a")) tps
-           recSizeNms <- mapM (const (newName "s")) tps
-           let sizeNms = initSizeNm : recSizeNms
-               recStmtss = map mkRecStmts (zip (zip xs tblNms) (zip3 accumNms sizeNms (tail sizeNms)))
-           return $ Clause [ VarP prioNm, VarP maxSizeNm, ConP nmC (map VarP xs) ]
-             (NormalB $ DoE (concat recStmtss ++ [mkRes nmC tblNms accumNms prioNm]))
-             [ ValD (VarP initSizeNm) (NormalB $
-                   sub (sub (VarE maxSizeNm) (int $ length $ nameBase $ nmC))
-                       (mul (int $ (length tps - 1)) (VarE 'tabDefaultMinSize))
-                 ) []
-             ]
+    mkClause con@(NormalC nmC tps)
+      | isIndNode
+              = do indNm      <- newName "ind"
+                   contNm     <- newName "cont"
+                   prioNm     <- newName "prio"
+                   maxSizeNm  <- newName "maxSize"
+                   return $ Clause [ VarP prioNm, VarP maxSizeNm, ConP nmC [VarP indNm, VarP contNm] ]
+                      ( NormalB $ foldl AppE (VarE 'tablifyInd) [VarE prioNm, VarE maxSizeNm, VarE indNm, VarE contNm]
+                      ) []
+      | otherwise
+              = do xs         <- mapM (const (newName "x")) tps
+                   prioNm     <- newName "prio"
+                   maxSizeNm  <- newName "maxSize"
+                   initSizeNm <- newName "initSize"
+                   tblNms     <- mapM (const (newName "t")) tps
+                   accumNms   <- mapM (const (newName "a")) tps
+                   recSizeNms <- mapM (const (newName "s")) tps
+                   let sizeNms = initSizeNm : recSizeNms
+                       recStmtss = map mkRecStmts (zip (zip xs tblNms) (zip3 accumNms sizeNms (tail sizeNms)))
+                   return $ Clause [ VarP prioNm, VarP maxSizeNm, ConP nmC (map VarP xs) ]
+                     (NormalB $ DoE (concat recStmtss ++ [mkRes nmC tblNms accumNms prioNm]))
+                     [ ValD (VarP initSizeNm) (NormalB $
+                           sub (sub (VarE maxSizeNm) (int $ length $ nameBase $ nmC))
+                               (mul (int $ (length tps - 1)) (VarE 'tabDefaultMinSize))
+                         ) []
+                     ]
+      where
+        (conNm, flds, gFields) = conInfo con
+        n = length flds
+        isIndNode = or gFields
     mkRecStmts ((xNm, tNm), (accNm, prevSNm, curSNm))
       = [ BindS (TupP [VarP tNm, VarP accNm]) (foldl AppE (VarE 'conRecTablify) [ VarE prevSNm, VarE xNm ])
         , LetS [ ValD (VarP curSNm) (NormalB (sub (VarE prevSNm) (VarE accNm))) [] ]

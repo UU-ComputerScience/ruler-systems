@@ -308,7 +308,7 @@ explainBindings = show . Map.assocs
 {
 type Guess = Int
 newtype IndInfo = IndInfo Guess  -- hiding the guess details
-  deriving (Show, Typeable)
+  deriving (Show, Typeable, Eq)
 
 data PrimVal = forall v . RulerValue v => PrimVal v
 
@@ -325,7 +325,8 @@ class (Typeable a, Show a, Tabular a) => RulerValue a where
   expAll          :: (Functor m, Monad m) => (Int -> m (Maybe Value)) -> a -> m a
   expAllS         :: (Functor m, Monad m) => (Int -> m (Maybe Value)) -> a -> m a
   toIndirection   :: IndInfo -> Maybe a -> I a
-  fromIndirection :: a -> Maybe IndInfo
+  fromIndirection :: a -> (Maybe IndInfo, Maybe a)
+  rvCast          :: RulerValue b => b -> Maybe a  -- order is important!
   
   -- define unifyS and let unify handle the "var" cases.
   -- unless your data type does not have var cases. In
@@ -339,8 +340,8 @@ class (Typeable a, Show a, Tabular a) => RulerValue a where
     | b2        = assign (ValueGuess g2) a1
     | otherwise = unifyS a1 a2
     where
-      mb1 = fromIndirection a1
-      mb2 = fromIndirection a2
+      (mb1,_) = fromIndirection a1
+      (mb2,_) = fromIndirection a2
       (IndInfo g1) = fromJust mb1
       (IndInfo g2) = fromJust mb2
       b1 = isJust mb1
@@ -351,7 +352,7 @@ class (Typeable a, Show a, Tabular a) => RulerValue a where
     | isJust mb = fgv acc (ValueGuess g)
     | otherwise = fgvS acc a
     where
-      mb = fromIndirection a
+      (mb,_) = fromIndirection a
       (IndInfo g) = fromJust mb
 
   -- similar as above: define dgvS
@@ -359,11 +360,13 @@ class (Typeable a, Show a, Tabular a) => RulerValue a where
     | isJust mb = dgv (ValueGuess g)
     | otherwise = dgvS a
     where
-      mb = fromIndirection a
+      (mb,_) = fromIndirection a
       (IndInfo g) = fromJust mb
 
   -- similar to the above: define expAllS
   expAll = expAllRV
+
+  rvCast = cast
 
 expAllRV :: forall a m . (Functor m, Monad m, RulerValue a) => (Int -> m (Maybe Value)) -> a -> m a
 expAllRV lk a
@@ -376,7 +379,7 @@ expAllRV lk a
                        _                  -> fail "expAll on a data type encountered neither a variable nor an opaque value"
     | otherwise = expAllS lk a
     where
-      mb = fromIndirection a
+      (mb,_) = fromIndirection a
       (IndInfo g) = fromJust mb
 
 instance RulerValue Int where
@@ -390,7 +393,7 @@ instance RulerValue Int where
   expAll _                = return
   expAllS _ _             = fail "do not call expAllS on Int"
   toIndirection _ _       = abort "cannot represent a guess as an Int"
-  fromIndirection _       = Nothing
+  fromIndirection a       = (Nothing, Just a)
 
 instance RulerValue Bool where
   unify b1 b2 | b1 == b2  = return ()
@@ -403,7 +406,7 @@ instance RulerValue Bool where
   expAll _                = return
   expAllS _ _             = fail "do not call expAllS on Bool"
   toIndirection _ _       = abort "cannot represent a guess as a Bool"
-  fromIndirection _       = Nothing
+  fromIndirection a       = (Nothing, Just a)
 
 instance RulerValue Char where
   unify c1 c2 | c1 /= c2  = return ()
@@ -416,7 +419,7 @@ instance RulerValue Char where
   expAll _                = return
   expAllS _ _             = fail "do not call expAllS on Char"
   toIndirection _ _       = abort "cannot represent a guess as a Char"
-  fromIndirection _       = Nothing
+  fromIndirection a       = (Nothing, Just a)
 
 instance (RulerValue a, RulerValue b) => RulerValue (a,b) where
   unify (a,b) (c,d) = unify a c >> unify b d
@@ -433,7 +436,7 @@ instance (RulerValue a, RulerValue b) => RulerValue (a,b) where
                          return (a',b')
   expAllS _ _       = fail "do not call expAllS on tuples"
   toIndirection _ _ = abort "cannot represent a guess as a conventional tuple"
-  fromIndirection _ = Nothing
+  fromIndirection a = (Nothing, Just a)
 
 instance RulerValue a => RulerValue [a] where
   unify l r | length l == length r = sequence_ (zipWith unify l r)
@@ -448,7 +451,7 @@ instance RulerValue a => RulerValue [a] where
   expAll lk ls                     = mapM (expAll lk) ls
   expAllS _ _                      = fail "do not call expAllS on Map"
   toIndirection _ _                = abort "cannot make an indirection of a conventional list"
-  fromIndirection _                = Nothing
+  fromIndirection a                = (Nothing, Just a)
 
 instance RulerValue Ident where
   unify a b | a == b    = return ()
@@ -461,7 +464,7 @@ instance RulerValue Ident where
   expAll _              = return
   expAllS _ _           = fail "do not call expAllS on Ident"
   toIndirection _ _     = abort "cannot represent a guess as an Ident"
-  fromIndirection _     = Nothing
+  fromIndirection a     = (Nothing, Just a)
 
 instance RulerValue () where
   unify _ _         = return ()
@@ -473,7 +476,7 @@ instance RulerValue () where
   expAll _          = return
   expAllS _ _       = fail "do not call expAllS on ()"
   toIndirection _ _ = abort "cannot represent a guess as a ()"
-  fromIndirection _ = Nothing
+  fromIndirection a = (Nothing, Just a)
 
 instance RulerValue Visit where
   unify _ _  = return ()
@@ -489,7 +492,7 @@ instance RulerValue Visit where
   expAll _  = return
   expAllS _ _       = fail "do not call expAllS on Visit"
   toIndirection _ _ = abort "cannot represent a guess as a Visit"
-  fromIndirection _ = Nothing
+  fromIndirection a = (Nothing, Just a)
 
 instance RulerValue ThunkStmt where
   unify _ _                = return ()
@@ -501,7 +504,7 @@ instance RulerValue ThunkStmt where
   expAll _                 = return
   expAllS _ _              = fail "do not call expAllS on ThunkStmt"
   toIndirection _ _        = abort "cannot represent a guess as a ThunkStmt"
-  fromIndirection _        = Nothing
+  fromIndirection a        = (Nothing, Just a)
 
 instance RulerValue a => RulerValue (Map Ident a) where
   unify m1 m2 | not $ Map.null $ Map.difference m1 m2 = failure ("difference between maps not empty")
@@ -516,7 +519,7 @@ instance RulerValue a => RulerValue (Map Ident a) where
   expAll lk m = fmap Map.fromList $ mapM (\(k,v) -> expAll lk v >>= \v' -> return (k,v')) (Map.assocs m)
   expAllS _ _       = fail "do not call expAllS on Map"
   toIndirection _ _ = error "Cannot make an indirection from a Map Ident Value"
-  fromIndirection _ = Nothing
+  fromIndirection a = (Nothing, Just a)
 
 instance RulerValue Value where
   unify v1 v2 = unifValue v1 v2 `catchError` ( let msg v = expAll guessLookup v >>= \v' -> return (if v `eq` v' then show v else show v' ++ " [" ++ show v ++ "]")
@@ -565,9 +568,9 @@ instance RulerValue Value where
   toIndirection (IndInfo g) Nothing = return $ ValueGuess g
   toIndirection _ _ = abort "Not allowed to make an indirection out of a Value. A Value should not be exposed to external functions."
 
-  fromIndirection (ValueOpaque g _ _) = Just (IndInfo g)
-  fromIndirection (ValueGuess g)      = Just (IndInfo g)
-  fromIndirection _                   = Nothing
+  fromIndirection v@(ValueOpaque g a _) = (Just (IndInfo g), Just v)
+  fromIndirection (ValueGuess g)        = (Just (IndInfo g), Nothing)
+  fromIndirection v                     = (Nothing, Just v)
 
 fgvs :: IntSet -> IntSet -> I IntSet
 fgvs acc gs
@@ -652,7 +655,7 @@ bindVar1 g (ValueGuess g') | g == g' = return ()  -- after expansion we ended up
 bindVar1 g (ValueOpaque _ a _)
   | isJust mb = unifValue (ValueGuess g) (ValueGuess g')   -- follow the indirection (n.b. should not be cyclic!)
   where
-    mb = fromIndirection a
+    (mb,_) = fromIndirection a
     (IndInfo g') = fromJust mb
 bindVar1 g v = bindVar2 g v -- otherwise continue with binding
 
@@ -1462,6 +1465,12 @@ tabDefaultMinSize = 5
 tabConSize :: Int -> [Int] -> Int
 tabConSize n ns = n + 3 * length ns + sum ns
 
+tablifyInd :: (RulerValue a, Monad m) => ParensInfo -> Int -> IndInfo -> Maybe a -> TTM m (Table, Int)
+tablifyInd prio maxSize (IndInfo g) mbVal
+  = case mbVal of
+      Just v  -> tablify prio maxSize v
+      Nothing -> tablify prio maxSize (ValueGuess g)
+
 conRecTablify :: (Monad m, Tabular a) => Int -> a -> TTM m (Table, Int)
 conRecTablify = tablify (SamePrioYes 9)
 
@@ -1601,7 +1610,16 @@ instance Tabular Value where
 data PrimInt
   = PI !Int
   | IndPI !IndInfo !(Maybe PrimInt)
-  deriving (Show, Typeable)
+  deriving (Eq, Show, Typeable)
+
+instance Tabular PrimInt where
+  tablify _ maxSize (PI i)
+    = txtShowTablify i
+  tablify prio maxSize (IndPI (IndInfo g) mb)
+    = case mb of
+        Nothing -> tablifyGuess g
+        Just ps -> tablify prio maxSize ps
+  minTableLength _ = 0
 
 data PrimString
   = PS !String
@@ -1679,12 +1697,11 @@ substCollectGarbage force
 --
 
 {
-
 -- A PolyInd represents a polymorphic hole, of which the type is discovered
 -- later.
 data PolyInd a where
   PolyInd   :: IndInfo -> Maybe (PolyInd a) -> PolyInd a
-  PolyKnown :: RulerValue a => a -> PolyInd a
+  PolyKnown :: RulerValue b => b -> PolyInd a
 
 -- Trickery! We will only perform "type casts" on the "a" of a PlolyInd when
 -- we know exactly what its type is (i.e. take the dictionary from PolyKnown).
@@ -1705,9 +1722,18 @@ instance Show (PolyInd a) where
 
 instance RulerValue (PolyInd a) where
   unify (PolyKnown x) (PolyKnown y)
-    = unify x y
-  unify _ _ = abort "can only unify two PolyKnown values"
-  
+    = case cast x of
+        Nothing -> abort "Unifying two PolyInd values storing different types"
+        Just x' -> unify x' y
+  unify (PolyInd (IndInfo g1) _) (PolyInd (IndInfo g2) _)
+    = unify (ValueGuess g1) (ValueGuess g2)
+  unify (PolyInd (IndInfo g) _) (PolyKnown a)
+    = do v <- mkOpaque a
+         unify (ValueGuess g) v
+  unify (PolyKnown a) (PolyInd (IndInfo g) _)
+    = do v <- mkOpaque a
+         unify v (ValueGuess g)
+
   unifyS _ _ = abort "do not call unifyS on PolyInd"
 
   fgv acc (PolyInd (IndInfo g) mbInd)
@@ -1740,13 +1766,22 @@ instance RulerValue (PolyInd a) where
   toIndirection i mbInd
     = return (PolyInd i mbInd)
 
-  fromIndirection (PolyInd i _) = Just i
-  fromIndirection (PolyKnown a) = fromIndirection a
+  fromIndirection (PolyInd i mb) = (Just i, mb)
+  fromIndirection (PolyKnown a)  = let (ind,mb) = fromIndirection a
+                                   in (ind, maybe Nothing (Just . PolyKnown) mb)
+
+  -- assume v in expanded form
+  rvCast v
+    | isJust mbVal = Just $ PolyKnown (fromJust mbVal)
+    | isJust mbInd = Just $ PolyInd (fromJust mbInd) Nothing
+    | otherwise    = cast v
+    where
+      (mbInd, mbVal) = fromIndirection v
 
 instance Tabular (PolyInd a) where
   tablify prio maxSize (PolyInd (IndInfo g) mbInd)
     = case mbInd of
-        Nothing -> tablifyGuess g
+        Nothing -> tablifyGuess g -- tablify prio maxSize (ValueGuess g)
         Just a  -> tablify prio maxSize a
   tablify prio maxSize (PolyKnown a)
     = tablify prio maxSize a
@@ -1755,6 +1790,29 @@ instance Tabular (PolyInd a) where
   minTableLength (PolyInd _ (Just a)) = minTableLength a
   minTableLength (PolyKnown a)        = minTableLength a
 
+mapInd :: RulerValue a => (a -> I a) -> PolyInd a -> I (PolyInd a)
+mapInd f (PolyInd i (Just p))
+  = do p' <- mapInd f p
+       return p'
+mapInd f (PolyKnown b)
+  = case cast b of
+      Just a -> f a >>= return . PolyKnown
+      Nothing -> abort "mapInd: inconsistent types"
+mapInd _ p
+  = abort "cannot map a function onto a guess"
+
+data Poly = forall a . RulerValue a => Poly a   -- a polymorphic value
+newtype PolyArg a = PolyArg Poly
+
+indToPoly :: PolyInd (PolyArg a) -> PolyArg a
+indToPoly x@(PolyInd _ _) = PolyArg (Poly x)
+indToPoly (PolyKnown x)   = PolyArg (Poly x)
+
+polyToInd :: PolyArg a -> PolyInd a
+polyToInd (PolyArg (Poly v))
+  | isJust mbInd = PolyInd (fromJust mbInd) Nothing
+  | isJust mbVal = PolyKnown (fromJust mbVal)
+  where (mbInd,mbVal) = fromIndirection v
 
 -- creates an indirection to the value of a and returns it
 extIndirect :: RulerValue a => a -> I a
@@ -1772,8 +1830,8 @@ extFresh = do c <- nextUnique
 extExpand :: RulerValue a => a -> I a
 extExpand a
     = case fromIndirection a of
-        Just i  -> extResolve i
-        Nothing -> return a
+        (Just i,_)  -> extResolve i
+        (Nothing,_) -> return a
 
 -- resolves a guess to a concrete value (or an indirection in the right domain)
 extResolve :: forall a . RulerValue a => IndInfo -> I a
@@ -1782,7 +1840,7 @@ extResolve (IndInfo g)
     in do v' <- expand v
           case v' of
             ValueGuess g'      -> toIndirection (IndInfo g') Nothing
-            ValueOpaque g' r _ -> case cast r of
+            ValueOpaque g' r _ -> case rvCast r of
                                     Nothing -> abort ("value " ++ show v' ++ " has incompatible type. Found: " ++ show (typeOf r) ++ ", expecting: " ++ show (typeOf (undefined :: a)))
                                     Just a  -> toIndirection (IndInfo g') $ Just a
             _                  -> abort ("Not an opaque value nor a guess: " ++ show v')
