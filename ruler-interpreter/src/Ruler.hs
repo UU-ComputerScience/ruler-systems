@@ -55,7 +55,8 @@ evalStmt' _ (Stmt_Inst pos expr ident)
        let (ValueGuess uid) = vInst
        v1 <- evalExpr expr
        v1' <- expand v1
-       case v1' of
+       let closure = unwrapThunk v1'
+       case closure of
          ValueClosure lvl lbls alts relOrders ->
            do gBranch <- fresh
               gOutcome <- fresh
@@ -73,7 +74,7 @@ evalStmt' _ (Stmt_Inst pos expr ident)
                                 in Map.foldWithKey createLocals (return Map.empty) (localsmap alts)  -- creates fresh bindings for each alternative (indexed by alt nm)
               alts1 <- mapM (mkThunkAlts vInst localsBindings) alts
               let alts2 =  Map.unionsWith (++) alts1
-                  val = ValueThunk uid lvl lbls order parms thunkBindings alts2 gBranch gOutcome
+                  val = ValueThunk uid closure lvl lbls order parms thunkBindings alts2 gBranch gOutcome
               unify val vInst
          ValueExternClosure lvl nm params ->
            do outerEnv <- freshBindings (identsParam params)
@@ -84,12 +85,17 @@ evalStmt' _ (Stmt_Inst pos expr ident)
               unify val vInst
          _ -> abort ("not a closure: " ++ show v1' ++ " while instantiating as: " ++ show ident ++ "(" ++ show (identPos ident) ++ ")")
        return False
+  where
+    -- if the "expr" is a thunk, take its closure as the type to instantiate. Since there is always the "this"
+    -- variable pointing to the currently executing thunk, it is easy to refer to recursive calls this way.
+    unwrapThunk (ValueThunk _ closure _ _ _ _ _ _ _ _) = closure
+    unwrapThunk v = v
 evalStmt' ctx (Stmt_Establish _ nm mbLvl)
   = do fixateBranch ctx
        v <- lookupIdent nm
        v' <- expand v
        case v' of
-         ValueThunk uid lvl lbls order params bindings alts gBranch gOutcome ->
+         ValueThunk uid _ lvl lbls order params bindings alts gBranch gOutcome ->
            do -- find out what visit we are to establish
               (visitNm, mbStmts, mbNextNm) <- nextVisit Nothing gOutcome order
               let isLast = isNothing mbNextNm
@@ -323,10 +329,10 @@ instance IsReady Stmt where
     | otherwise = do v <- lookupIdent nm
                      v' <- expand v
                      case v' of
-                       ValueThunk _ _ _ order params bindings _ _ gVisits -> do (visitNm, _, _) <- nextVisit Nothing gVisits order
-                                                                                checkDefined bindings (visitInputs params visitNm)
-                       ValueExternThunk _ _ _ params bindings _ _        -> checkDefined bindings (inputs params)
-                       _                                                 -> return [ FieldNotReady nm ignore ]
+                       ValueThunk _ _ _ _ order params bindings _ _ gVisits -> do (visitNm, _, _) <- nextVisit Nothing gVisits order
+                                                                                  checkDefined bindings (visitInputs params visitNm)
+                       ValueExternThunk _ _ _ params bindings _ _           -> checkDefined bindings (inputs params)
+                       _                                                    -> return [ FieldNotReady nm ignore ]
                 where
                   checkDefined bindings ids = do areDefined <- identsDefined bindings ids
                                                  if areDefined
@@ -476,7 +482,7 @@ toDerivation root
     to g val = do v <- expand val
                   to1 g v `catchError` (extendError False ("in toDerivation on " ++ show v))
 
-    to1 g (ValueThunk _ lvl lbls _ params bindings _ branch outcome)
+    to1 g (ValueThunk _ _ lvl lbls _ params bindings _ branch outcome)
       = do (visits,status) <- getOutcome outcome
            nmBranch  <- tryResolve branch (ident "_undetermined_")
            let inps = inputs params

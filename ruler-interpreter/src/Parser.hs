@@ -170,16 +170,16 @@ parse s tks = parseTokens (sel s)
           pExpr <**> (   mkEquiv <$> pKeyEquiv <*> pExpr <* pSemi
                      <|> mkBind <$> pKeyBind <*> pExpr <* pSemi )
       <|> -- cases that start with an Establish
-          pKeyEstablish <**> (pIdent <**>
-            (   mkEstablish <$> pLevelOverride <* pSemi
-            <|> mkEqEstabl <$> pEqSyns <* pSemi ))
+          pKeyEstablish <**> (   pIdent <**> (   mkEstablish <$> pLevelOverride <* pSemi
+                                             <|> mkEqEstabl <$> pCurly pEqSyns <* pSemi )
+                             <|> mkEqEstabl' <$> pCurly pEqSyns <* pSemi )
       -- other cases
       <|> mkInst      <$> pKeyInst <*> pExpr <* pKeyAs <*> pIdent <* pSemi
       <|> mkFresh     <$> pList1Sep_ng pComma pIdent <* pKeyFresh <* pSemi      -- watch out for ambiguities with this one
       <|> mkEval      <$> pKeyEval <*> pExpr <* pSemi
       <|> mkNop       <$> (pSyntax <|> pKeywords) <* pSemi
-      <|> mkEqAugment <$> pKeyAugment <*> pIdent <*> pEqSyns <* pSemi
-      <|> mkEqConcl   <$> pKeyLine <*> pList1_ng (pKeyEstablish *> pEqSynsR) <* pSemi
+      <|> mkEqAugment <$> pKeyAugment <*> pIdent <*> pCurly pEqSyns <* pSemi
+      <|> mkEqConcl   <$> pKeyLine <*> pList1_ng (pKeyEstablish *> pCurly pEqSynsR) <* pSemi
       <|> mkLet       <$> pKeyLet <*> pPat <* pKeyEqual <*> pExpr <* pSemi
       where
         mkInst p e nm          = wrap (Stmt_Inst p e nm)
@@ -191,6 +191,7 @@ parse s tks = parseTokens (sel s)
         mkNop p                = []
         mkEqAugment p nm o     = sem_EqStmt_Augment p nm o
         mkEqEstabl o nm p      = sem_EqStmt_Establish p nm o
+        mkEqEstabl' o p        = sem_EqStmt_Establish p (Ident "this" p) o
         mkEqConcl p os         = sem_EqStmt_Conclusion p (foldr sem_Augmentss_Cons sem_Augmentss_Nil os)
         mkLet                  = mkStmtLet onDeriv
         wrap                   = return
