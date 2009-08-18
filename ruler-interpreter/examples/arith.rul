@@ -1,0 +1,64 @@
+syntax { g : e => !v };
+
+syntax arithAdd { 1 + 2 };
+syntax arithSub { 1 - 2 };
+syntax arithDiv { 1 / 2 };
+syntax arithMul { 1 * 2 };
+syntax arithLet { let 1 = 2 in 3 };
+
+parse fresh;
+!parse == \args -> case length args of
+  { 1 -> let { filename = head args; }
+         in abstract parse inputs filename
+              ( case parseArithFile filename of
+                  { parseSuccess expr -> expr;
+                    parseFail msg     -> abort msg;
+                  });
+    _ -> abort "usage: ./ruler arith.rul <file.arith>";
+  };
+
+let evaluate = derivation inputs g, e outputs v
+  { branch var:
+      --------
+      establish g : arithVar x => lookup x g;
+
+    branch const:
+      --------
+      establish g : arithConst i => i;
+
+    branch add:
+      establish evaluate  g : e1 => v1;
+      establish evaluate  g : e2 => v2;
+      --------
+      establish g : e1 + e2 => add v1 v2;
+
+    branch sub:
+      establish evaluate  g : e1 => v1;
+      establish evaluate  g : e2 => v2;
+      --------
+      establish g : e1 - e2 => sub e1 e2;
+
+    branch mul:
+      establish evaluate  g : e1 => v1;
+      establish evaluate  g : e2 => v2;
+      --------
+      establish g : e1 * e2 => mul v1 v2;
+
+    branch div:
+      establish evaluate  g : e1 => v1;
+      establish evaluate  g : e2 => v2;
+      --------
+      establish g : e1 * e2 => div v1 v2;
+
+    branch alet:
+      establish evaluate  g : e1 => v1;
+      establish evaluate  extend x v1 g : e2 => v2;
+      --------
+      establish g : let x = e1 in e2 => v2;
+  };
+
+derivation inputs args outputs res
+{ branch main:
+    let e = parse this.args;
+    establish evaluate emptyenv : e => this.res;
+}

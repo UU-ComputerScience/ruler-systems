@@ -134,15 +134,19 @@ parseTokens p tks
     msgs  = getMsgs steps
     (Pair v final) = evalSteps steps
 
-parseExpFile :: String -> ParseRes Exp
-parseExpFile path
+parseFile :: RulerValue a => ExtParser a -> IO [Token] -> ParseRes a
+parseFile p scan
   = unsafePerformIO
-    ( do tks <- scanFile ["let","in","fix","case","of","forall"] ["->","::"] "=.\\()" "->:" path
-         case parseTokens pExp tks of
+    ( do tks <- scan
+         case parseTokens p tks of
            Left strs -> return $ ParseFail $ PS $ unlines strs
            Right exp -> return $ ParseSuccess $ PolyKnown exp
     `catch` (return . ParseFail . PS . show)
     )
+
+parseExpFile :: String -> ParseRes Exp
+parseExpFile path
+  = parseFile pExp (scanFile ["let","in","fix","case","of","forall"] ["->","::"] "=.\\()" "->:" path)
 
 extParseExpFile :: FixedInOnly PrimString -> I (SingleRes (ParseRes Exp))
 extParseExpFile (FixedInOnly (PS path))
@@ -151,7 +155,7 @@ extParseExpFile (FixedInOnly (PS path))
                           ParseFail _ -> return outcome
                           ParseSuccess e -> do e' <- mapInd expInsertIndirections e
                                                return (ParseSuccess e')
-       extSingleResult outcome'
+       seq outcome' (extSingleResult outcome')
 
 -- insert indirections through variables. This in order to allow the pretty printer
 -- to print only the part up to a guess.
@@ -179,6 +183,49 @@ expInsertIndirections = ind
                e2 <- extFresh
                unify e1 e2
                return e2
+
+
+--
+-- Arithmetic expression
+--
+
+data Arith
+  = ArithVar !Name
+  | ArithConst !PrimInt
+  | ArithAdd !Arith !Arith
+  | ArithSub !Arith !Arith
+  | ArithMul !Arith !Arith
+  | ArithDiv !Arith !Arith
+  | ArithLet !Name !Arith !Arith
+  | ArithInd !IndInfo !(Maybe Arith)
+  deriving (Show, Typeable)
+
+parseArithFile :: String -> ParseRes Arith
+parseArithFile path
+  = parseFile pArith (scanFile ["let","in"] [] "=.+-/*()" "" path)
+
+extParseArithFile :: FixedInOnly PrimString -> I (SingleRes (ParseRes Arith))
+extParseArithFile (FixedInOnly (PS path))
+  = do let outcome = parseArithFile path
+       seq outcome (extSingleResult outcome)
+
+pArith :: ExtParser Arith
+pArith = pArithLet
+
+pArithLet =   ArithLet <$ pKeyPos "let" <*> pVarIdent <* pKeyPos "=" <*> pArith <* pKeyPos "in" <*> pArith
+          <|> pArithAdd
+
+pArithAdd :: ExtParser Arith
+pArithAdd = pChainl_ng ((ArithAdd <$ pKeyPos "+") <|> (ArithSub <$ pKeyPos "-")) pArithMul
+
+pArithMul :: ExtParser Arith
+pArithMul = pChainl_ng ((ArithMul <$ pKeyPos "*") <|> (ArithDiv <$ pKeyPos "/")) pArithBase
+
+pArithBase :: ExtParser Arith
+pArithBase
+  =   ArithVar <$> pVarIdent
+  <|> ArithConst <$> pPrimInt
+  <|> pParens pArith
 
 
 --
@@ -273,6 +320,7 @@ $(let genInfos :: [GenInfo]
           , GenInfo ''Exp 'ExpInd 'ExpInd True
           , GenInfo ''CaseAlt 'CaseInd 'CaseInd True
           , GenInfo ''ParseRes 'ParseInd 'ParseInd True
+          , GenInfo ''Arith 'ArithInd 'ArithInd True
           ]
   in genDataExternals "dataExternals" genInfos)
 
@@ -425,17 +473,17 @@ extEnvEmpty = extSingleResult (Env Map.empty)
 externals :: Map Ident External
 externals = Map.fromList ( 
   [ -- debugging and error reporting
-    mkExt True  "message"      extMessage
-  , mkExt True  "abort"        extAbort
+    mkExt True  "message"           extMessage
+  , mkExt True  "abort"             extAbort
 
   -- guess operations
-  , mkExt False "getguess"     extGetGuess
-  , mkExt True  "equalguess"   extEqualGuess
-  , mkExt True  "fgv"          extFgv
+  , mkExt False "getguess"          extGetGuess
+  , mkExt True  "equalguess"        extEqualGuess
+  , mkExt True  "fgv"               extFgv
 
   -- string operations
-  , mkExt False "show"         extShow
-  , mkExt False "strcat"       extStrcat
+  , mkExt False "show"              extShow
+  , mkExt False "strcat"            extStrcat
 
   -- integer operations
   , mkExt True "add"                extAdd
@@ -452,19 +500,20 @@ externals = Map.fromList (
   , mkExt True "intunequal"         extIntUnequal
 
   -- identifier operations
-  , mkExt False "ident"        extIdent
+  , mkExt False "ident"             extIdent
 
   -- list operations
-  , mkExt False "concat"       extConcat
-  , mkExt False "length"       extLength
-  , mkExt False "head"         extHead
+  , mkExt False "concat"            extConcat
+  , mkExt False "length"            extLength
+  , mkExt False "head"              extHead
 
   -- environment operations
-  , mkExt True  "lookup"       extEnvLookup
-  , mkExt False "extend"       extEnvExtend
-  , mkExt False "emptyenv"     extEnvEmpty
+  , mkExt True  "lookup"            extEnvLookup
+  , mkExt False "extend"            extEnvExtend
+  , mkExt False "emptyenv"          extEnvEmpty
 
-  , mkExt True  "parseExpFile" extParseExpFile
+  , mkExt True  "parseExpFile"      extParseExpFile
+  , mkExt True  "parseArithFile"    extParseArithFile
   ] ++ dataExternals )
 
 execExternal :: Ident -> Params -> I ()

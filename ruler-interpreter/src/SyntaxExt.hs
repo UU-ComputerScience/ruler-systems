@@ -54,9 +54,9 @@ extraSyntax :: [Token] -> [SynExt]
 extraSyntax (Reserved s pos : tks)
   | s == "syntax" = case tks of
                       ValToken TkVarid v pos' : tks' -> let (inside, rest) = brackets tks'
-                                                     in if null inside
-                                                        then extraSyntax rest
-                                                        else LamExt (Ident v pos') (toNumSymbols inside) : extraSyntax rest
+                                                        in if null inside
+                                                           then extraSyntax rest
+                                                            else LamExt (Ident v pos') (toNumSymbols inside) : extraSyntax rest
                       _                           -> let (inside, rest) = brackets tks
                                                      in if null inside
                                                         then extraSyntax rest

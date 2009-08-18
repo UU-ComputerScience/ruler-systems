@@ -61,12 +61,12 @@ evalStmt' _ (Stmt_Inst pos expr ident)
               gOutcome <- fresh
               let ids   = concatMap (\(ClosureAlt params _ _ _) -> identsParam params) alts  -- idents of derivation
                   parms = concatMap (\(ClosureAlt params _ _ _) -> params) alts              -- parameters of derivation
-                  inps  = inputs parms
                   relOrders' = [visitIdentMain] : map (visitIdentMain :) relOrders
                   order = totalOrder relOrders'
+                  inps  = visitInputs parms (head order)
               withDebugLevel 3 $ message ("determined order " ++ show order ++ " from relative orders " ++ show relOrders')
               thunkBindings  <- freshBindings (nub ids)  -- fresh bindings of the (entire) derivation
-              markBindingsInitialized inps thunkBindings  -- map the thunkBindings in "ids" to ready placeholders
+              markBindingsInitialized inps thunkBindings  -- mark the inputs for the first visit as initialized
               localsBindings <- let createLocals alt ids rec = do mp <- rec
                                                                   bndgs <- freshBindings ids
                                                                   return $ Map.insert alt bndgs mp
@@ -91,7 +91,8 @@ evalStmt' ctx (Stmt_Establish _ nm mbLvl)
        case v' of
          ValueThunk uid lvl lbls order params bindings alts gBranch gOutcome ->
            do -- find out what visit we are to establish
-              (visitNm, mbStmts, isLast) <- nextVisit Nothing gOutcome order
+              (visitNm, mbStmts, mbNextNm) <- nextVisit Nothing gOutcome order
+              let isLast = isNothing mbNextNm
               identsDefined bindings (visitInputs params visitNm) 
               withDebugLevel 3 $ message ("establishing visit: " ++ show visitNm ++ " for " ++ show nm ++ " in order " ++ show order)
               
@@ -138,9 +139,11 @@ evalStmt' ctx (Stmt_Establish _ nm mbLvl)
 
               -- if finished or error, produce "finished" status record
               case eErrRes of
-                Left err            -> linkVisit nextVisit $ Finish $ Failure $ showErrShort err
-                Right _ | isLast    -> linkVisit nextVisit $ Finish $ Success
-                        | otherwise -> return ()  -- not finished yet
+                Left err              -> linkVisit nextVisit $ Finish $ Failure $ showErrShort err
+                Right _ | isLast      -> linkVisit nextVisit $ Finish $ Success
+                        | otherwise   -> do -- mark the next inputs as initialized
+                                            markBindingsInitialized (visitInputs params (fromJust mbNextNm)) bindings
+                                            return ()  -- not finished yet
 
               -- pop the "extra roots" scope
               case maybe lvl id mbLvl of

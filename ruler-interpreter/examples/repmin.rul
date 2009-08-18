@@ -1,8 +1,10 @@
 -- repmin example
 
 syntax { finMin |- t : !gathMin ~> !t' };
+syntax node { 1 :-: 2 };
+syntax leaf { <1> };
 
-let testtree = node (node (leaf 8) (leaf 5)) (node (leaf 3) (leaf 9));
+let testtree = ((<8>) :-: (<5>)) :-: ((<3>) :-: (<9>));
 
 let repmin = derivation inputs t
                         inputs finMin visit disperse
@@ -12,11 +14,11 @@ let repmin = derivation inputs t
       establish repmin m |- l : lm ~> l';
       establish repmin m |- r : rm ~> r';
       --------
-      establish m |- node l r : min lm rm ~> node l' r';
+      establish m |- l :-: r : min lm rm ~> l' :-: r';
 
     branch leaf:
       --------
-      establish min |- leaf i : i ~> leaf min;
+      establish min |- <i> : i ~> <min>;
   };
 
 

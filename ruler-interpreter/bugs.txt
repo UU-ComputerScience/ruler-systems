@@ -1,0 +1,3 @@
+* commandline option -Efull started working in some cases after the external-interface changes.
+* ambiguities in parser?
+  parse process extremely slow when input erroneous
