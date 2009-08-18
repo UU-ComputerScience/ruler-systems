@@ -78,7 +78,7 @@ generalize fresh;
 
 
 inferBase fresh;
-!inferBase == \rec -> derivation inputs e
+!inferBase == derivation inputs e
 { branch var exposes nm:
     expVar !nm == this.e;
 
@@ -91,43 +91,43 @@ inferBase fresh;
   branch app exposes fderiv, aderiv:
     expApp !f !a == this.e;
 
-    inst rec as fderiv;
+    inst this as fderiv;
     fderiv.e == f;
     establish fderiv;
 
-    inst rec as aderiv;
+    inst this as aderiv;
     aderiv.e == a;
     establish aderiv;
 
   branch lam exposes x, bderiv:
     expLam !x !b == this.e;
 
-    inst rec as bderiv;
+    inst this as bderiv;
     bderiv.e == b;
     establish bderiv;
 
   branch sigLam exposes x, t, bderiv:
     expTLam !x !t !b == this.e;
 
-    inst rec as bderiv;
+    inst this as bderiv;
     bderiv.e == b;
     establish bderiv;
 
   branch bind exposes x, xderiv, bderiv:
     expLet !x !ex !b == this.e;
 
-    inst rec as xderiv;
+    inst this as xderiv;
     xderiv.e == ex;
     establish xderiv;
 
-    inst rec as bderiv;
+    inst this as bderiv;
     bderiv.e == b;
     establish bderiv;
 
   branch fix exposes fderiv:
     expFix !f == this.e;
 
-    inst rec as fderiv;
+    inst this as fderiv;
     fderiv.e == f;
     establish fderiv;
 };
@@ -184,7 +184,7 @@ inferTy fresh;
 };
 
 infer fresh;
-!infer == merge { inferBase infer, inferEnv, inferTy };
+!infer == merge { inferBase, inferEnv, inferTy };
 
 
 derivation inputs args outputs ty

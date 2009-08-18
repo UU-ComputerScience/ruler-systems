@@ -165,6 +165,7 @@ data Value
                  , closureOrder    :: ![[Ident]]
                  }
   | ValueThunk { thunkId       :: !Guess
+               , thunkClosure  :: !Value
                , thunkLevelOpt :: !Level
                , thunkLabels   :: !(Set Pos)
                , thunkOrder    :: ![Ident]
@@ -216,15 +217,15 @@ instance Show ThunkStmt where
   show (ThunkStmt _ s) = show (stmtPos s)
 
 instance Show Value where
-  show (ValueOpaque _ v _)               = "(" ++ show v ++ ")"
-  show (ValueClosure _ lbls _ _)         = "<closure:" ++ show (Set.toList lbls) ++ ">"
-  show (ValueThunk g _ lbls _ _ _ _ _ _) = "<thunk:" ++ show g ++ "@" ++ show (Set.toList lbls) ++ ">"
-  show (ValueExternClosure _ nm _)       = "<ext-closure:" ++ show nm ++ ">"
-  show (ValueExternThunk g _ nm _ _ _ _) = "<ext-thunk:" ++ show g ++ "@" ++ show nm ++ ">"
-  show (ValueGuess g)                    = "#" ++ show g
-  show (ValuePlaceholder (Bottom _))     = "!bottom"
-  show (ValuePlaceholder Defined)        = "!defined"
-  show (ValuePlaceholder Initialized)    = "!init"
+  show (ValueOpaque _ v _)                 = "(" ++ show v ++ ")"
+  show (ValueClosure _ lbls _ _)           = "<closure:" ++ show (Set.toList lbls) ++ ">"
+  show (ValueThunk g _ _ lbls _ _ _ _ _ _) = "<thunk:" ++ show g ++ "@" ++ show (Set.toList lbls) ++ ">"
+  show (ValueExternClosure _ nm _)         = "<ext-closure:" ++ show nm ++ ">"
+  show (ValueExternThunk g _ nm _ _ _ _)   = "<ext-thunk:" ++ show g ++ "@" ++ show nm ++ ">"
+  show (ValueGuess g)                      = "#" ++ show g
+  show (ValuePlaceholder (Bottom _))       = "!bottom"
+  show (ValuePlaceholder Defined)          = "!defined"
+  show (ValuePlaceholder Initialized)      = "!init"
 
 instance Eq Pos where
   p1 == p2 = line p1 == line p2 && column p1 == column p2
@@ -540,21 +541,21 @@ instance RulerValue Value where
   fgv acc _ = return acc
   fgvS _ _  = abort "do not call fgvS on Value"
 
-  dgv (ValueOpaque g a _)                      = do a' <- dgv a
-                                                    return (IntSet.insert g a')
-  dgv (ValueGuess g)                           = return $ IntSet.singleton g
-  dgv (ValueThunk g1 _ _ _ _ bndgs alts br g2) = do b'  <- dgv bndgs
-                                                    a'  <- dgv (Map.elems alts)
-                                                    br' <- dgv br
-                                                    g2' <- dgv g2
-                                                    return $ IntSet.insert g1 $ IntSet.unions [b', a', br', g2']
-  dgv (ValueExternThunk g1 _ _ _ bndgs v1 v2)  = do b'  <- dgv bndgs
-                                                    v1' <- dgv v1
-                                                    v2' <- dgv v2
-                                                    return $ IntSet.insert g1 $ IntSet.unions [b', v1', v2']
-  dgv (ValueClosure _ _ alts _)                = dgv (map (\(ClosureAlt _ _ bndgs _) -> bndgs) alts)
-  dgv _                                        = return IntSet.empty
-  dgvS _                                       = abort "do not call dgvS on Value"
+  dgv (ValueOpaque g a _)                        = do a' <- dgv a
+                                                      return (IntSet.insert g a')
+  dgv (ValueGuess g)                             = return $ IntSet.singleton g
+  dgv (ValueThunk g1 _ _ _ _ _ bndgs alts br g2) = do b'  <- dgv bndgs
+                                                      a'  <- dgv (Map.elems alts)
+                                                      br' <- dgv br
+                                                      g2' <- dgv g2
+                                                      return $ IntSet.insert g1 $ IntSet.unions [b', a', br', g2']
+  dgv (ValueExternThunk g1 _ _ _ bndgs v1 v2)    = do b'  <- dgv bndgs
+                                                      v1' <- dgv v1
+                                                      v2' <- dgv v2
+                                                      return $ IntSet.insert g1 $ IntSet.unions [b', v1', v2']
+  dgv (ValueClosure _ _ alts _)                  = dgv (map (\(ClosureAlt _ _ bndgs _) -> bndgs) alts)
+  dgv _                                          = return IntSet.empty
+  dgvS _                                         = abort "do not call dgvS on Value"
 
   expAll lk v@(ValueGuess g) = do mb <- lk g
                                   case mb of  -- don't expand to a place holder
@@ -610,7 +611,7 @@ unifValue (ValueOpaque g1 (a1 :: t) gs1) (ValueOpaque g2 a2 gs2)
                                                       backpatch g2 v
                                            else return () -- no guess associated with any of the two values
                            Nothing  -> abort ("values have different types: " ++ show (typeOf a1) ++ " and " ++ show (typeOf a2))
-unifValue (ValueThunk g1 _ _ _ _ _ _ choice1 outcome1) (ValueThunk g2 _ _ _ _ _ _ choice2 outcome2)
+unifValue (ValueThunk g1 _ _ _ _ _ _ _ choice1 outcome1) (ValueThunk g2 _ _ _ _ _ _ _ choice2 outcome2)
   | g1 == g2  = do unify choice1 choice2
                    unify outcome1 outcome2
   | otherwise = abort ("cannot unify different thunks: " ++ show g1 ++ " and " ++ show g2)
@@ -979,9 +980,9 @@ lookupField fld nm
   = do vFld  <- lookupIdent fld
        vFld' <- expand vFld
        case vFld' of
-         ValueThunk _ _ _ _ _ bindings _ _ _   -> case Map.lookup nm bindings of
-                                                    Nothing -> abort ("identifier " ++ show nm ++ " not bound in derivation of " ++ show fld ++ ". Bound are: " ++ explainBindings bindings)
-                                                    Just v  -> return v
+         ValueThunk _ _ _ _ _ _ bindings _ _ _   -> case Map.lookup nm bindings of
+                                                      Nothing -> abort ("identifier " ++ show nm ++ " not bound in derivation of " ++ show fld ++ ". Bound are: " ++ explainBindings bindings)
+                                                      Just v  -> return v
          ValueExternThunk _ _ _ _ bindings _ _ -> case Map.lookup nm bindings of
                                                     Nothing -> abort ("identifier " ++ show nm ++ " not bound in derivation of " ++ show fld  ++ ". Bound are: " ++ explainBindings bindings)
                                                     Just v  -> return v
@@ -1086,7 +1087,7 @@ getFieldInfo fld ident
        vFld' <- expand vFld
        st <- asks isStack
        let (uid,params)    = case vFld' of
-                               ValueThunk uid _ _ _ params _ _ _ _     -> (uid, params)
+                               ValueThunk uid _ _ _ _ params _ _ _ _     -> (uid, params)
                                ValueExternThunk uid _ _ params _ _ _   -> (uid, params)
            isContravariant = uid `IntSet.member` st  -- dereference of "this"
            isOutput        = ident `elem` outputs params
@@ -1245,7 +1246,7 @@ assertFinished :: Value -> I ()
 assertFinished g
   = do val <- expand g
        case val of
-         ValueThunk _ _ _ _ _ _ _ _ g'   -> assertFinishedOutcome g'
+         ValueThunk _ _ _ _ _ _ _ _ _ g' -> assertFinishedOutcome g'
          ValueExternThunk _ _ _ _ _ _ g' -> assertFinishedOutcome g'
          _                               -> abort ("not a derivation: " ++ show val ++ "[" ++ show g ++ "]")
 

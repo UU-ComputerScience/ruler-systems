@@ -20,45 +20,45 @@ parse fresh;
 let evaluate = derivation inputs g, e outputs v
   { branch var:
       --------
-      establish g : arithVar x => lookup x g;
+      establish  { g : arithVar x => lookup x g };
 
     branch const:
       --------
-      establish g : arithConst i => i;
+      establish  { g : arithConst i => i };
 
     branch add:
-      establish evaluate  g : e1 => v1;
-      establish evaluate  g : e2 => v2;
+      establish  { g : e1 => v1 };
+      establish  { g : e2 => v2 };
       --------
-      establish g : e1 + e2 => add v1 v2;
+      establish  { g : e1 + e2 => add v1 v2 };
 
     branch sub:
-      establish evaluate  g : e1 => v1;
-      establish evaluate  g : e2 => v2;
+      establish  { g : e1 => v1 };
+      establish  { g : e2 => v2 };
       --------
-      establish g : e1 - e2 => sub e1 e2;
+      establish  { g : e1 - e2 => sub e1 e2 };
 
     branch mul:
-      establish evaluate  g : e1 => v1;
-      establish evaluate  g : e2 => v2;
+      establish  { g : e1 => v1 };
+      establish  { g : e2 => v2 };
       --------
-      establish g : e1 * e2 => mul v1 v2;
+      establish  { g : e1 * e2 => mul v1 v2 };
 
     branch div:
-      establish evaluate  g : e1 => v1;
-      establish evaluate  g : e2 => v2;
+      establish  { g : e1 => v1 };
+      establish  { g : e2 => v2 };
       --------
-      establish g : e1 * e2 => div v1 v2;
+      establish  { g : e1 * e2 => div v1 v2 };
 
     branch alet:
-      establish evaluate  g : e1 => v1;
-      establish evaluate  extend x v1 g : e2 => v2;
+      establish  { g : e1 => v1 };
+      establish  { extend x v1 g : e2 => v2 };
       --------
-      establish g : let x = e1 in e2 => v2;
+      establish  { g : let x = e1 in e2 => v2 };
   };
 
 derivation inputs args outputs res
 { branch main:
     let e = parse this.args;
-    establish evaluate emptyenv : e => this.res;
+    establish evaluate { emptyenv : e => this.res };
 }
