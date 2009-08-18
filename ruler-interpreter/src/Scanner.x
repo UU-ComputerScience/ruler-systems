@@ -8,7 +8,7 @@ import UU.Scanner.GenToken
 $litChar     = [^[\" \\]]
 $identChar   = [a-zA-Z0-9\'_]
 $single      = [\(\)\;\{\}!]
-$many        = [\,\.\:\[\]\-_=\>\<\|\$\#\&\^\~\*\+\%]
+$many        = [\,\.\:\[\]\-_=\>\<\|\$\#\&\^\~\*\+\%\/]
 
 tokens :-
   $white+                                            ;                          -- whitespace

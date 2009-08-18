@@ -1228,12 +1228,12 @@ isNewVisitReady g vs
                   Finish _                            -> abort "derivation is already finished. Cannot establish it anymore."
 
 -- returns the next visit in the chain given the visit order
-nextVisit :: Maybe [ThunkStmt] -> Value -> [Ident] -> I (Ident, Maybe [ThunkStmt], Bool)
+nextVisit :: Maybe [ThunkStmt] -> Value -> [Ident] -> I (Ident, Maybe [ThunkStmt], Maybe Ident)
 nextVisit _ _ [] = abort "empty visit list"
 nextVisit initial g vs
   = do val <- expand g
        if isGuess val
-        then return (head vs, initial, null (tail vs))
+        then return (head vs, initial, listToMaybe (tail vs))
         else do v <- resolve val
                 case v of
                   Visit nm stmts _ _ next | nm == head vs -> nextVisit (Just stmts) next (tail vs)
