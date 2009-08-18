@@ -1,13 +1,6 @@
 The still-to-implement feature list
 
-* Cleanup Externals.hs
-
-  Hide the "Value" wrapper data type. Like in my previous prototype, I just
-  need to put a function in the type class to convert guesses to a value of
-  the real data types.
-  
-  Status: almost done, need to rewrite some of the external functions.
-
+* [done] Cleanup Externals.hs
 
 * add fixpoint statement:
     fixpoint e1 e2;
@@ -26,8 +19,10 @@ The still-to-implement feature list
   Should also not be hard to implement that these are then also not retained in
   memory.
 
+  Note: this is yet another "establish" annotation...
 
-* meta child names
+
+[important and not so difficult: implement really soon!] * meta child names
 
   Allow the following meta fields:
     successor
@@ -38,11 +33,11 @@ The still-to-implement feature list
     none{<expression>}
     all{<expression>}
   For a child name in a field.
-  
+
   A statement containing an e such a meta name is
   instantiated for every concrete field that does not have a rule for the
   instantiation in question.
-  
+
   Examples:
   * If a rule for an input attribute x is missing then:
       any.x == predecessor.x;
@@ -56,16 +51,29 @@ The still-to-implement feature list
         this.x == none{emptyset}.x;
     * use a combination of the values from all children:
         this.x == all{union}.x;
-  
+
   The order in which these definitions occur in a derivation determines the
   order in which instantiations are tried. Furthermore, for merged derivations,
   the topmost derivations are considered first.
+  
+  There is one particular problem related to scoping of names. For now each branch is
+  annotated with "require" and "expose" that tells which locals are available to others.
+  But this is insufficient when dealing with meta-fields, because a meta-field can only
+  be instantiated to something that is visible in scope, and you need to "require" this
+  explicitly. So, what we need extra aside from the merge, is inheritance. Notation:
+  
+  new type of expression next to the merge:
+    inherit expr [ expr1 ,..., exprn ]
+    
+  inherits the statements from expr1, ..., exprn that are not overruled by expr. Also,
+  the rules have the entire visibility of the scope in expr + their own scope. May be
+  a bit counter intuitive. But it would fit nicely with the "statement selection order".
 
 
-* add a "ref" expression:
+[trivial, implement really soon!] * add a "ref" expression:
     ref nm
   where nm is the name of an established derivation.
-  
+
   This then creates a value that can be passed around and can be used to
   refer to the fields of "nm". For the interpreter this is easy: just take
   the bindings already in the value pointed to by "nm".
@@ -142,6 +150,7 @@ The still-to-implement feature list
 
 * add defer/fixate statement
 
+  /*
   Use the same mechanism as of the earlier prototype:
     at each fixate introduce a new scope identifier
     a defer creates a deferred statement, bound to a variable, for a certain
@@ -157,6 +166,13 @@ The still-to-implement feature list
     fixed guesses are not guesses anymore after the fixate, and that during a
     lookup these can be translated to a data-type specific "fixed" value.
     (as was in my previous prototype).
+  */
+  !!! New realization:
+  NO separate statements for defer/fixate. Instead, annotate the "establish"
+  statement! The level of granularity is then visits instead of statements,
+  but that is sufficient. The advantage is that this way a lot of functionality
+  comes together at a single place, namely the "establish" statement, which is
+  precisely a result I've been looking for.
 
   Also add the more recently figured out mechanism to schedule defered
   statements in a more deterministic fashion by specifying the phase order
@@ -173,9 +189,9 @@ The still-to-implement feature list
         ...
       ...
     }
-  
+
   where the grammar of orders is:
-  
+
     order ::= "order" ("phase" <nm> <chld-order>)+
     chld-order ::= <nm>+
                  | "leftfirst"
@@ -383,3 +399,28 @@ A note on scheduling. A choice:
 Both options have their advantages and disadvantages. We can accomplish both
 possibilities by using a "defer" in e.
 
+Another note: here we might as well not introduce this as an expression, but as
+an annotation to the "establish" statement.
+
+
+* Normalisation
+
+Am looking for a way to normalize, say, types. For example, suppose that we
+first find out that t1 has the type "forall a . a -> t2", and then find out that
+t2 is actually forall b . b -> b, we may as well renormalize the type and turn it
+into forall a b . a -> b -> b
+I have no good clue how to represent this in the type rules. If normalization took
+place, should this be visible somehow, or should it just retroactively change all
+instantiations of rules. And what if they do not hold anymore then? Unless I'm going
+to talk about equality modulo normalisation. A result like that is probably required.
+
+Just some rough thoughts that followed the above up.
+Would like to have a way to temporarily represent some information in a different
+representation.
+
+For example:
+
+etablish f normalize x in e1 out e2;
+
+when when establishing f, uses x' = e1 x as value for x, and unifies in the end
+x with e2 x'.
