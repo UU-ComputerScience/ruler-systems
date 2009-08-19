@@ -11,19 +11,19 @@ let repmin = derivation inputs t
                         outputs gathMin
                         outputs t' visit disperse
   { branch node:
-      establish repmin m |- l : lm ~> l';
-      establish repmin m |- r : rm ~> r';
+      establish { m |- l : lm ~> l' };
+      establish { m |- r : rm ~> r' };
       --------
-      establish m |- l :-: r : min lm rm ~> l' :-: r';
+      establish { m |- l :-: r : min lm rm ~> l' :-: r' };
 
     branch leaf:
       --------
-      establish min |- <i> : i ~> <min>;
+      establish { min |- <i> : i ~> <min> };
   };
 
 
 derivation inputs args outputs t
 { branch main:
-    establish repmin m |- testtree : m ~> this.t;
+    establish repmin { m |- testtree : m ~> this.t };
 }
 

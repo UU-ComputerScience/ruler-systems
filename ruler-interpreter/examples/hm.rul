@@ -14,8 +14,8 @@ equal fresh;
 !equal == \a b -> abstract equal inputs a, b
                     ( inst (derivation outputs res
                              { branch equal:   a == b;
-                                               this.res == bTrue;
-                               branch unequal: this.res == bFalse;
+                                               this.res == true;
+                               branch unequal: this.res == false;
                              }) as test;
                       establish test;
                       test.res
@@ -50,9 +50,9 @@ foldr fresh;
 
 elem fresh;
 !elem == \x ys -> foldr (\y r -> if equal x y
-                                 then bTrue
+                                 then true
                                  else r
-                        ) bFalse ys;
+                        ) false ys;
 
 difference fresh;
 !difference == \xs ys -> foldr (\x r -> if elem x ys

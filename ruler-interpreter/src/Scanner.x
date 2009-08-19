@@ -32,6 +32,8 @@ tokens :-
 
   ( __invoke | __root | __app | __res | __this
   | __arg | __alt | __scrut | __call | __main )      { reserved }               -- reserved keywords
+  
+  true | false                                       { reserved }               -- booleans
 
   $single                                            { reserved }               -- keyword symbols (single)
   $many+                                             { reserved }               -- keyword symbols (consecutive)
