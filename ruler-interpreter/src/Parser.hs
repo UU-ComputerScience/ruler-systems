@@ -145,6 +145,12 @@ pKeyAugment = pKeyPos "augment"
 pKeyInnername :: RulerParser Pos
 pKeyInnername = pKeyPos "innername"
 
+pKeyTrue :: RulerParser Pos
+pKeyTrue = pKeyPos "true"
+
+pKeyFalse :: RulerParser Pos
+pKeyFalse = pKeyPos "false"
+
 pIdent :: RulerParser Ident
 pIdent = uncurry Ident <$> pVaridPos
 
@@ -158,8 +164,8 @@ parse :: Select a -> [Token] -> Either [String] a
 parse s tks = parseTokens (sel s)
   where
     sel :: Select a -> RulerParser a
-    sel ExprParser  = pToplevelExpr
-    sel StmtsParser = pStmtsSeq
+    sel ExprParser  = pExprTopmost
+    sel StmtsParser = pStmtsTopmost
   
     pStmtDeriv = pStmt True
     pStmtSeq = pStmt False
@@ -177,7 +183,6 @@ parse s tks = parseTokens (sel s)
       <|> mkInst      <$> pKeyInst <*> pExpr <* pKeyAs <*> pIdent <* pSemi
       <|> mkFresh     <$> pList1Sep_ng pComma pIdent <* pKeyFresh <* pSemi      -- watch out for ambiguities with this one
       <|> mkEval      <$> pKeyEval <*> pExpr <* pSemi
-      <|> mkNop       <$> (pSyntax <|> pKeywords) <* pSemi
       <|> mkEqAugment <$> pKeyAugment <*> pIdent <*> pCurly pEqSyns <* pSemi
       <|> mkEqConcl   <$> pKeyLine <*> pList1_ng (pKeyEstablish *> pCurly pEqSynsR) <* pSemi
       <|> mkLet       <$> pKeyLet <*> pPat <* pKeyEqual <*> pExpr <* pSemi
@@ -188,7 +193,6 @@ parse s tks = parseTokens (sel s)
         mkBind p r l           = wrap (Stmt_Bind p l r)
         mkFresh nms            = wrap (Stmt_Fresh (identPos (head nms)) nms)
         mkEval p e             = wrap (Stmt_Eval p e)
-        mkNop p                = []
         mkEqAugment p nm o     = sem_EqStmt_Augment p nm o
         mkEqEstabl o nm p      = sem_EqStmt_Establish p nm o
         mkEqEstabl' o p        = sem_EqStmt_Establish p (Ident "this" p) o
@@ -201,6 +205,11 @@ parse s tks = parseTokens (sel s)
 
     pStmtsSeq :: RulerParser Stmts
     pStmtsSeq = concat <$> pList1_ng pStmtSeq
+    
+    pStmtsTopmost :: RulerParser Stmts
+    pStmtsTopmost = concat <$> pList1_ng (   pStmtSeq
+                                         <|> const [] <$> (pSyntax <|> pKeywords) <* pSemi
+                                         )
 
     pExpr :: RulerParser Expr
     pExpr = pExpr' False True
@@ -262,10 +271,17 @@ parse s tks = parseTokens (sel s)
     pPrimVal
       =   (\(s,p) -> (p, PrimVal $ PI $ readInt s)) <$> pIntegerPos
       <|> (\(s,p) -> (p, PrimVal $ PS $ readString s)) <$> pStringPos
+      <|> (\p -> (p, PrimVal BTrue))  <$> pKeyTrue
+      <|> (\p -> (p, PrimVal BFalse)) <$> pKeyFalse
 
     pToplevelExpr :: RulerParser Expr
     pToplevelExpr
       =   Expr_Seq <$> pStmtsSeq <*> pExpr
+      <|> pExpr
+    
+    pExprTopmost :: RulerParser Expr
+    pExprTopmost
+      =   Expr_Seq <$> pStmtsTopmost <*> pExpr
       <|> pExpr
     
     pOrder :: RulerParser Order
