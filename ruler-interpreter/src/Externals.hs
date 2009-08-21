@@ -1,4 +1,4 @@
-{-# OPTIONS_GHC -fglasgow-exts -fth #-}
+{-# OPTIONS_GHC -fglasgow-exts -XTemplateHaskell #-}
 module Externals where
 
 import RulerExpr

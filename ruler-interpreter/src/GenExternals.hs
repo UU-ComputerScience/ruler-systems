@@ -1,4 +1,4 @@
-{-# OPTIONS_GHC -fglasgow-exts -fth #-}
+{-# OPTIONS_GHC -fglasgow-exts -XTemplateHaskell #-}
 module GenExternals where
 
 import Language.Haskell.TH

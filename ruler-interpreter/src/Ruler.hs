@@ -60,21 +60,15 @@ evalStmt' _ (Stmt_Inst pos expr ident)
          ValueClosure lvl lbls alts relOrders ->
            do gBranch <- fresh
               gOutcome <- fresh
-              let ids   = concatMap (\(ClosureAlt params _ _ _) -> identsParam params) alts  -- idents of derivation
-                  parms = concatMap (\(ClosureAlt params _ _ _) -> params) alts              -- parameters of derivation
+              let ids        = nub $ collectAlts identsParam alts  -- idents of derivation (concat all param sets)
+                  parms      = collectAlts id alts                 -- parameters of derivation (concat all individual params)
                   relOrders' = [visitIdentMain] : map (visitIdentMain :) relOrders
-                  order = totalOrder relOrders'
-                  inps  = visitInputs parms (head order)
+                  order      = totalOrder relOrders'
+                  inps       = visitInputs parms (head order)  -- inputs of the first visit
               withDebugLevel 3 $ message ("determined order " ++ show order ++ " from relative orders " ++ show relOrders')
-              thunkBindings  <- freshBindings (nub ids)  -- fresh bindings of the (entire) derivation
+              thunkBindings  <- freshBindings ids  -- fresh bindings of the (entire) derivation
               markBindingsInitialized inps thunkBindings  -- mark the inputs for the first visit as initialized
-              localsBindings <- let createLocals alt ids rec = do mp <- rec
-                                                                  bndgs <- freshBindings ids
-                                                                  return $ Map.insert alt bndgs mp
-                                in Map.foldWithKey createLocals (return Map.empty) (localsmap alts)  -- creates fresh bindings for each alternative (indexed by alt nm)
-              alts1 <- mapM (mkThunkAlts vInst localsBindings) alts
-              let alts2 =  Map.unionsWith (++) alts1
-                  val = ValueThunk uid closure lvl lbls order parms thunkBindings alts2 gBranch gOutcome
+              let val = ValueThunk uid closure lvl lbls order parms thunkBindings gBranch gOutcome
               unify val vInst
          ValueExternClosure lvl nm params ->
            do outerEnv <- freshBindings (identsParam params)
@@ -88,18 +82,23 @@ evalStmt' _ (Stmt_Inst pos expr ident)
   where
     -- if the "expr" is a thunk, take its closure as the type to instantiate. Since there is always the "this"
     -- variable pointing to the currently executing thunk, it is easy to refer to recursive calls this way.
-    unwrapThunk (ValueThunk _ closure _ _ _ _ _ _ _ _) = closure
+    unwrapThunk (ValueThunk _ closure _ _ _ _ _ _ _) = closure
     unwrapThunk v = v
+
+    -- collect all the parameters of a ClosureAlt tree structure.
+    collectAlts f = concatMap (collectAlt f)
+    collectAlt f (ClosureAlt params _ _ _ alts) = f params ++ collectAlts f alts
 evalStmt' ctx (Stmt_Establish _ nm mbLvl)
   = do fixateBranch ctx
        v <- lookupIdent nm
        v' <- expand v
        case v' of
-         ValueThunk uid _ lvl lbls order params bindings alts gBranch gOutcome ->
+         ValueThunk uid closure lvl lbls order params bindings gBranch gOutcome ->
            do -- find out what visit we are to establish
-              (visitNm, mbStmts, mbNextNm) <- nextVisit Nothing gOutcome order
+              (visitNm, mbNextNm) <- nextVisit gOutcome order
               let isLast = isNothing mbNextNm
-              identsDefined bindings (visitInputs params visitNm) 
+              identsDefined bindings (visitInputs params visitNm)
+              mbBranch <- resolveBranch gBranch
               withDebugLevel 3 $ message ("establishing visit: " ++ show visitNm ++ " for " ++ show nm ++ " in order " ++ show order)
               
               -- fixate in case of recursion
@@ -111,36 +110,34 @@ evalStmt' ctx (Stmt_Establish _ nm mbLvl)
 
               -- execute the statements belonging to the visit (may fail)
               (eErrRes, os) <- tryExec $
-                case mbStmts of  -- continue with the execution of an already established alternative
-                  Just stmts' -> do assert (not . isGuess) gBranch ("derivation named " ++ show nm ++ " should have been established already.")
-                                    local (\is -> is { isStack = IntSet.insert uid (isStack is) }) $
-                                      do reasons <- execUnordered lbls stmts'
-                                         checkOutputsDefined bindings visitNm params reasons
-                                         checkNoStmtsRemaining isLast reasons
-                                         return reasons
-                  Nothing -> let evalAlt nm stmts
-                                   = let fixBranch = assign gBranch nm
-                                     in local (\is -> is { isCalls = Map.insert lbls fixBranch (isCalls is), isStack = IntSet.insert uid (isStack is) }) $
-                                          do when isSingleBranch fixBranch
-                                             reasons <- execUnordered lbls stmts
-                                             when (not isSingleBranch) fixBranch
-                                             checkOutputsDefined bindings visitNm params reasons
-                                             checkNoStmtsRemaining isLast reasons
-                                             return reasons
-                                 branches = sortBy (\a1 a2 -> compare (posOf a1) (posOf a2)) $ Map.assocs alts
-                                 isSingleBranch = length branches == 1
-                                 posOf = identPos . fst
-                             in backtrack gBranch (map (uncurry evalAlt) branches)
+                case mbBranch of -- continue with the execution of an already established alternative?
+                  Nothing -> -- not established yet (find a branch)
+                    let branches = sortBy (\a1 a2 -> compare (posOf a1) (posOf a2)) $ Map.assocs $ Map.fromListWith (++) [ (nm,[a]) | a@(ClosureAlt _ _ _ (Alt_Alt nm _ _) _) <- closureAlts closure ]
+                        isSingleBranch = length branches == 1
+                        posOf = identPos . fst
+
+                        evalAlt nm alts
+                          = do segment <- createSegment v' alts
+                               let fixBranch = assign gBranch (Branch nm segment)
+                               local (\is -> is { isCalls = Map.insert lbls fixBranch (isCalls is), isStack = IntSet.insert uid (isStack is) }) $
+                                 do when isSingleBranch fixBranch
+                                    execUnordered lbls segment
+                                    when (not isSingleBranch) fixBranch
+                                    checkOutputsDefined bindings visitNm params
+                    in backtrack gBranch (map (uncurry evalAlt) branches)
+                  Just (Branch _ segment) -> -- already first visit established
+                    local (\is -> is { isStack = IntSet.insert uid (isStack is) }) $
+                      do execUnordered lbls segment
+                         checkOutputsDefined bindings visitNm params
 
               -- produce visit status record
               nextVisit <- fresh
-              let nextStmts = either (const []) (map fst) eErrRes
-                  msgs   = osMessages os
+              let msgs   = osMessages os
                   childs = case lvl of
                              Level_Hide        -> []
                              Level_Abstract _  -> []
                              _                 -> osDerivations os
-                  visit  = Visit visitNm nextStmts childs msgs nextVisit
+                  visit  = Visit visitNm childs msgs nextVisit
               linkVisit gOutcome visit
 
               -- if finished or error, produce "finished" status record
@@ -158,7 +155,7 @@ evalStmt' ctx (Stmt_Establish _ nm mbLvl)
                 _          -> modify (\ss -> ss { ssExtraRoots = tail (ssExtraRoots ss) })
 
               -- announce the derivation if the first time to establish
-              case mbStmts of
+              case mbBranch of
                 Nothing -> case maybe lvl id mbLvl of  -- and visible
                              Level_Intro      -> established nm v
                              Level_Abstract _ -> established nm v
@@ -189,7 +186,7 @@ evalStmt' ctx (Stmt_Establish _ nm mbLvl)
               let result = either (Failure . show) (const Success) eErrRes
               finish <- fresh
               assign finish (Finish result)
-              assign gOutcome (Visit visitIdentMain [] (osDerivations os) (osMessages os) finish)
+              assign gOutcome (Visit visitIdentMain (osDerivations os) (osMessages os) finish)
               assign gEstablished ()
               case lvl of
                 Level_Intro      -> established nm v
@@ -204,17 +201,11 @@ evalStmt' ctx (Stmt_Establish _ nm mbLvl)
                              Nothing -> return ()
                              Just m  -> m
 
-    checkOutputsDefined bindings visitNm params reasons
+    checkOutputsDefined bindings visitNm params
       = do allDefined <- identsDefined bindings (visitOutputs params visitNm)
            if allDefined
             then return ()
-            else abort (  "Some of the outputs for visit " ++ show visitNm ++ " for a derivation named " ++ show nm ++ " remain undefined. The following statements were not executed: "
-                       ++ (showList (map (\(s,rs) -> show (stmtPos $ unwrapStmt s) ++ " reasons: " ++ show rs) reasons) "")
-                       )
-
-    checkNoStmtsRemaining False _       = return ()
-    checkNoStmtsRemaining True  []      = return ()
-    checkNoStmtsRemaining True  reasons = abort ("the following statements remain: " ++ (showList (map (\(s,rs) -> show (stmtPos $ unwrapStmt s) ++ " reasons: " ++ show rs) reasons) "") )
+            else abort ( "Some of the outputs for visit " ++ show visitNm ++ " for a derivation named " ++ show nm ++ " remain undefined." )
 evalStmt' _ (Stmt_Equiv pos left right)
   = do v1 <- evalExpr left
        v2 <- evalExpr right
@@ -239,51 +230,69 @@ evalStmt' _ (Stmt_Nop _)
   = return False
 
 
--- executes the given statements in a define-before-use order, returning the
--- list of statements remaining to be executed, and the reason why they couldnt.
-execUnordered :: Set Pos -> [ThunkStmt] -> I [(ThunkStmt, [NotreadyReason])]
-execUnordered lbls initStmts
---  | Set.size lbls == 1 = do prevFailed <- gets ssFailedSpeculatives
---                            if (Set.findMin lbls) `Set.member` prevFailed  -- if speculative execution failed the previous time then forget about it
---                             then go initStmts
---                             else goSpeculative initStmts
-  | otherwise          = go initStmts
+-- executes the segment in a define-before-use order, based on the readyness of
+-- statements. Statements in the segment are tried in an inorder-order, skipping
+-- over already executed statements.
+execUnordered :: Set Pos -> Segment -> I ()
+execUnordered lbls root@(Segment rootStmts _)  -- try a speculative execution based on the order of appearance.
+  | False -- Set.size lbls == 1    -- TODO: speculative execution seems still a bit erroneous
+      = do prevFailed <- gets ssFailedSpeculatives
+           if (Set.findMin lbls) `Set.member` prevFailed  -- if speculative execution failed the previous time then forget about it
+            then goUnordered
+            else goSpeculative rootStmts
+  | otherwise = goUnordered
   where
-    go []    = return []
-    go stmts = do eStmts <- selectReady stmts [] `catchError` extendError False ("while evaluating statements for: " ++ show (Set.toList lbls))
-                  case eStmts of
-                    Left reasons -> return reasons
-                    Right (stmt@(ThunkStmt bindings stmt'), stmts') ->
-                      do reschedule <- restrictBindings bindings (evalStmtTop lbls stmt')
-                         if reschedule
-                          then go (stmts' ++ [stmt])
-                          else go stmts'
+    goUnordered
+      = do didOne <- chaseSegment Set.empty root
+           if didOne
+            then goUnordered  -- repeat chasing until no ready statement anymore
+            else return ()
+
+    -- find the next ready statement to execute
+    chaseSegment overruled (Segment stmts children)
+      = doAny (doFirst (map (chaseStmt overruled) stmts))
+              (do stmtRefs <- outputRefs stmts
+                  let overruled' = stmtRefs `Set.union` overruled
+                  doFirst (map (chaseSegment overruled') children))
+
+    chaseStmt overruled (ThunkStmt bindings gFinished stmt)
+          = do vFinished <- expand gFinished
+               if isGuess vFinished
+                then do stmtRefs <- if Set.null overruled
+                                     then return Set.empty
+                                     else outputRefs stmt
+                        if Set.null (stmtRefs `Set.intersection` overruled)
+                         then restrictBindings bindings $
+                                do notready <- isReady Set.empty stmt `catchError` extendError False ("while evaluating statements for: " ++ show (Set.toList lbls))
+                                   if null notready
+                                    then do reschedule <- restrictBindings bindings (evalStmtTop lbls stmt)
+                                            when (not reschedule) ( assign gFinished () )
+                                            return True
+                                    else do withDebugLevel 3 $ message ("Statement at " ++ show (stmtPos stmt) ++ " not ready, due to: " ++ showList notready "")
+                                            return False -- this statement is not ready yet
+                         else do -- this statement is overruled by above, mark it as executed
+                                 assign gFinished ()
+                                 return False  -- this statement is overruled by above
+                else return False  -- this statement was already performed
+
 
     -- execute the statements in the order specified in the list. If this order is "bad", i.e. would result into
     -- a dereference of an uninitialized value, or when a statement needs to be rescheduled, then we fall back to
     -- the normal execution order (defined by readyness)
-    goSpeculative [] = return []
-    goSpeculative (stmt@(ThunkStmt bindings stmt') : stmts)
+    goSpeculative [] = return ()
+    goSpeculative (stmt@(ThunkStmt bindings _ stmt') : stmts)
       = do prevSubst <- gets ssSubst
            ok <- (restrictBindings bindings (evalStmtTop lbls stmt') >>= return . not) `catchError` (handleRetry prevSubst)
            if ok
             then goSpeculative stmts
             else do withDebugLevel 1 $ message ("switching from speculative execution for derivation with labels " ++ show (Set.toList lbls) ++ " to unordered execution.")
                     modify (\ss -> ss { ssFailedSpeculatives = Set.union lbls (ssFailedSpeculatives ss) })
-                    go (stmts ++ [stmt])
+                    goUnordered
 
     handleRetry subst (Retry _) = do modify (\ss -> ss { ssSubst = subst })
-                                     return False    -- swich from speculative to normal execution
+                                     return False -- swich from speculative to normal execution
     handleRetry _ err           = throwError err  -- error cannot be handled by normal execution either
 
--- either runs why the statements are not ready, or a statement that is ready with the remaining statements
-selectReady :: [ThunkStmt] -> [(ThunkStmt, [NotreadyReason])] -> I (Either [(ThunkStmt, [NotreadyReason])] (ThunkStmt, [ThunkStmt]))
-selectReady [] accNotReady = return $ Left accNotReady
-selectReady (s@(ThunkStmt bindings stmt):ss) accNotReady
-  = do notready <- restrictBindings bindings (isReady Set.empty stmt)
-       if null notready
-        then return $ Right (s, ss ++ map fst accNotReady)
-        else selectReady ss (accNotReady ++ [(s, notready)])
 
 --
 -- Readyness procedure
@@ -329,10 +338,10 @@ instance IsReady Stmt where
     | otherwise = do v <- lookupIdent nm
                      v' <- expand v
                      case v' of
-                       ValueThunk _ _ _ _ order params bindings _ _ gVisits -> do (visitNm, _, _) <- nextVisit Nothing gVisits order
-                                                                                  checkDefined bindings (visitInputs params visitNm)
-                       ValueExternThunk _ _ _ params bindings _ _           -> checkDefined bindings (inputs params)
-                       _                                                    -> return [ FieldNotReady nm ignore ]
+                       ValueThunk _ _ _ _ order params bindings _ gVisits -> do (visitNm, _) <- nextVisit gVisits order
+                                                                                checkDefined bindings (visitInputs params visitNm)
+                       ValueExternThunk _ _ _ params bindings _ _         -> checkDefined bindings (inputs params)
+                       _                                                  -> return [ FieldNotReady nm ignore ]
                 where
                   checkDefined bindings ids = do areDefined <- identsDefined bindings ids
                                                  if areDefined
@@ -399,7 +408,7 @@ evalExpr (Expr_Seq stmts expr)
            return newBindings
 evalExpr (Expr_Derivation pos (Order_Relative order) params innername lvl alts)
   = do globalBindings <- asks isBindings
-       let alts' = map (ClosureAlt params innername globalBindings) alts
+       let alts' = map (\alt -> ClosureAlt params innername globalBindings alt []) alts
            vsOmitted = Set.toList (visits params `Set.difference` Set.fromList order) -- visits not in the relative order list
        return $ ValueClosure lvl (Set.singleton pos) alts' [order, filter (/= visitIdentMain) vsOmitted]
 evalExpr (Expr_External _ nm params lvl)
@@ -421,26 +430,6 @@ evalExprAsClosure expr
        case v' of
          ValueClosure _ _ _ _ -> return v'
          _                    -> abort ("evaluation of expr did not result in a closure: " ++ show v')
-
--- use the entire given administration to construct a proper heap for each statement
--- take:
---   1 segmentGlobals as the basis
---   2 the thunkBindings (currently only containing 'innername', used to be restricted to segmentParams)
---   3 the localsBindings for our alternative for which we have altParams
---   4 the identifiers introduced by fresh, inst, and inline allocation (except those already bound by locals)
-mkThunkAlts :: Value -> Map Ident (Map Ident Value) -> ClosureAlt -> I (Map Ident [ThunkStmt])
-mkThunkAlts futureThunkValue localsBindings (ClosureAlt _ innername segmentGlobals (Alt_Alt nm altScopes stmts))
-  = do let thunkBindings = Map.fromList [(ident "__this",futureThunkValue),(innername,futureThunkValue)]
-           locals = restrict (identsScope altScopes) $ Map.findWithDefault (error ("mkThunkAlts: alternative " ++ show nm ++ " not in locals-map.")) nm localsBindings
-       introBindings <- freshBindings (filter (\nm -> not (Map.member nm locals)) $ identIntros stmts)
-       let bindings = introBindings `Map.union` locals `Map.union` thunkBindings `Map.union` segmentGlobals
-       return $ Map.singleton nm (map (ThunkStmt bindings) stmts)
-  where restrict ids = Map.filterWithKey (\k _ -> k `elem` ids)
-
--- constructs a map from alternative name to all the identifiers introduced and required there
-localsmap :: [ClosureAlt] -> Map Ident [Ident]
-localsmap = Map.map nub . Map.unionsWith (++) . map altlocals
-  where altlocals (ClosureAlt _ _ _ (Alt_Alt nm scopes _)) = Map.singleton nm (identsScope scopes)
 
 -- evalutes the given ruler expression, allowing for the construction of a result through the
 -- inspection monad (to access the guess-memory)
@@ -482,9 +471,9 @@ toDerivation root
     to g val = do v <- expand val
                   to1 g v `catchError` (extendError False ("in toDerivation on " ++ show v))
 
-    to1 g (ValueThunk _ _ lvl lbls _ params bindings _ branch outcome)
+    to1 g (ValueThunk _ _ lvl lbls _ params bindings branch outcome)
       = do (visits,status) <- getOutcome outcome
-           nmBranch  <- tryResolve branch (ident "_undetermined_")
+           (Branch nmBranch _) <- tryResolve branch (Branch (ident "_undetermined_") (error "toDerivation: do not touch the segment"))
            let inps = inputs params
                title = case lvl of
                          Level_Abstract nm -> nm
@@ -510,11 +499,11 @@ toDerivation root
              ValueGuess _ -> return ([], Failure ("no outcome record for: " ++ show vG))
              _            -> do v <- resolve vG
                                 case v of
-                                  Visit nm _ subderivs messages next -> do (xs,status) <- getOutcome next
-                                                                           subIds      <- mapM (const nextUnique) subderivs
-                                                                           subtrees    <- mapM (\(g,(k,v)) -> to g v >>= \d -> return (k,g,d)) (zip subIds subderivs)
-                                                                           return (DTVisit nm subtrees (Foldable.toList messages) : xs, status)
-                                  Finish status                      -> return ([], status)
+                                  Visit nm subderivs messages next -> do (xs,status) <- getOutcome next
+                                                                         subIds      <- mapM (const nextUnique) subderivs
+                                                                         subtrees    <- mapM (\(g,(k,v)) -> to g v >>= \d -> return (k,g,d)) (zip subIds subderivs)
+                                                                         return (DTVisit nm subtrees (Foldable.toList messages) : xs, status)
+                                  Finish status                    -> return ([], status)
 
 resultHandler :: Opts -> DerivationTree -> IT IO ()
 resultHandler opts root = do tree <- if expansion opts == ExpandFull

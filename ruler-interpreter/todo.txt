@@ -2,6 +2,12 @@ The still-to-implement feature list
 
 * [done] Cleanup Externals.hs
 
+  Hide the "Value" wrapper data type. Like in my previous prototype, I just
+  need to put a function in the type class to convert guesses to a value of
+  the real data types.
+
+* [done] execution code resorting
+
 * add fixpoint statement:
     fixpoint e1 e2;
   where e1 is an unestablished single-visit derivation from some inputs to
@@ -97,9 +103,10 @@ The still-to-implement feature list
   maintenance of the record.
 
 
+[adding this soon because I'm already using it in my examples]
 * add backtracking-reduction syntax:
 
-    derivation inputs x, y output z dispatch x
+    derivation inputs dispatch x, y output z
   
   at the first visit, all pattern matches on x need to be done and succeed all.
   If one fails, backtrack. If all succeed, no backtracking anymore (cut).

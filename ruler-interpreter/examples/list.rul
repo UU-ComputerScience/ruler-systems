@@ -3,6 +3,6 @@
 derivation inputs args outputs res
 { branch main:
     x fresh;
-    (cons empty nil) == x;
+    (cons void nil) == x;
     this.res == x;
 }
