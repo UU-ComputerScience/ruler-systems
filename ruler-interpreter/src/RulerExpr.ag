@@ -101,6 +101,10 @@ DATA Expr
   | Merge
       pos    : Pos
       exprs  : Exprs
+  | Inherit
+      pos    : Pos
+      expr   : Expr
+      exprs  : Exprs
 
 DATA Order
   | Relative
@@ -171,7 +175,6 @@ data Value
                , thunkOrder    :: ![Ident]
                , thunkParams   :: !Params
                , thunkBindings :: !(Map Ident Value)
-               , thunkAlts     :: !(Map Ident [ThunkStmt])
                , thunkBranch   :: !Value
                , thunkVisits   :: !Value
                }
@@ -193,11 +196,18 @@ data Value
 
 -- represents a single visit to the derivation, giving the name of the visit,
 -- the list of remaining statments, and a value representing the next visit.
-data Visit = Visit !Ident ![ThunkStmt] ![(Ident,Value)] !(Seq Message) !Value | Finish !Status
+data Visit = Visit !Ident ![(Ident,Value)] !(Seq Message) !Value | Finish !Status
   deriving (Show, Typeable)
 
 data Message = NotifyMsg !String | ErrorMsg !String
   deriving Typeable
+
+-- the fixed branch, if any
+-- contains the selected branch names and the segment of statements for this
+-- branch.
+data Branch
+  = Branch Ident Segment
+  deriving (Typeable, Show)
 
 data Status = Success | Failure !String deriving (Show, Typeable)
 
@@ -205,21 +215,29 @@ data PlaceType = Initialized | Defined | Bottom (Maybe PlaceType) -- bottom stor
   deriving (Eq, Ord, Show, Typeable)  -- order: initialized < defined < bottom
 
 -- an alternative of some derivation stored in the closure with environment information
+-- the closure-alts are nested. This is due to inheritance between closures.
 data ClosureAlt
-  = ClosureAlt !Params !Ident !(Map Ident Value) !Alt
-  deriving Typeable
+  = ClosureAlt !Params !Ident !(Map Ident Value) !Alt ![ClosureAlt]
+  deriving (Show, Typeable)
+
+-- A segment contains a list of statements and a list of substatements
+-- the total structure forms a tree of which the next statement to execute is
+-- found by an inorder traversal of the tree
+data Segment
+  = Segment ![ThunkStmt] ![Segment]
+  deriving (Show, Typeable)
 
 data ThunkStmt
-  = ThunkStmt !(Map Ident Value) !Stmt
+  = ThunkStmt !(Map Ident Value) !Value !Stmt  -- the value indicates if the stmt has already been applied
   deriving Typeable
 
 instance Show ThunkStmt where
-  show (ThunkStmt _ s) = show (stmtPos s)
+  show (ThunkStmt _ _ s) = show (stmtPos s)
 
 instance Show Value where
   show (ValueOpaque _ v _)                 = "(" ++ show v ++ ")"
   show (ValueClosure _ lbls _ _)           = "<closure:" ++ show (Set.toList lbls) ++ ">"
-  show (ValueThunk g _ _ lbls _ _ _ _ _ _) = "<thunk:" ++ show g ++ "@" ++ show (Set.toList lbls) ++ ">"
+  show (ValueThunk g _ _ lbls _ _ _ _ _)   = "<thunk:" ++ show g ++ "@" ++ show (Set.toList lbls) ++ ">"
   show (ValueExternClosure _ nm _)         = "<ext-closure:" ++ show nm ++ ">"
   show (ValueExternThunk g _ nm _ _ _ _)   = "<ext-thunk:" ++ show g ++ "@" ++ show nm ++ ">"
   show (ValueGuess g)                      = "#" ++ show g
@@ -479,15 +497,40 @@ instance RulerValue () where
   toIndirection _ _ = abort "cannot represent a guess as a ()"
   fromIndirection a = (Nothing, Just a)
 
+instance RulerValue Branch where
+  unify _ _  = return ()
+  unifyS _ _ = abort "do not call unifyS on Branch"
+  fgv acc _  = return acc
+  fgvS _ _   = abort "do not call fgvS on Branch"
+  dgv (Branch _ v) = dgv v
+  dgvS _           = abort "do not call dgvS on Branch"
+  expAll _  = return
+  expAllS _ _       = fail "do not call expAllS on Branch"
+  toIndirection _ _ = abort "cannot represent a guess as a Branch"
+  fromIndirection a = (Nothing, Just a)
+
+instance RulerValue Segment where
+  unify _ _  = return ()
+  unifyS _ _ = abort "do not call unifyS on Segment"
+  fgv acc _  = return acc
+  fgvS _ _   = abort "do not call fgvS on Segment"
+  dgv (Segment stmts segs) = do s1 <- dgv stmts
+                                s2 <- dgv segs
+                                return (s1 `IntSet.union` s2)
+  dgvS _           = abort "do not call dgvS on Segment"
+  expAll _  = return
+  expAllS _ _       = fail "do not call expAllS on Segment"
+  toIndirection _ _ = abort "cannot represent a guess as a Segment"
+  fromIndirection a = (Nothing, Just a)
+
 instance RulerValue Visit where
   unify _ _  = return ()
   unifyS _ _ = abort "do not call unifyS on Visit"
   fgv acc _  = return acc
   fgvS _ _   = abort "do not call fgvS on Visit"
-  dgv (Visit _ stmts bndgs _ v) = do s' <- dgv stmts
-                                     b' <- dgv bndgs
-                                     v' <- dgv v
-                                     return (IntSet.unions [s', b', v'])
+  dgv (Visit _ bndgs _ v) = do b' <- dgv bndgs
+                               v' <- dgv v
+                               return (IntSet.unions [b', v'])
   dgv _                     = return IntSet.empty
   dgvS _                    = abort "do not call dgvS on Visit"
   expAll _  = return
@@ -498,9 +541,11 @@ instance RulerValue Visit where
 instance RulerValue ThunkStmt where
   unify _ _                = return ()
   unifyS _ _               = abort "do not call unifyS on ThunkStmt"
-  fgv acc (ThunkStmt mp _) = fgv acc mp
-  fgvS _ _                 = abort "do not call fgvS on ThunkStmt"
-  dgv (ThunkStmt mp _)     = dgv mp
+  fgv acc (ThunkStmt mp _ _) = fgv acc mp
+  fgvS _ _                   = abort "do not call fgvS on ThunkStmt"
+  dgv (ThunkStmt mp d _)   = do m' <- dgv mp
+                                d' <- dgv d
+                                return (m' `IntSet.union` d')
   dgvS _                   = abort "do not call dgvS on ThunkStmt"
   expAll _                 = return
   expAllS _ _              = fail "do not call expAllS on ThunkStmt"
@@ -544,16 +589,15 @@ instance RulerValue Value where
   dgv (ValueOpaque g a _)                        = do a' <- dgv a
                                                       return (IntSet.insert g a')
   dgv (ValueGuess g)                             = return $ IntSet.singleton g
-  dgv (ValueThunk g1 _ _ _ _ _ bndgs alts br g2) = do b'  <- dgv bndgs
-                                                      a'  <- dgv (Map.elems alts)
-                                                      br' <- dgv br
-                                                      g2' <- dgv g2
-                                                      return $ IntSet.insert g1 $ IntSet.unions [b', a', br', g2']
+  dgv (ValueThunk g1 _ _ _ _ _ bndgs br g2) = do b'  <- dgv bndgs
+                                                 br' <- dgv br
+                                                 g2' <- dgv g2
+                                                 return $ IntSet.insert g1 $ IntSet.unions [b', br', g2']
   dgv (ValueExternThunk g1 _ _ _ bndgs v1 v2)    = do b'  <- dgv bndgs
                                                       v1' <- dgv v1
                                                       v2' <- dgv v2
                                                       return $ IntSet.insert g1 $ IntSet.unions [b', v1', v2']
-  dgv (ValueClosure _ _ alts _)                  = dgv (map (\(ClosureAlt _ _ bndgs _) -> bndgs) alts)
+  dgv (ValueClosure _ _ alts _)                  = dgv (map (\(ClosureAlt _ _ bndgs _ _) -> bndgs) alts)
   dgv _                                          = return IntSet.empty
   dgvS _                                         = abort "do not call dgvS on Value"
 
@@ -611,7 +655,7 @@ unifValue (ValueOpaque g1 (a1 :: t) gs1) (ValueOpaque g2 a2 gs2)
                                                       backpatch g2 v
                                            else return () -- no guess associated with any of the two values
                            Nothing  -> abort ("values have different types: " ++ show (typeOf a1) ++ " and " ++ show (typeOf a2))
-unifValue (ValueThunk g1 _ _ _ _ _ _ _ choice1 outcome1) (ValueThunk g2 _ _ _ _ _ _ _ choice2 outcome2)
+unifValue (ValueThunk g1 _ _ _ _ _ _ choice1 outcome1) (ValueThunk g2 _ _ _ _ _ _ choice2 outcome2)
   | g1 == g2  = do unify choice1 choice2
                    unify outcome1 outcome2
   | otherwise = abort ("cannot unify different thunks: " ++ show g1 ++ " and " ++ show g2)
@@ -720,7 +764,7 @@ isPlaceholder _                    = False
 
 {
 unwrapStmt :: ThunkStmt -> Stmt
-unwrapStmt (ThunkStmt _ stmt) = stmt
+unwrapStmt (ThunkStmt _ _ stmt) = stmt
 
 stmtPos :: Stmt -> Pos
 stmtPos (Stmt_Inst pos _ _)      = pos
@@ -769,12 +813,12 @@ explicitIntroducedIdents = Set.toList . foldr intro Set.empty
         intro _                  = id
 
 inputs :: Params -> [Ident]
-inputs = concatMap inputsParam
+inputs = nub . concatMap inputsParam
   where inputsParam (Param_Input _ inps) = inps
         inputsParam _                    = []
 
 outputs :: Params -> [Ident]
-outputs = concatMap outputsParam
+outputs = nub . concatMap outputsParam
   where outputsParam (Param_Output _ outs) = outs
         outputsParam _                     = []
 
@@ -786,13 +830,13 @@ visits = foldr (\p -> Set.insert (v p)) Set.empty
 
 -- all the inputs in the 'params' for the given visit name
 visitInputs :: Params -> Ident -> [Ident]
-visitInputs p v = foldr extend [] p
+visitInputs p v = nub $ foldr extend [] p
   where extend (Param_Input i inps) r | i == v = inps ++ r
         extend _ r                             = r
 
 -- all the outputs in the 'params' for the given visit name
 visitOutputs :: Params -> Ident -> [Ident]
-visitOutputs p v = foldr extend [] p
+visitOutputs p v = nub $ foldr extend [] p
   where extend (Param_Output i outs) r | i == v = outs ++ r
         extend _ r                              = r
 
@@ -831,6 +875,60 @@ instance Intros Expr where
   intros (Expr_Seq stmts expr)           = Set.union (intros stmts) (intros expr) `Set.difference` (Set.fromList $ explicitIntroducedIdents stmts)
   intros (Expr_Merge _ exprs)            = intros exprs
   intros _                               = Set.empty
+}
+
+
+-- Referenced identifiers that are defined by the
+-- evaluation/execution of the expression/statement.
+-- note: an output of an expression/statement is thus
+--       an input of a child derivation and an output
+--       of the current derivation.
+{
+data IdentRef
+  = NmRef !Ident
+  | FldRef !Ident !Ident
+  deriving (Eq, Ord, Show)
+
+class OutputRefs a where
+  outputRefs :: a -> I (Set IdentRef)
+  
+instance OutputRefs a => OutputRefs [a] where
+  outputRefs = fmap Set.unions . mapM outputRefs
+
+instance OutputRefs ThunkStmt where
+  outputRefs (ThunkStmt _ _ stmt)      = outputRefs stmt
+
+instance OutputRefs Stmt where
+  outputRefs (Stmt_Inst _ expr nm)     = fmap (Set.insert $ NmRef nm) (outputRefs expr)
+  outputRefs (Stmt_Establish _ _ _)    = return Set.empty
+  outputRefs (Stmt_Equiv _ left right) = outputRefs [ left, right ]
+  outputRefs (Stmt_Bind _ left right)  = outputRefs [ left, right ]
+  outputRefs (Stmt_Fresh _ nms)        = return (Set.fromList $ map NmRef nms)
+  outputRefs (Stmt_Eval _ expr)        = outputRefs expr
+  outputRefs (Stmt_Nop _)              = return Set.empty
+
+instance OutputRefs Expr where
+  outputRefs (Expr_Var Mode_Def nm)    = return $ Set.singleton $ NmRef nm
+  outputRefs (Expr_Field fld nm)
+    = do mbV <- tryLookupIdent fld
+         case mbV of
+           Nothing -> return Set.empty
+           Just v  -> do v' <- expand v
+                         if isGuess v'
+                          then return Set.empty
+                          else do (isContra, isOutput) <- getFieldInfo fld nm
+                                  if isContra  -- a "this" fld
+                                   then if isOutput
+                                        then return $ Set.singleton $ FldRef fld nm
+                                        else return Set.empty
+                                   else if isOutput
+                                        then return Set.empty
+                                        else return $ Set.singleton $ FldRef fld nm
+  outputRefs (Expr_Seq stmts expr)     = do refsStmts <- outputRefs stmts
+                                            refsExpr  <- outputRefs expr
+                                            return (Set.union refsStmts refsExpr `Set.difference` (Set.fromList $ map NmRef $ explicitIntroducedIdents stmts))
+  outputRefs (Expr_Merge _ exprs)      = outputRefs exprs
+  outputRefs _                         = return Set.empty
 }
 
 
@@ -946,6 +1044,11 @@ lookupIdent nm
          Nothing -> abort ("identifier " ++ show nm ++ " (" ++ show (identPos nm) ++ ") not bound in environment: " ++ explainBindings bindings)
          Just v  -> return v
 
+tryLookupIdent :: Ident -> I (Maybe Value)
+tryLookupIdent nm
+  = do bindings <- asks isBindings
+       return $ Map.lookup nm bindings
+
 -- note: requires lexically scoped type variable v to access the typeable dictionary
 lookupIdentPrim :: forall v . Typeable v => Ident -> I v
 lookupIdentPrim nm
@@ -980,9 +1083,9 @@ lookupField fld nm
   = do vFld  <- lookupIdent fld
        vFld' <- expand vFld
        case vFld' of
-         ValueThunk _ _ _ _ _ _ bindings _ _ _   -> case Map.lookup nm bindings of
-                                                      Nothing -> abort ("identifier " ++ show nm ++ " not bound in derivation of " ++ show fld ++ ". Bound are: " ++ explainBindings bindings)
-                                                      Just v  -> return v
+         ValueThunk _ _ _ _ _ _ bindings _ _   -> case Map.lookup nm bindings of
+                                                    Nothing -> abort ("identifier " ++ show nm ++ " not bound in derivation of " ++ show fld ++ ". Bound are: " ++ explainBindings bindings)
+                                                    Just v  -> return v
          ValueExternThunk _ _ _ _ bindings _ _ -> case Map.lookup nm bindings of
                                                     Nothing -> abort ("identifier " ++ show nm ++ " not bound in derivation of " ++ show fld  ++ ". Bound are: " ++ explainBindings bindings)
                                                     Just v  -> return v
@@ -1020,6 +1123,15 @@ assert p v msg
 
 isGuess (ValueGuess _) = True
 isGuess _              = False
+
+-- returns the Branch if it is defined in the value, otherwise Nothing
+resolveBranch :: Value -> I (Maybe Branch)
+resolveBranch v
+  = do v' <- expand v
+       if isGuess v'
+        then return Nothing
+        else do b <- resolve v'
+                return (Just b)
 
 backtrack :: Value -> [I a] -> I a
 backtrack _ [alt] = alt  -- only one alternative: no backtracking + shorter error message
@@ -1087,7 +1199,7 @@ getFieldInfo fld ident
        vFld' <- expand vFld
        st <- asks isStack
        let (uid,params)    = case vFld' of
-                               ValueThunk uid _ _ _ _ params _ _ _ _     -> (uid, params)
+                               ValueThunk uid _ _ _ _ params _ _ _     -> (uid, params)
                                ValueExternThunk uid _ _ params _ _ _   -> (uid, params)
            isContravariant = uid `IntSet.member` st  -- dereference of "this"
            isOutput        = ident `elem` outputs params
@@ -1134,6 +1246,15 @@ doAnd l r = do b <- l
 allAnd :: [I Bool] -> I Bool
 allAnd = foldl (\l r -> doAnd l r) (return True)
 
+doAny :: I Bool -> I Bool -> I Bool
+doAny l r = do b <- l
+               if b
+                then return True
+                else r
+
+doFirst :: [I Bool] -> I Bool
+doFirst = foldl (\l r -> doAny l r) (return False)
+
 freshBindings :: [Ident] -> I (Map Ident Value)
 freshBindings idents
   = do vs <- mapM (const fresh) idents
@@ -1171,21 +1292,49 @@ established nm v
        modify (\ss -> ss { ssExtraRoots = push (ssExtraRoots ss) })
   where push (xs : xss) = (v : xs) : xss
 
--- determines the visit to establish for the thunk, depending on the visits that
--- are ready, and the statements remaining to be executed
-visitToEstablish :: Ident -> [Ident] -> Value -> I (Ident, Maybe [ThunkStmt])
-visitToEstablish = visitToEstablish' Nothing
+--
+-- Construct a Segment
+--
+-- use the entire given administration to construct a proper heap for each statement
+-- take:
+--   1 altGlobals as the basis
+--   2 the thunkBindings (currently only containing 'innername', used to be restricted to segmentParams)
+--   3 the localsBindings for our alternative for which we have altParams
+--   4 the identifiers introduced by fresh, inst, and inline allocation (except those already bound by locals)
+createSegment :: Value -> [ClosureAlt] -> I Segment
+createSegment thunkValue cAlts
+  = do allLocals <- freshBindings localIdents
+       rootSegs <- mapM (toSegmentRoot allLocals) cAlts
+       return $ if length rootSegs == 1
+                then head rootSegs
+                else Segment [] rootSegs
+  where
+    toSegmentRoot allLocals cAlt
+      = let nms    = altIdents cAlt
+            locals = restrict nms allLocals
+        in toSegment locals cAlt
 
-visitToEstablish' _ nm [] _ = invalidDeref nm
-visitToEstablish' mbStmts nm readyVisits vVisit
-  = do val <- expand vVisit
-       if isGuess val
-        then return (head readyVisits, mbStmts)
-        else do v <- resolve val
-                message ("chasing visit: " ++ show v)
-                case v of
-                  Visit nm stmts _ _ next -> visitToEstablish' (Just stmts) nm (delete nm readyVisits) next
-                  Finish _                -> abort ("derivation for " ++ explainIdent nm ++ " has already been fully established")
+    toSegment locals (ClosureAlt _ innername altGlobals (Alt_Alt _ _ stmts) subAlts)
+      = do subSegs <- mapM (toSegment locals) subAlts
+           introBindings <- freshBindings (filter (\nm -> not (Map.member nm locals)) $ identIntros stmts)
+           let bindings = introBindings
+                          `Map.union` locals
+                          `Map.union` ( Map.fromList [(ident "__this",thunkValue),(innername,thunkValue)] )
+                          `Map.union` altGlobals
+           stmts' <- mapM (toStmt bindings) stmts
+           return (Segment stmts' subSegs)
+    toStmt bindings stmt
+      = do gFinished <- fresh  -- fresh variable indicating that the statement is not finished yet
+           return (ThunkStmt bindings gFinished stmt)
+
+    -- local variables in scope of the segment
+    localIdents = nub $ altsIdents cAlts
+    altsIdents = concatMap altIdents
+    altIdents (ClosureAlt _ _ _ (Alt_Alt _ scopes _) alts) = identsScope scopes ++ altsIdents alts
+
+    -- reduce the items in the map to only those with the given keys
+    restrict ids = Map.filterWithKey (\k _ -> k `elem` ids)
+
 
 -- returns those visits for which the inputs are all defined.
 -- there are no duplicate idents in the result list, and returns
@@ -1211,8 +1360,8 @@ linkVisit vG visit
          ValueGuess _ -> assign vG' visit
          _            -> do prev <- resolve vG'
                             case prev of
-                              Visit _ _ _ _ next -> linkVisit next visit
-                              Finish _           -> abort "cannot link in a new visit in an already finialized visit-chain"
+                              Visit _ _ _ next -> linkVisit next visit
+                              Finish _         -> abort "cannot link in a new visit in an already finialized visit-chain"
 
 -- checks in the list of ready visits, and the chain of already established
 -- visits, that there is a new visit ready to be executed.
@@ -1224,29 +1373,29 @@ isNewVisitReady g vs
         then return True
         else do v <- resolve val
                 case v of
-                  Visit nm _ _ _ next | nm == head vs -> isNewVisitReady next (tail vs)
-                                      | otherwise     -> return False -- a later visit than is in the order is ready.
-                  Finish _                            -> abort "derivation is already finished. Cannot establish it anymore."
+                  Visit nm _ _ next | nm == head vs -> isNewVisitReady next (tail vs)
+                                    | otherwise     -> return False -- a later visit than is in the order is ready.
+                  Finish _                          -> abort "derivation is already finished. Cannot establish it anymore."
 
 -- returns the next visit in the chain given the visit order
-nextVisit :: Maybe [ThunkStmt] -> Value -> [Ident] -> I (Ident, Maybe [ThunkStmt], Maybe Ident)
-nextVisit _ _ [] = abort "empty visit list"
-nextVisit initial g vs
+nextVisit :: Value -> [Ident] -> I (Ident, Maybe Ident)
+nextVisit _ [] = abort "empty visit list"
+nextVisit g vs
   = do val <- expand g
        if isGuess val
-        then return (head vs, initial, listToMaybe (tail vs))
+        then return (head vs, listToMaybe (tail vs))
         else do v <- resolve val
                 case v of
-                  Visit nm stmts _ _ next | nm == head vs -> nextVisit (Just stmts) next (tail vs)
-                                          | otherwise     -> abort "wrong visit order encountered"
-                  Finish _                                -> abort "derivation is already finished. There is no next visit."
+                  Visit nm _ _ next | nm == head vs -> nextVisit next (tail vs)
+                                    | otherwise     -> abort "wrong visit order encountered"
+                  Finish _                          -> abort "derivation is already finished. There is no next visit."
 
 -- checks if the derivation is finished
 assertFinished :: Value -> I ()
 assertFinished g
   = do val <- expand g
        case val of
-         ValueThunk _ _ _ _ _ _ _ _ _ g' -> assertFinishedOutcome g'
+         ValueThunk _ _ _ _ _ _ _ _ g'   -> assertFinishedOutcome g'
          ValueExternThunk _ _ _ _ _ _ g' -> assertFinishedOutcome g'
          _                               -> abort ("not a derivation: " ++ show val ++ "[" ++ show g ++ "]")
 
@@ -1257,8 +1406,8 @@ assertFinishedOutcome g
         then abort "the derivation is not finished"
         else do v <- resolve val
                 case v of
-                  Visit _ _ _ _ next -> assertFinishedOutcome next
-                  Finish _           -> return ()
+                  Visit _ _ _ next -> assertFinishedOutcome next
+                  Finish _         -> return ()
 
 -- wraps the value and assigns it to the guess
 assign :: RulerValue a => Value -> a -> I ()
@@ -1521,7 +1670,13 @@ instance Tabular Char where
 instance Tabular Ident where
   tablify _ _ = txtShowTablify
 
+instance Tabular Branch where
+  tablify _ _ = txtShowTablify
+
 instance Tabular Visit where
+  tablify _ _ = txtShowTablify
+
+instance Tabular Segment where
   tablify _ _ = txtShowTablify
 
 instance Tabular ThunkStmt where
