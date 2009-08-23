@@ -1,0 +1,55 @@
+let k1 = "key1";
+let k2 = "key2";
+let k3 = "key3";
+
+let v1 = 10;
+let v2 = 20;
+let v3 = 30;
+
+dF1 fresh;
+dF2 fresh;
+let d0 = dictEmpty;
+let d1 = dictUnion (dictSingle k1 v1) d0;
+let d11 = dictUnion (dictSingle k1 v1) dF1;
+let d2 = dictUnion (dictSingle k2 v2) d11;
+let d21 = dictUnion (dictSingle k1 v1) dF2;
+
+let dictLookup = \k m ->
+  ( mt, v fresh;
+    let mk = dictUnion (dictSingle k v) mt;
+    mk := m;
+    v
+  );
+
+let dictExclude = \m k ->
+  ( mt, v fresh;
+    let mk = dictUnion (dictSingle k v) mt;
+    mk := m;
+    mt
+  );
+
+let contains = \k m ->
+  ( inst ( derivation outputs res
+           { branch test:
+               eval dictLookup k m;
+               this.res == true;
+             branch otherwise:
+               this.res == false;
+           }
+         ) as d;
+    establish d;
+    d.res
+  );
+
+
+derivation inputs args outputs d
+{ branch main:
+    -- eval message "testing dictionaries";
+    -- eval message (show d1);
+    d0 == d0;
+    d1 == d11;
+    d11 == d1;
+    dF1 == d0;
+    d21 == d2;
+    this.d == contains k2 d21;
+}

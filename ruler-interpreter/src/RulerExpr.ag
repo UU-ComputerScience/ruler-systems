@@ -149,7 +149,7 @@ SET AllParams = Params Param
 SET AllExprs  = Exprs Expr
 SET AllStmts  = Stmts Stmt
 
-DERIVING * : Show
+DERIVING * : Show, Eq, Ord
 
 --
 -- Values
@@ -197,19 +197,19 @@ data Value
 -- represents a single visit to the derivation, giving the name of the visit,
 -- the list of remaining statments, and a value representing the next visit.
 data Visit = Visit !Ident ![(Ident,Value)] !(Seq Message) !Value | Finish !Status
-  deriving (Show, Typeable)
+  deriving (Show, Typeable, Eq, Ord)
 
 data Message = NotifyMsg !String | ErrorMsg !String
-  deriving Typeable
+  deriving (Typeable, Eq, Ord)
 
 -- the fixed branch, if any
 -- contains the selected branch names and the segment of statements for this
 -- branch.
 data Branch
   = Branch Ident Segment
-  deriving (Typeable, Show)
+  deriving (Typeable, Show, Eq, Ord)
 
-data Status = Success | Failure !String deriving (Show, Typeable)
+data Status = Success | Failure !String deriving (Show, Typeable, Eq, Ord)
 
 data PlaceType = Initialized | Defined | Bottom (Maybe PlaceType) -- bottom stores the original place type that may have been associated to the guess
   deriving (Eq, Ord, Show, Typeable)  -- order: initialized < defined < bottom
@@ -225,11 +225,11 @@ data ClosureAlt
 -- found by an inorder traversal of the tree
 data Segment
   = Segment ![ThunkStmt] ![Segment]
-  deriving (Show, Typeable)
+  deriving (Show, Typeable, Eq, Ord)
 
 data ThunkStmt
   = ThunkStmt !(Map Ident Value) !Value !Stmt  -- the value indicates if the stmt has already been applied
-  deriving Typeable
+  deriving (Typeable, Eq, Ord)
 
 instance Show ThunkStmt where
   show (ThunkStmt _ _ s) = show (stmtPos s)
@@ -244,6 +244,12 @@ instance Show Value where
   show (ValuePlaceholder (Bottom _))       = "!bottom"
   show (ValuePlaceholder Defined)          = "!defined"
   show (ValuePlaceholder Initialized)      = "!init"
+
+instance Eq Value where
+  (==) = error "(==) not allowed on Value"
+
+instance Ord Value where
+  compare = error "compare not allowed on Value"
 
 instance Eq Pos where
   p1 == p2 = line p1 == line p2 && column p1 == column p2
@@ -327,14 +333,20 @@ explainBindings = show . Map.assocs
 {
 type Guess = Int
 newtype IndInfo = IndInfo Guess  -- hiding the guess details
-  deriving (Show, Typeable, Eq)
+  deriving (Show, Typeable, Eq, Ord)
 
 data PrimVal = forall v . RulerValue v => PrimVal v
 
 instance Show PrimVal where
   show (PrimVal v) = show v
 
-class (Typeable a, Show a, Tabular a) => RulerValue a where
+instance Eq PrimVal where
+  (==) = error "no (==) on PrimVals allowed"
+
+instance Ord PrimVal where
+  compare = error "no compare on PrimVals allowed"
+
+class (Typeable a, Show a, Eq a, Ord a, Tabular a) => RulerValue a where
   unify           :: a -> a -> I ()
   unifyS          :: a -> a -> I ()
   fgv             :: IntSet -> a -> I IntSet
@@ -1766,7 +1778,7 @@ instance Tabular Value where
 data PrimInt
   = PI !Int
   | IndPI !IndInfo !(Maybe PrimInt)
-  deriving (Eq, Show, Typeable)
+  deriving (Eq, Ord, Show, Typeable)
 
 instance Tabular PrimInt where
   tablify _ maxSize (PI i)
@@ -1780,7 +1792,7 @@ instance Tabular PrimInt where
 data PrimString
   = PS !String
   | IndPS !IndInfo !(Maybe PrimString)
-  deriving (Show, Typeable)
+  deriving (Show, Typeable, Eq, Ord)
 
 instance Tabular PrimString where
   tablify _ maxSize (PS s)
@@ -1946,6 +1958,25 @@ instance Tabular (PolyInd a) where
   minTableLength (PolyInd _ (Just a)) = minTableLength a
   minTableLength (PolyKnown a)        = minTableLength a
 
+instance Eq (PolyInd a) where
+  a == b = case (lastPoly a, lastPoly b) of
+             (PolyKnown a1, PolyKnown b1) -> case cast a1 of
+                                               Just a2 -> a2 == b1
+                                               Nothing -> False -- invalid types cannot be equal
+             _                            -> error "PolyInd is not fully known, cannot test equality"
+
+instance Ord (PolyInd a) where
+  compare a b = case (lastPoly a, lastPoly b) of
+                 (PolyKnown a1, PolyKnown b1) -> case cast a1 of
+                                                   Just a2 -> a2 `compare` b1
+                                                   Nothing -> error "the two PolyInds are of different types, cannot compare them."
+                 _                            -> error "PolyInd is not fully known, cannot compare"
+
+lastPoly :: PolyInd a -> PolyInd a
+lastPoly kn@(PolyKnown _)        = kn
+lastPoly ind@(PolyInd _ Nothing) = ind
+lastPoly (PolyInd _ (Just p))    = lastPoly p
+
 mapInd :: RulerValue a => (a -> I a) -> PolyInd a -> I (PolyInd a)
 mapInd f (PolyInd i (Just p))
   = do p' <- mapInd f p
@@ -1969,6 +2000,14 @@ polyToInd (PolyArg (Poly v))
   | isJust mbInd = PolyInd (fromJust mbInd) Nothing
   | isJust mbVal = PolyKnown (fromJust mbVal)
   where (mbInd,mbVal) = fromIndirection v
+
+resolveToKnown :: PolyInd a -> I (PolyInd a)
+resolveToKnown ind@(PolyKnown _) = return ind
+resolveToKnown (PolyInd g _)
+  = do p <- extResolve g
+       case p of
+         PolyInd _ Nothing  -> abort "couldnt resolve the polymorphic value to a known value"
+         PolyInd _ (Just p) -> resolveToKnown p
 
 -- creates an indirection to the value of a and returns it
 extIndirect :: RulerValue a => a -> I a

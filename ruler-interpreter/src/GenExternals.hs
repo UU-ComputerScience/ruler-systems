@@ -19,6 +19,7 @@ data GenInfo
   = GenInfo Name                  -- name of the data type
             Name                  -- name of the toIndirection function (or Indirection-constructor)
             Name                  -- name of the fromIndirection function (or Indirection-constructor)
+            (Maybe Name)          -- maybe override of unifyS function
             Bool                  -- generate Tabular instance (or not)
 
 data GenResult
@@ -46,9 +47,9 @@ genExtList name names
                    in toLower c : s'
 
 genDataExternal :: GenInfo -> Q GenResult
-genDataExternal (GenInfo tp toIndFun fromIndFun genTbl)
+genDataExternal (GenInfo tp toIndFun fromIndFun mbUnifyFun genTbl)
   = do (TyConI (DataD _ nmD tyvars cons _)) <- reify tp
-       dec <- genRulerValueInst nmD tyvars cons toIndFun fromIndFun
+       dec <- genRulerValueInst nmD tyvars cons toIndFun fromIndFun mbUnifyFun
        (decs, names) <- fmap (unzip . catMaybes) $ mapM (genExtFun nmD) cons
        let decs2 = dec : decs
        decs3 <- if genTbl
@@ -103,10 +104,14 @@ isGuessTp _        = False
 mkParams :: String -> Int -> Q [Name]
 mkParams prefix n = mapM (\i -> newName (prefix ++ show i)) [1..n]
 
-genRulerValueInst :: Name -> [Name] -> [Con] -> Name -> Name -> Q Dec
-genRulerValueInst nmD tyvars cons toIndFun fromIndFun
-  = do unifyClauses <- mapM genUnifyClause cons
-       fallthroughClauses <- fallthrough
+genRulerValueInst :: Name -> [Name] -> [Con] -> Name -> Name -> Maybe Name -> Q Dec
+genRulerValueInst nmD tyvars cons toIndFun fromIndFun mbUnifyFun
+  = do fallthroughClauses <- fallthrough
+       unifyClauses <- case mbUnifyFun of
+                         Nothing -> do cl <- mapM genUnifyClause cons
+                                       return (cl ++ fallthroughClauses)
+                         Just nm -> return [ Clause [] ( NormalB $ VarE nm ) [] ]
+       
        fgvClauses <- mapM genFgvClause cons
        expClauses <- mapM genExpClause cons
        dgvClauses <- mapM genDgvClause cons
@@ -114,7 +119,7 @@ genRulerValueInst nmD tyvars cons toIndFun fromIndFun
        fromIndClauses <- genFromIndClauses fromIndFun
        return $ InstanceD []
                   (AppT (ConT ''RulerValue) tp)
-                  [ FunD 'unifyS (unifyClauses ++ fallthroughClauses)
+                  [ FunD 'unifyS unifyClauses
                   , FunD 'fgvS fgvClauses
                   , FunD 'dgvS dgvClauses
                   , FunD 'expAllS expClauses
