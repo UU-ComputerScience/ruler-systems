@@ -37,7 +37,7 @@ data Ty
   | TyArrow !Ty !Ty
   | TyForall !(List Name) !Ty
   | TyInd !IndInfo !(Maybe Ty)
-  deriving (Show, Typeable)
+  deriving (Show, Typeable, Eq, Ord)
 
 data Exp
   = ExpVar   !Name
@@ -50,12 +50,12 @@ data Exp
   | ExpFix   !Exp
   | ExpCase  !Exp !(List CaseAlt)
   | ExpInd   !IndInfo !(Maybe Exp)
-  deriving (Show, Typeable)
+  deriving (Show, Typeable, Eq, Ord)
 
 data CaseAlt
   = CaseAlt !Name !(List Name) !Exp
   | CaseInd !IndInfo !(Maybe CaseAlt)
-  deriving (Show, Typeable)
+  deriving (Show, Typeable, Eq, Ord)
 
 data ParseRes a
   = ParseFail    !PrimString
@@ -67,6 +67,12 @@ instance Show (ParseRes a) where
   show (ParseSuccess a)      = "{Parsed: " ++ show a ++ "}"
   show (ParseInd _ (Just t)) = show t
   show (ParseInd i Nothing)  = show i
+
+instance Eq (ParseRes a) where
+  (==) = error "dont test equaltity of ParseRes'"
+
+instance Ord (ParseRes a) where
+  compare = error "dont compare ParseRes"
 
 
 type ExtParser a = Parser Token a
@@ -198,7 +204,7 @@ data Arith
   | ArithDiv !Arith !Arith
   | ArithLet !Name !Arith !Arith
   | ArithInd !IndInfo !(Maybe Arith)
-  deriving (Show, Typeable)
+  deriving (Show, Typeable, Eq, Ord)
 
 parseArithFile :: String -> ParseRes Arith
 parseArithFile path
@@ -238,6 +244,12 @@ data Tree a
   | IndTree !IndInfo (Maybe (Tree a))
   deriving (Show, Typeable)
 
+instance Eq (Tree a) where
+  (==) = error "dont test equaltity of Trees"
+
+instance Ord (Tree a) where
+  compare = error "dont compare Trees"
+
 
 --
 -- General common data types
@@ -246,31 +258,43 @@ data Tree a
 data Void
   = Void
   | IndVoid !IndInfo !(Maybe Void)
-  deriving (Show, Typeable)
+  deriving (Show, Typeable, Eq, Ord)
 
 data Tuple a b
   = Tuple !(PolyInd a) !(PolyInd b)
   | IndTuple !IndInfo !(Maybe (Tuple a b))
 
-data Tuple3 a b c
-  = Tuple3 !(PolyInd a) !(PolyInd b) !(PolyInd c)
-  | IndTuple3 !IndInfo !(Maybe (Tuple3 a b c))
+data Triple a b c
+  = Triple !(PolyInd a) !(PolyInd b) !(PolyInd c)
+  | IndTriple !IndInfo !(Maybe (Triple a b c))
 
 instance Show (Tuple a b) where
   show (Tuple a b)           = "(" ++ show a ++ ", " ++ show b ++ ")"
   show (IndTuple _ (Just t)) = show t
   show (IndTuple i Nothing)  = show i
 
-instance Show (Tuple3 a b c) where
-  show (Tuple3 a b c)         = "(" ++ show a ++ ", " ++ show b ++ ", " ++ show c ++ ")"
-  show (IndTuple3 _ (Just t)) = show t
-  show (IndTuple3 i Nothing)  = show i
+instance Show (Triple a b c) where
+  show (Triple a b c)         = "(" ++ show a ++ ", " ++ show b ++ ", " ++ show c ++ ")"
+  show (IndTriple _ (Just t)) = show t
+  show (IndTriple i Nothing)  = show i
+
+instance Eq (Tuple a b) where
+  (==) = error "dont test equaltity of Tuples"
+
+instance Ord (Tuple a b) where
+  compare = error "dont compare Tuples"
+
+instance Eq (Triple a b c) where
+  (==) = error "dont test equaltity of Triples"
+
+instance Ord (Triple a b c) where
+  compare = error "dont compare Triples"
 
 data Boolean
   = BTrue
   | BFalse
   | IndBoolean !IndInfo !(Maybe Boolean)
-  deriving (Show, Typeable)
+  deriving (Show, Typeable, Eq, Ord)
 
 data List a
   = Nil
@@ -278,10 +302,123 @@ data List a
   | IndList !IndInfo !(Maybe (List a))
 
 instance Show (List a) where
-  show Nil = []
+  show Nil = "[]"
   show (Cons ind xs) = show ind ++ ":" ++ show xs
   show (IndList _ (Just l)) = show l
   show (IndList i Nothing)  = show i
+
+instance Eq (List a) where
+  (==) = error "dont test equaltity of Lists"
+
+instance Ord (List a) where
+  compare = error "dont compare Lists"
+
+data Dict a b
+  = DictEmpty
+  | DictSingle !(PolyInd a) !(PolyInd b)
+  | DictUnion !(Dict a b) !(Dict a b)
+  | IndDict !IndInfo !(Maybe (Dict a b))
+
+instance Show (Dict a b) where
+  show = intercalate ", " . items
+    where
+      items DictEmpty = []
+      items (DictSingle indA indB) = [show indA ++ " -> " ++ show indB]
+      items (DictUnion d1 d2)      = items d1 ++ items d2
+      items (IndDict _ (Just d))   = items d
+      items (IndDict i Nothing)    = ["#" ++ show i]
+
+instance Eq (Dict a b) where
+  (==) = error "dont test equaltity of Dicts"
+
+instance Ord (Dict a b) where
+  compare = error "dont compare Dicts"
+
+instance Tabular (Dict a b) where
+  tablify prio maxSize d
+    = do (tbl, size) <- tab prio (maxSize - 2) d
+         return (tabBesides [ tabTxt "{", tbl, tabTxt "}" ], size+2)
+    where
+      tab _ _ DictEmpty = return (TableEmpty, 0)
+      tab prio maxSize (DictSingle indA indB)
+        = do let size = maxSize - 4
+             (tabA, sizeA)   <- tablify prio size indA
+             (tabB, sizeB)   <- tablify prio (size - sizeA) indB
+             return (tabBesides [ tabA, tabTxt " -> ", tabB ], sizeA + sizeB + 4)
+      tab prio maxSize (DictUnion d1 d2)
+        = do let size = maxSize - 2
+             (tabA, sizeA) <- tab prio size d1
+             (tabB, sizeB) <- tab prio (size - sizeA) d2
+             if sizeA == 0
+              then return (tabB, sizeB)
+              else if sizeB == 0
+                   then return (tabA, sizeA)
+                   else return (tabBesides [ tabA, tabTxt ", ", tabB ], sizeA + 2 + sizeB)
+      tab prio maxSize (IndDict _ (Just dict)) = tablify prio maxSize dict
+      tab prio maxSize (IndDict i Nothing)     = tablify prio maxSize i
+
+  minTableLength DictEmpty = 0
+  minTableLength (DictSingle indA indB)  = 4 + minTableLength indA + minTableLength indB
+  minTableLength (DictUnion d1 d2)       = 2 + minTableLength d1 + minTableLength d2
+  minTableLength (IndDict _ (Just dict)) = minTableLength dict
+  minTableLength (IndDict _ _)           = tabDefaultMinSize
+
+-- assuming that there is always an indirection on a
+-- also assuming that there is only one "unknown" dictionary in a union, or
+-- otherwise they will be mapped to be the same
+unifyDict :: Dict a b -> Dict a b -> I ()
+unifyDict d1 d2
+  = do (entries1, ends1) <- chase d1 d1
+       (entries2, ends2) <- chase d2 d2
+       let common = Map.intersectionWith (,) entries1 entries2
+           only1  = Map.difference entries1 entries2
+           only2  = Map.difference entries2 entries1
+
+       -- check if we can extend the maps to be equal
+       when (  (null ends1 && not (Map.null only2))
+            || (null ends2 && not (Map.null only1)) ) $
+        failure "dictionaries cannot be unified, because one has more elements than the other"
+
+       -- compare maching elements
+       mapM_ match (Map.elems common)
+
+       when (not $ Map.null only2) $
+         do sequence_ (zipWith unify ends1 (tail ends1))
+            unify (head ends1) (balanced only2 ends2)
+
+       when (not $ Map.null only1) $
+         do sequence_ (zipWith unify ends2 (tail ends2))
+            unify (head ends2) (balanced only1 ends1)
+  where
+    chase _ DictEmpty = return (Map.empty, [])
+    chase _ (DictSingle indA indB)
+      = do a <- resolveToKnown indA
+           return (Map.singleton a (indA, indB), [])
+    chase _ (DictUnion d1 d2)
+      = do (mp1, ends1) <- chase d1 d1
+           (mp2, ends2) <- chase d2 d2
+           let common = Map.intersectionWith (,) mp1 mp2
+           mapM_ match (Map.elems common)
+           return (Map.union mp1 mp2, ends1 ++ ends2)
+    chase tl (IndDict indInfo _)
+      = do d <- extResolve indInfo
+           case d of
+             IndDict _ Nothing   -> return (Map.empty, [tl])
+             IndDict _ (Just d') -> chase tl d'
+
+    match ((ind1,a1),(ind2,a2))
+      = do unify ind1 ind2
+           unify a1 a2
+    
+    balanced m tls = let term | null tls  = DictEmpty
+                              | otherwise = head tls
+                         balanced' n xs
+                           | n == 1 = uncurry DictSingle (head xs)
+                           | n >= 2 = let n' = n `div` 2
+                                      in DictUnion (balanced' n' (take n' xs)) (balanced' (n-n') (drop n' xs))
+                     in if Map.null m
+                        then term
+                        else DictUnion (balanced' (Map.size m) (Map.elems m)) term
 
 data Env a
   = Env !(Map Ident (PolyInd a))
@@ -292,10 +429,16 @@ instance Show (Env a) where
   show (IndEnv _ (Just e)) = show e
   show (IndEnv i Nothing)  = show i
 
+instance Eq (Env a) where
+  (==) = error "dont test equaltity of Envs"
+
+instance Ord (Env a) where
+  compare = error "dont compare Envs"
+
 data Name
   = Name !Ident
   | IndName !IndInfo !(Maybe Name)
-  deriving Typeable
+  deriving (Typeable, Eq, Ord)
 
 instance Show Name where
   show (Name nm) = show nm
@@ -306,21 +449,22 @@ instance Show Name where
 -- Splice in generated code from the above data types
 $(let genInfos :: [GenInfo]
       genInfos
-        = [ GenInfo ''PrimString 'IndPS 'IndPS False
-          , GenInfo ''PrimInt 'IndPI 'IndPI False
-          , GenInfo ''Boolean 'IndBoolean 'IndBoolean True
-          , GenInfo ''List 'IndList 'IndList True
-          , GenInfo ''Void 'IndVoid 'IndVoid True
-          , GenInfo ''Tuple 'IndTuple 'IndTuple True
-          , GenInfo ''Tuple3 'IndTuple3 'IndTuple3 True
-          , GenInfo ''Name 'IndName 'IndName True
-          , GenInfo ''Env 'IndEnv 'IndEnv True
-          , GenInfo ''Tree 'IndTree 'IndTree True
-          , GenInfo ''Ty 'TyInd 'TyInd True
-          , GenInfo ''Exp 'ExpInd 'ExpInd True
-          , GenInfo ''CaseAlt 'CaseInd 'CaseInd True
-          , GenInfo ''ParseRes 'ParseInd 'ParseInd True
-          , GenInfo ''Arith 'ArithInd 'ArithInd True
+        = [ GenInfo ''PrimString 'IndPS 'IndPS Nothing False
+          , GenInfo ''PrimInt 'IndPI 'IndPI Nothing False
+          , GenInfo ''Boolean 'IndBoolean 'IndBoolean Nothing True
+          , GenInfo ''List 'IndList 'IndList Nothing True
+          , GenInfo ''Dict 'IndDict 'IndDict (Just 'unifyDict) False
+          , GenInfo ''Void 'IndVoid 'IndVoid Nothing True
+          , GenInfo ''Tuple 'IndTuple 'IndTuple Nothing True
+          , GenInfo ''Triple 'IndTriple 'IndTriple Nothing True
+          , GenInfo ''Name 'IndName 'IndName Nothing True
+          , GenInfo ''Env 'IndEnv 'IndEnv Nothing True
+          , GenInfo ''Tree 'IndTree 'IndTree Nothing True
+          , GenInfo ''Ty 'TyInd 'TyInd Nothing True
+          , GenInfo ''Exp 'ExpInd 'ExpInd Nothing True
+          , GenInfo ''CaseAlt 'CaseInd 'CaseInd Nothing True
+          , GenInfo ''ParseRes 'ParseInd 'ParseInd Nothing True
+          , GenInfo ''Arith 'ArithInd 'ArithInd Nothing True
           ]
   in genDataExternals "dataExternals" genInfos)
 
@@ -335,6 +479,7 @@ chooseTup :: Int -> Ident
 chooseTup 0 = ident "void"
 chooseTup 1 = ident "single"
 chooseTup 2 = ident "tuple"
+chooseTup 3 = ident "triple"
 chooseTup n = ident ("tuple" ++ show n)
 
 
