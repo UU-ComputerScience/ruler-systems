@@ -616,7 +616,10 @@ instance RulerValue Value where
                                                       v1' <- dgv v1
                                                       v2' <- dgv v2
                                                       return $ IntSet.insert g1 $ IntSet.unions [b', v1', v2']
-  dgv (ValueClosure _ _ alts _)                  = dgv (map (\(ClosureAlt _ _ bndgs _ _) -> bndgs) alts)
+  dgv (ValueClosure _ _ alts _)                  = let altsBindings = concatMap altBindings
+                                                       altBindings (ClosureAlt _ _ bndgs _ subs) = bndgs : altsBindings subs
+                                                   in do sets <- mapM dgv (altsBindings alts)
+                                                         return (IntSet.unions sets)
   dgv _                                          = return IntSet.empty
   dgvS _                                         = abort "do not call dgvS on Value"
 
@@ -1844,6 +1847,13 @@ instance Tabular PrimString where
 
 {
 substCollectGarbage :: Bool -> I ()
+substCollectGarbage _ = return ()
+
+{-
+-- Disabled garbage collection. Reason: it does not take
+-- new Segments into account, so all bindings in ThunkStmts
+-- in such a segment are not taken as roots, which may thus
+-- be garbage collected.
 substCollectGarbage force
   = do lastSize <- gets ssLastSubstSize
        subst    <- gets ssSubst
@@ -1886,6 +1896,7 @@ substCollectGarbage force
            case IntMap.lookup g subst of
              Just v  -> dgv v
              Nothing -> return IntSet.empty
+-}
 }
 
 
@@ -1981,7 +1992,10 @@ instance RulerValue (PolyInd a) where
 instance Tabular (PolyInd a) where
   tablify prio maxSize (PolyInd (IndInfo g) mbInd)
     = case mbInd of
-        Nothing -> tablifyGuess g -- tablify prio maxSize (ValueGuess g)
+        Nothing -> do mbP <- valLookupIT g
+                      case mbP of
+                        Just p  -> tablify prio maxSize p
+                        Nothing -> tablify prio maxSize (ValueGuess g)
         Just a  -> tablify prio maxSize a
   tablify prio maxSize (PolyKnown a)
     = tablify prio maxSize a

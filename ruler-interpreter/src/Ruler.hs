@@ -123,6 +123,7 @@ evalStmt' ctx (Stmt_Establish _ nm mbLvl)
                                  do when isSingleBranch fixBranch
                                     execUnordered lbls segment
                                     when (not isSingleBranch) fixBranch
+                                    withDebugLevel 4 $ checkSegmentExecuted segment
                                     checkOutputsDefined bindings visitNm params
                     in backtrack gBranch (map (uncurry evalAlt) branches)
                   Just (Branch _ segment) -> -- already first visit established
@@ -205,7 +206,22 @@ evalStmt' ctx (Stmt_Establish _ nm mbLvl)
       = do allDefined <- identsDefined bindings (visitOutputs params visitNm)
            if allDefined
             then return ()
-            else abort ( "Some of the outputs for visit " ++ show visitNm ++ " for a derivation named " ++ show nm ++ " remain undefined." )
+            else do bindings' <- expandBindings bindings
+                    abort ( "Some of the outputs " ++ intercalate "," (map explainIdent (visitOutputs params visitNm)) ++
+                            " for visit " ++ show visitNm ++ " for a derivation named " ++ explainIdent nm ++
+                            " remain undefined. Bindings: " ++ explainBindings bindings' )
+
+    checkSegmentExecuted (Segment stmts segs)
+      = do mapM_ checkStatementExecuted stmts
+           mapM_ checkSegmentExecuted segs
+
+    checkStatementExecuted (ThunkStmt bindings gStmt stmt)
+      = do vStmt <- expand gStmt
+           when (isGuess vStmt) $
+             do reasons <- restrictBindings bindings $ isReady Set.empty stmt
+                bindings' <- expandBindings bindings
+                message ("A statement " ++ show stmt ++ " was not executed, reasons: " ++ show reasons
+                         ++ ", with bindings: " ++ explainBindings bindings')
 evalStmt' _ (Stmt_Equiv pos left right)
   = do v1 <- evalExpr left
        v2 <- evalExpr right
@@ -221,6 +237,7 @@ evalStmt' _ (Stmt_Bind pos left right)
        return False
 evalStmt' _ (Stmt_Fresh _ nms)
   = do mapM_ (\nm -> do v <- lookupIdent nm
+                        withDebugLevel 4 $ message ("fresh: " ++ show v ++ " as " ++ explainIdent nm)
                         markDefined v) nms
        return False
 evalStmt' _ (Stmt_Eval _ expr)

@@ -144,8 +144,8 @@ genRulerValueInst nmD tyvars cons toIndFun fromIndFun mbUnifyFun
 
 genDummyTypeable :: Name -> [Name] -> Q [Dec]
 genDummyTypeable nm vars
-  = do nmD <- newName "Dummy"
-       nmC <- newName "DummyCon"
+  = do nmD <- newName (nameBase nm ++ "Dummy")
+       nmC <- newName (nameBase nm ++ "DummyCon")
        return [ DataD [] nmD [] [NormalC nmC []] [''Typeable]
               , InstanceD [] (AppT (ConT ''Typeable) $ foldl AppT (ConT nm) (map VarT vars))
                   [ FunD 'typeOf [ Clause [WildP] (NormalB $ AppE (VarE 'typeOf) (ConE nmC)) [] ]
