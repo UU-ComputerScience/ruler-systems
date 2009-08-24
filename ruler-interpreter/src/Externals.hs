@@ -10,16 +10,21 @@ import Data.Set(Set)
 import qualified Data.Set as Set
 import Data.IntSet(IntSet)
 import qualified Data.IntSet as IntSet
+import Data.IntMap(IntMap)
+import qualified Data.IntMap as IntMap
 import GenExternals
 import Data.Typeable
 import UU.Scanner
 import Control.Monad.Error
+import Control.Monad.Reader
+import Control.Monad.State.Strict
 import Data.List
 import Unsafe.Coerce
 import System.IO.Unsafe
 import UU.Scanner
 import UU.Parsing
 import Data.Maybe
+import Opts
 
 
 --
