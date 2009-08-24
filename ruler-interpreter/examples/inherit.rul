@@ -1,0 +1,54 @@
+let testlist = cons 1 (cons 2 (cons 3 nil));
+
+let elemsIdDeriv = derivation inputs x outputs y
+  { branch main:
+      this.y == this.x;
+  };
+
+let sum = derivation outputs y
+  { branch cons requires hd, tl:
+      this.y == add hd.y tl.y;
+    branch nil:
+      this.y == 0;
+  };
+
+let walkList = \d ->
+  ( let ds = derivation inputs xs
+      { branch cons:
+          cons !x !xs := this.xs;
+          inst d as hd;
+          hd.x == x;
+          establish hd;
+
+          inst this as tl;
+          tl.xs == xs;
+          establish tl;
+        branch nil:
+          nil := this.xs;
+      };
+    ds
+  );
+
+derivation inputs args outputs y
+{ branch main:
+    let e = inherit (walkList elemsIdDeriv) { sum };
+    inst e as d;
+    d.xs == testlist;
+    establish d;
+    this.y == d.y;
+}
+
+
+-- simple example:
+--
+-- let base = derivation inputs args outputs y
+--   { branch master:
+--       !z == this.args;
+--   };
+
+-- let child = derivation outputs y
+--   { branch master requires z:
+--       this.y == z;
+--   };
+-- 
+-- inherit base { child }

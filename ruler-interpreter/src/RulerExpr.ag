@@ -216,6 +216,7 @@ data PlaceType = Initialized | Defined | Bottom (Maybe PlaceType) -- bottom stor
 
 -- an alternative of some derivation stored in the closure with environment information
 -- the closure-alts are nested. This is due to inheritance between closures.
+-- The Ident is the "innername" for this block.
 data ClosureAlt
   = ClosureAlt !Params !Ident !(Map Ident Value) !Alt ![ClosureAlt]
   deriving (Show, Typeable)
@@ -285,6 +286,10 @@ visitIdentMain = ident "__main"
 -- Guess pointing to the root of the main derivation
 rootGuess :: Guess
 rootGuess = 1
+
+-- extract the name of the alternative
+altName :: ClosureAlt -> Ident
+altName (ClosureAlt _ _ _ (Alt_Alt nm _ _) _) = nm
 }
 
 
