@@ -1,0 +1,159 @@
+-- type inference for damas-milner
+
+let parse = \args -> case length args of
+  { 1 -> let { filename = head args; }
+         in abstract parse inputs filename
+              ( case parseExpFile filename of
+                  { parseSuccess expr -> expr;
+                    parseFail msg     -> abort msg;
+                  });
+    _ -> abort "usage: ./ruler damasmilner.rul <file.exp>";
+  };
+
+let int = tyCon (ident "Int");
+
+syntax { env |- e : !ty };
+
+keywords { fix };
+syntax tyArrow { 1 -> 2 };
+syntax expApp { 1 @ 2 };
+syntax expLam { \1.2 };
+syntax expTLam { \ 1 : 2 . 3 };
+syntax expLet { let 1 = 2 in 3 };
+syntax expFix { fix 1 };
+
+
+let equal = \a b -> abstract equal inputs a, b
+                    ( inst (derivation outputs res
+                             { branch equal:   a == b;
+                                               this.res == true;
+                               branch unequal: this.res == false;
+                             }) as test;
+                      establish test;
+                      test.res
+                    );
+
+let foldr = \f ini xs -> case xs of
+{ @{nil} -> ini;
+  cons z zs -> f z (foldr f ini zs);
+};
+
+let elem = \x ys -> foldr (\y r -> if equal x y
+                                 then true
+                                 else r
+                        ) false ys;
+
+let difference = \xs ys -> foldr (\x r -> if elem x ys
+                                          then r
+                                          else cons x r
+                              ) nil xs;
+
+let subst = \g x t -> case t of
+                    { tyArrow a r   -> tyArrow (subst g x a) (subst g x r);
+                      tyForall ns b -> tyForall ns (subst g x b);
+                      tyVar _       -> t;
+                      tyCon _       -> t;
+                      _             -> if equal (getguess t) g
+                                       then tyVar x
+                                       else t;
+                    };
+
+let replace = \nm rep ty -> case ty of
+{ tyVar x -> if equal nm x
+             then rep
+             else ty;
+  tyArrow f a -> tyArrow (replace nm rep f) (replace nm rep a);
+  tyForall x t -> if equal nm x
+                  then t
+                  else tyForall x (replace nm rep t);
+  _       -> ty;
+};
+
+let instantiate = \ty -> abstract instantiate inputs ty
+  ( case ty of
+      { tyForall nm t -> ( t' fresh;
+                           replace nm t' (instantiate t)
+                         );
+        _             -> ty;
+    });
+
+let map = \f xs ->
+  ( case xs of
+    { @nil      -> xs;
+      cons x ys -> cons (f x) (map f ys);
+    }
+  );
+
+let zip = \xs ys ->
+  ( case xs of
+    { @nil       -> xs;
+      cons x xs' -> case ys of
+                    { @nil -> ys;
+                      cons y ys' -> cons (tuple x y) (zip xs' ys');
+                    };
+    });
+
+let null = \xs -> equal (length xs) 0;
+
+let generalize = \env ty ->
+  let { vars   = abstract nonoverlap inputs ty, env (difference (fgv ty) (fgv env));
+        nms    = map (\g -> ident (show g)) vars;
+        assocs = zip vars nms;
+        trans = \(tuple g nm) t -> subst g nm t;
+        tyBody = foldr trans ty assocs;
+        tyFull = if null nms
+                 then tyBody
+                 else tyForall nms tyBody;
+      }
+  in abstract generalize inputs ty, env tyFull;
+
+
+let infer = derivation inputs env, e outputs ty
+{  branch var:
+     let ty = lookup x g; -- instantiate (lookup x g);
+     --------
+     establish  { g |- expVar x : ty };
+   
+   branch const:
+     --------
+     establish  { g |- expConst i : int };
+
+   branch app:
+     r fresh;
+     establish  {  g |- f : tf  };
+     establish  {  g |- a : ta  };
+     tf == ta -> r;
+     --------
+     establish  {  g |- f@a : r  };
+
+   branch lam:
+     tx fresh;
+     establish  {  (extend x tx g) |- b : r  };
+     --------
+     establish  {  g |- \x.b : tx -> r };
+
+   branch etlam:
+     establish   {  (extend x tx g) |- b : r  };
+     --------
+     establish  {  g |- \x:tx.b : tx -> r  };
+   
+   branch elet:
+     establish  {  g |- e : tyx  };
+     establish  {  (extend x (generalize this.env tyx)) |- b : tyb  };
+     --------
+     establish  {  g |- let x = e in b : tyb  };
+
+   branch efix:
+     t fresh;
+     establish  {  g |- f : t -> t  };
+     --------
+     establish  {  g |- fix f : t  };
+};
+
+
+derivation inputs args outputs ty
+{ branch main:
+    !expr == parse this.args;
+    establish infer  {  emptyenv |- expr : ty  };
+    this.ty == generalize emptyenv ty;
+}

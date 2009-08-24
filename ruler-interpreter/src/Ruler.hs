@@ -395,8 +395,9 @@ instance IsReady Expr where
                     return (if b then [] else [ FieldIdentNotReady fld nm ignore ])
   isReady ignore (Expr_Seq stmts expr) = let ignore' = Set.fromList (explicitIntroducedIdents stmts) `Set.union` ignore
                                          in doConcat [ isReady ignore' stmts, isReady ignore' expr ]
-  isReady ignore (Expr_Merge _ exprs)  = isReady ignore exprs
-  isReady _ _                          = return []
+  isReady ignore (Expr_Merge _ exprs)        = isReady ignore exprs
+  isReady ignore (Expr_Inherit _ expr exprs) = doConcat [ isReady ignore expr, isReady ignore exprs ]
+  isReady _ _                                = return []
 
 evalExpr :: Expr -> I Value
 evalExpr (Expr_Var Mode_Ref nm)      = checkValueInitialized nm $ lookupIdent nm
@@ -439,6 +440,23 @@ evalExpr (Expr_Merge _ exprs)
              lvl  = head (map closureLevelOpt closures)
              ords = concatMap closureOrder closures
          return $ ValueClosure lvl lbls alts ords
+evalExpr (Expr_Inherit _ expr exprs)
+  | length exprs == 0 = abort "empty inherit"
+  | otherwise =
+      do closures <- mapM evalExprAsClosure exprs
+         closure  <- evalExprAsClosure expr
+         let altsMap = Map.fromListWith (++) [ (altName alt, [alt]) | alt <- concatMap closureAlts closures ]
+             allClosures = closure : closures
+             lbls = Set.unions $ map closureLabels allClosures
+             ords = concatMap closureOrder allClosures
+         case closure of
+           ValueClosure lvl _ alts _ ->
+             let alts' = map extendAlt alts
+                 extendAlt (ClosureAlt params innername bindings alt@(Alt_Alt nm _ _) children)
+                   = let extra = Map.findWithDefault [] nm altsMap
+                     in ClosureAlt params innername bindings alt (children ++ extra)
+             in return (ValueClosure lvl lbls alts' ords)
+           _ -> abort ("not a closure: " ++ show closure)
 
 evalExprAsClosure :: Expr -> I Value
 evalExprAsClosure expr

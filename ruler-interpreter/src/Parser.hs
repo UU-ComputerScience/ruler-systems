@@ -25,6 +25,9 @@ pKeyExternal = pKeyPos "external"
 pKeyMerge :: RulerParser Pos
 pKeyMerge = pKeyPos "merge"
 
+pKeyInherit :: RulerParser Pos
+pKeyInherit = pKeyPos "inherit"
+
 pKeyInputs :: RulerParser Pos
 pKeyInputs = pKeyPos "inputs"
 
@@ -237,6 +240,7 @@ parse s tks = parseTokens (sel s)
                  <|> Expr_Derivation <$> pKeyDerivation <*> pOrder <*> pParamsIO <*> opt (pKeyInnername *> pIdent) (ident "this") <*> pLevel <* pOCurly <*> pAlts <* pCCurly
                  <|> Expr_External <$> pKeyExternal <*> pIdent <*> pParamsIOExtern <*> pLevel
                  <|> Expr_Merge <$> pKeyMerge <*> pCurly (pList1Sep_ng pComma exprWith)
+                 <|> Expr_Inherit <$> pKeyInherit <*> pExpr <*> pCurly (pList1Sep_ng pComma exprWith)
                  <|> pParens pToplevelExpr
           )
       <|> uncurry Expr_Prim <$> pPrimVal

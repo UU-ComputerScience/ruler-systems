@@ -19,7 +19,8 @@ tokens :-
   
   syntax | keywords | augment                        { reserved }               -- syntax/keyword block
 
-  ( derivation| external | merge | branch | order
+  ( derivation| external | branch | order
+  | merge | inherit
   | inputs | outputs | visit | requires | exposes
   | hide | skip | abstract | innername
   | inst | as | establish | fresh | eval )           { reserved }               -- keywords
