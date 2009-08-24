@@ -580,13 +580,20 @@ instance RulerValue a => RulerValue (Map Ident a) where
   fromIndirection a = (Nothing, Just a)
 
 instance RulerValue Value where
-  unify v1 v2 = unifValue v1 v2 `catchError` ( let msg v = expAll guessLookup v >>= \v' -> return (if v `eq` v' then show v else show v' ++ " [" ++ show v ++ "]")
-                                                   eq (ValueGuess g1) (ValueGuess g2) | g1 == g2 = True
-                                                   eq _               _                          = False
-                                               in \err -> do m1 <- msg v1
-                                                             m2 <- msg v2
-                                                             extendError False ("unify on " ++ m1 ++ " and " ++ m2 ++ " failed") err
-                                             )
+  unify v1 v2 =
+    let msg v = expAll guessLookup v >>= \v' -> return (if v `eq` v' then show v else show v' ++ " [" ++ show v ++ "]")
+        eq (ValueGuess g1) (ValueGuess g2) | g1 == g2 = True
+        eq _               _                          = False
+    in   ( do withDebugLevel 4 $ do m1 <- msg v1
+                                    m2 <- msg v2
+                                    message ("unify on value: " ++ m1 ++ " and " ++ m2)
+              unifValue v1 v2
+         )
+       `catchError`
+         (  \err -> do m1 <- msg v1
+                       m2 <- msg v2
+                       extendError False ("unify on " ++ m1 ++ " and " ++ m2 ++ " failed") err
+         )
   unifyS _ _ = abort "do not call unifyS on Value"
 
   fgv acc (ValueOpaque _ _ gs)                   = fgvs (IntSet.union gs acc) gs
@@ -733,7 +740,8 @@ bindVar2 g v
 -- perform the occur check and actual binding
 bindVar3 :: Guess -> Value -> I ()
 bindVar3 g v
-  = do gs <- fgv IntSet.empty v
+  = do withDebugLevel 4 $ debugBindVar g v
+       gs <- fgv IntSet.empty v
        if g `IntSet.member` gs
         then failure ("guess " ++ show g ++ " occurs in " ++ show (IntSet.toList gs))
         else case v of
@@ -742,13 +750,20 @@ bindVar3 g v
                                            let v' = ValueOpaque g' a gs
                                            backpatch gOrig v'
                                            modify (\s -> s { ssSubst = IntMap.insert g v' $ ssSubst s })
-               _                  -> modify (\s -> s { ssSubst = IntMap.insert g v $ ssSubst s })
+               ValueGuess g2 -> do -- creating a mapping g -> g2. Placeholder of g will be lost, so integrate it with potentially one of g2
+                                   mbHg  <- getPlaceholder g
+                                   mbHg2 <- getPlaceholder g2
+                                   let mbH = mergePlaceholdersMaybe mbHg mbHg2
+                                   modify (\s -> s { ssSubst = maybe id (\h -> IntMap.insert g2 (ValuePlaceholder h)) mbH $ IntMap.insert g v $ ssSubst s })
+               _             -> modify (\s -> s { ssSubst = IntMap.insert g v $ ssSubst s })
 
 -- call this from "bindVar3" to see which bindings are made
 debugBindVar :: Guess -> Value -> I ()
 debugBindVar g (ValueOpaque _ v _)
   = do v' <- expAll guessLookup v
-       message ("bound " ++ show g ++ " to " ++ show v')
+       message ("binding " ++ show g ++ " to " ++ show v')
+debugBindVar g1 (ValueGuess g2)
+  = message ("binding " ++ show g1 ++ " to " ++ show g2)
 debugBindVar g _ = return ()
 
 errBottom :: Value -> I ()
@@ -767,6 +782,16 @@ isBottom _                             = False
 isPlaceholder :: Value -> Bool
 isPlaceholder (ValuePlaceholder _) = True
 isPlaceholder _                    = False
+
+mergePlaceholdersMaybe :: Maybe PlaceType -> Maybe PlaceType -> Maybe PlaceType
+mergePlaceholdersMaybe mb1 mb2
+  = maybe mb2 (\h -> maybe (Just h) (Just . mergePlaceholders h) mb2) mb1
+
+mergePlaceholders :: PlaceType -> PlaceType -> PlaceType
+mergePlaceholders (Bottom h1) (Bottom h2) = Bottom (mergePlaceholdersMaybe h1 h2)
+mergePlaceholders (Bottom h1) h2          = Bottom (mergePlaceholdersMaybe h1 (Just h2))
+mergePlaceholders h1 (Bottom h2)          = Bottom (mergePlaceholdersMaybe (Just h1) h2)
+mergePlaceholders h1 h2                   = max h1 h2
 }
 
 
@@ -1235,11 +1260,19 @@ matchPlaceholder :: PlaceType -> Value -> I Bool
 matchPlaceholder h v
   = do v' <- expand v
        case v' of
-         ValueGuess g -> do subst <- gets ssSubst
-                            case IntMap.lookup g subst of
-                              Just (ValuePlaceholder h') -> return (h <= h')
-                              _                          -> return False
+         ValueGuess g -> do mbH <- getPlaceholder g
+                            case mbH of
+                              Just h' -> return (h <= h')
+                              _       -> return False
          _            -> return True
+
+-- returns the place holder *directly* attached to the guess
+getPlaceholder :: Guess -> I (Maybe PlaceType)
+getPlaceholder g
+  = do subst <- gets ssSubst
+       case IntMap.lookup g subst of
+         Just (ValuePlaceholder h) -> return (Just h)
+         _                         -> return Nothing
 
 -- short-circuiting list combine
 doConcat :: [I [a]] -> I [a]
@@ -1526,6 +1559,7 @@ switchStateIT :: (m a -> n b) -> IT m a -> IT n b
 switchStateIT = mapReaderT
 
 isNoPlaceholderIT :: Monad m => Value -> IT m Bool
+isNoPlaceholderIT (ValuePlaceholder _) = return False
 isNoPlaceholderIT (ValueGuess g)
   = do subst <- asks itSubst
        case IntMap.lookup g subst of
@@ -1588,21 +1622,19 @@ processReferences m g f
                               acc'  = acc Seq.>< (Seq.fromList (zip gs rs))
                           it todo' done' acc'
 
-
+-- tablifyGuess uses valExpand. If expansion returns in a guess, then it
+-- prints the guess. If it returns in something else, it prints a reference.
 tablifyGuess :: Monad m => Guess -> TTM m (Table, Int)
 tablifyGuess g
-  = let txtRef = TableText ("%" ++ show g)
-        txtVar = TableText ("#" ++ show g)
-        n      = 1 + length (show g)
-    in do v <- valLookupIT g
+  = let txtRef g' = TableText ("%" ++ show g')
+        txtVar g' = TableText ("#" ++ show g')
+        n g'      = 1 + length (show g')
+    in do v <- valExpand (ValueGuess g)
           case v of
-            Just v' -> do b <- isNoPlaceholderIT v'
-                          if b
-                           then do (c,gs) <- get
-                                   put (c+1, IntSet.insert g gs)
-                                   return (TableRef c g txtRef, n)
-                           else return (txtVar, n)
-            Nothing -> return (txtVar, n)
+            ValueGuess g' -> return (txtVar g', n g')
+            _             -> do (c,gs) <- get
+                                put (c+1, IntSet.insert g gs)
+                                return (TableRef c g (txtRef g), n g)
 
 tabTxt :: String -> Table
 tabTxt = TableText
