@@ -1,6 +1,16 @@
 {-# OPTIONS_GHC -fglasgow-exts #-}
 module Parser(Parser.parse,Select(..)) where
 
+
+--
+--  TODO: cleanup parser
+--    * only allow "meta" fields and "abstract" at the right places
+--    * deal with the states better (all those boolean options)
+--    * find out where potential ambiguities are
+--    * left-factor it
+--    * use some of the greedy parsers
+--
+
 import UU.Scanner
 import UU.Scanner.GenToken
 import UU.Parsing
@@ -79,6 +89,9 @@ pKeyAs = pKeyPos "as"
 pKeyEval :: RulerParser Pos
 pKeyEval = pKeyPos "eval"
 
+pKeyExec :: RulerParser Pos
+pKeyExec = pKeyPos "exec"
+
 pKeyLam :: RulerParser Pos
 pKeyLam = pKeyPos "\\"
 
@@ -154,6 +167,24 @@ pKeyTrue = pKeyPos "true"
 pKeyFalse :: RulerParser Pos
 pKeyFalse = pKeyPos "false"
 
+pKeyAny :: RulerParser Pos
+pKeyAny = pKeyPos "any"
+
+pKeyAll :: RulerParser Pos
+pKeyAll = pKeyPos "all"
+
+pKeySucc :: RulerParser Pos
+pKeySucc = pKeyPos "succ"
+
+pKeyPred :: RulerParser Pos
+pKeyPred = pKeyPos "pred"
+
+pKeyLast :: RulerParser Pos
+pKeyLast = pKeyPos "last"
+
+pKeyFirst :: RulerParser Pos
+pKeyFirst = pKeyPos "first"
+
 pIdent :: RulerParser Ident
 pIdent = uncurry Ident <$> pVaridPos
 
@@ -180,8 +211,8 @@ parse s tks = parseTokens (sel s)
                      <|> mkBind <$> pKeyBind <*> pExpr <* pSemi )
       <|> -- cases that start with an Establish
           pKeyEstablish <**> (   pIdent <**> (   mkEstablish <$> pLevelOverride <* pSemi
-                                             <|> mkEqEstabl <$> pCurly pEqSyns <* pSemi )
-                             <|> mkEqEstabl' <$> pCurly pEqSyns <* pSemi )
+                                             <|> mkEqEstabl <$> pCurly pEqSyns <*> pAs <* pSemi )
+                             <|> mkEqEstabl' <$> pCurly pEqSyns <*> pAs <* pSemi )
       -- other cases
       <|> mkInst      <$> pKeyInst <*> pExpr <* pKeyAs <*> pIdent <* pSemi
       <|> mkFresh     <$> pList1Sep_ng pComma pIdent <* pKeyFresh <* pSemi      -- watch out for ambiguities with this one
@@ -189,6 +220,7 @@ parse s tks = parseTokens (sel s)
       <|> mkEqAugment <$> pKeyAugment <*> pIdent <*> pCurly pEqSyns <* pSemi
       <|> mkEqConcl   <$> pKeyLine <*> pList1_ng (pKeyEstablish *> pCurly pEqSynsR) <* pSemi
       <|> mkLet       <$> pKeyLet <*> pPat <* pKeyEqual <*> pExpr <* pSemi
+      <|> mkAbstract  <$> pKeyAbstract <*> stmt
       where
         mkInst p e nm          = wrap (Stmt_Inst p e nm)
         mkEstablish mbLvl nm p = wrap (Stmt_Establish p nm mbLvl)
@@ -197,11 +229,14 @@ parse s tks = parseTokens (sel s)
         mkFresh nms            = wrap (Stmt_Fresh (identPos (head nms)) nms)
         mkEval p e             = wrap (Stmt_Eval p e)
         mkEqAugment p nm o     = sem_EqStmt_Augment p nm o
-        mkEqEstabl o nm p      = sem_EqStmt_Establish p nm o
-        mkEqEstabl' o p        = sem_EqStmt_Establish p (Ident "this" p) o
+        mkEqEstabl o mbAs nm p = sem_EqStmt_Establish p nm o mbAs
+        mkEqEstabl' o mbAs p   = sem_EqStmt_Establish p (Ident "this" p) o mbAs
         mkEqConcl p os         = sem_EqStmt_Conclusion p (foldr sem_Augmentss_Cons sem_Augmentss_Nil os)
         mkLet                  = mkStmtLet onDeriv
+        mkAbstract p s         = wrap (Stmt_Abstract p (if null s then Stmt_Nop p else head s))
         wrap                   = return
+        stmt                   = if onDeriv then pStmtDeriv else pStmtSeq
+        pAs = Just <$ pKeyAs <*> pIdent <|> pSucceed Nothing
 
     pStmtsDeriv :: RulerParser Stmts
     pStmtsDeriv = concat <$> pList1_ng pStmtDeriv
@@ -236,11 +271,13 @@ parse s tks = parseTokens (sel s)
             else pIdent <**> (   pSucceed (Expr_Var Mode_Ref)
                              <|> (\nm fld -> Expr_Field fld nm) <$ pKeyDot <*> pIdent
                              )
+                 <|> Expr_AbstractField <$> pMeta <* pKeyDot <*> pIdent
                  <|> Expr_Var <$> (Mode_Def <$ pKeyBang) <*> pIdent
                  <|> Expr_Derivation <$> pKeyDerivation <*> pOrder <*> pParamsIO <*> opt (pKeyInnername *> pIdent) (ident "this") <*> pLevel <* pOCurly <*> pAlts <* pCCurly
                  <|> Expr_External <$> pKeyExternal <*> pIdent <*> pParamsIOExtern <*> pLevel
                  <|> Expr_Merge <$> pKeyMerge <*> pCurly (pList1Sep_ng pComma exprWith)
                  <|> Expr_Inherit <$> pKeyInherit <*> pExpr <*> pCurly (pList1Sep_ng pComma exprWith)
+                 <|> mkExec <$> pKeyExec <*> pCurly pStmtsSeq
                  <|> pParens pToplevelExpr
           )
       <|> uncurry Expr_Prim <$> pPrimVal
@@ -248,6 +285,7 @@ parse s tks = parseTokens (sel s)
       where
         exprWith     = if isOutput then pOutputExpr else pExpr
         exprWithout  = if isOutput then pOutputExprWithoutLambda else pExprWithoutLambda
+        mkExec p s   = Expr_Seq s (Expr_Var Mode_Ref (Ident "void" p))
 
     readInt :: String -> Int
     readInt = read
@@ -270,6 +308,15 @@ parse s tks = parseTokens (sel s)
       =   Level_Hide <$ pKeyHide
       <|> Level_Skip <$ pKeySkip
       <|> Level_Abstract <$ pKeyAbstract <*> pIdent
+
+    pMeta :: RulerParser Meta
+    pMeta
+      =   Meta_Any   <$> pKeyAny
+      <|> Meta_All   <$> pKeyAll
+      <|> Meta_Succ  <$> pKeySucc
+      <|> Meta_Pred  <$> pKeyPred
+      <|> Meta_Last  <$> pKeyLast
+      <|> Meta_First <$> pKeyFirst
 
     pPrimVal :: RulerParser (Pos, PrimVal)
     pPrimVal

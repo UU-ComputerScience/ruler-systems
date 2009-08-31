@@ -78,6 +78,7 @@ DATA EqStmt
       pos    : Pos
       source : Ident
       body   : Augments
+      mbAs   : {Maybe Ident}
   | Conclusion
       pos    : Pos
       body   : Augmentss
@@ -102,7 +103,9 @@ SEM EqStmt
       body.deriv = @deriv
       body.pos   = @pos
   | Establish
-      loc.deriv  = Ident (identName @source ++ "-" ++ show (line @pos) ++ "d" ++ show (column @pos)) @pos
+      loc.deriv  = case @mbAs of
+                     Just nm -> nm
+                     Nothing -> Ident (identName @source ++ "-" ++ show (line @pos) ++ "d" ++ show (column @pos)) @pos
       body.deriv = @loc.deriv
       body.pos   = @pos
       lhs.stmts  = [ Stmt_Inst @pos (Expr_Var Mode_Ref @source) @loc.deriv ]

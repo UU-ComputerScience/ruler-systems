@@ -119,7 +119,7 @@ evalStmt' ctx (Stmt_Establish _ nm mbLvl)
                         evalAlt nm alts
                           = do segment <- createSegment v' alts
                                let fixBranch = assign gBranch (Branch nm segment)
-                               local (\is -> is { isCalls = Map.insert lbls fixBranch (isCalls is), isStack = IntSet.insert uid (isStack is) }) $
+                               local (\is -> is { isCalls = Map.insert lbls fixBranch (isCalls is), isStack = IntSet.insert uid (isStack is), isChildOrder = segmentChildren segment }) $
                                  do when isSingleBranch fixBranch
                                     execUnordered lbls segment
                                     when (not isSingleBranch) fixBranch
@@ -127,7 +127,7 @@ evalStmt' ctx (Stmt_Establish _ nm mbLvl)
                                     checkOutputsDefined bindings visitNm params
                     in backtrack gBranch (map (uncurry evalAlt) branches)
                   Just (Branch _ segment) -> -- already first visit established
-                    local (\is -> is { isStack = IntSet.insert uid (isStack is) }) $
+                    local (\is -> is { isStack = IntSet.insert uid (isStack is), isChildOrder = segmentChildren segment }) $
                       do execUnordered lbls segment
                          checkOutputsDefined bindings visitNm params
 
@@ -259,6 +259,8 @@ execUnordered lbls root@(Segment rootStmts _)  -- try a speculative execution ba
             else goSpeculative rootStmts
   | otherwise = goUnordered
   where
+    chldOrder = segmentChildren root
+
     goUnordered
       = do didOne <- chaseSegment Set.empty root
            if didOne
@@ -393,6 +395,15 @@ instance IsReady Expr where
                     v <- lookupField fld nm
                     b <- isFieldReady isContra isOutput v
                     return (if b then [] else [ FieldIdentNotReady fld nm ignore ])
+  isReady ignore (Expr_AbstractField meta nm)  -- note: only checks the all, last and first meta field, the others are taken care of seperately
+    = do chlds <- childrenWithField nm
+         if null chlds
+          then return []
+          else case meta of
+                 Meta_All _   -> doConcat [ isReady ignore (Expr_Field c nm) | c <- chlds ]
+                 Meta_Last _  -> isReady ignore (Expr_Field (last chlds) nm)
+                 Meta_First _ -> isReady ignore (Expr_Field (head chlds) nm)
+                 _            -> return []
   isReady ignore (Expr_Seq stmts expr) = let ignore' = Set.fromList (explicitIntroducedIdents stmts) `Set.union` ignore
                                          in doConcat [ isReady ignore' stmts, isReady ignore' expr ]
   isReady ignore (Expr_Merge _ exprs)        = isReady ignore exprs
@@ -413,6 +424,23 @@ evalExpr (Expr_Field fld nm)         = do (isContra, isOutput) <- getFieldInfo f
                                                           -- this we do, because it may be assigned to some local variable, on which we want the
                                                           -- "checkInitialized" check to succeed
                                           return v
+evalExpr (Expr_AbstractField meta nm)  -- todo: deal with others than first, last and all
+  = do chlds <- childrenWithField nm   -- todo: implement nicer, i.e. check that nm is an output in some cases
+       case meta of
+         Meta_First _ -> do ensureHasChild chlds
+                            evalExpr (Expr_Field (head chlds) nm)
+         Meta_Last _  -> do ensureHasChild chlds
+                            evalExpr (Expr_Field (last chlds) nm)
+         Meta_All _   -> do vs <- mapM (\fld -> evalExpr (Expr_Field fld nm)) chlds
+                            mkOpaque $ convertList vs
+                            
+                            {- gs <- mapM (const nextUnique) chlds
+                            sequence $ zipWith unify (map ValueGuess gs) vs
+                            mkOpaque $ foldr (\g -> Cons (PolyInd (IndInfo g) Nothing)) Nil gs -}
+         _            -> abort "meta fields not implemented yet."
+  where
+    ensureHasChild [] = abort ("meta-field " ++ show meta ++ "." ++ show nm ++ " cannot be resolved to a child of the derivation.")
+    ensureHasChild _  = return ()
 evalExpr (Expr_Prim _ (PrimVal val)) = mkOpaque val
 evalExpr (Expr_Seq stmts expr)
   = do bindings <- foldl evalSeqStmt (return Map.empty) stmts
@@ -494,7 +522,7 @@ evaluate f opts stmts e
                     Left err -> return $ (a, Just (show err))
                     Right _  -> return $ (a, Nothing)
     (r, _, _) = runRWS (runErrorT pipeline) inpState shState
-    inpState  = InputState { isBindings = Map.singleton rootId (ValueGuess rootGuess), isCalls = Map.empty, isStack = IntSet.empty, isOpts = opts, isBindingsStack = [] }
+    inpState  = InputState { isBindings = Map.singleton rootId (ValueGuess rootGuess), isCalls = Map.empty, isStack = IntSet.empty, isOpts = opts, isBindingsStack = [], isChildOrder = [] }
     shState   = SharedState { ssUnique = startUnique, ssSubst = IntMap.singleton rootGuess (ValuePlaceholder Defined), ssFailedSpeculatives = Set.empty, ssLastSubstSize = 500, ssExtraRoots = [[]] }
 
 -- builds a (partial) derivation tree from the thunk representations in memory

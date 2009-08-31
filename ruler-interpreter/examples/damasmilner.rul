@@ -110,7 +110,7 @@ let generalize = \env ty ->
 
 let infer = derivation inputs env, e outputs ty
 {  branch var:
-     let ty = lookup x g; -- instantiate (lookup x g);
+     let ty = instantiate (lookup x g);
      --------
      establish  { g |- expVar x : ty };
    

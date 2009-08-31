@@ -71,6 +71,9 @@ DATA Stmt
       expr   : Expr
   | Nop
       pos    : Pos
+  | Abstract
+      pos    : Pos
+      stmt   : Stmt  -- can only be bind/unify + deal with readyness seperately + deal with hierarchy override seperately
 
 TYPE Exprs = [Expr]
 DATA Expr
@@ -79,6 +82,9 @@ DATA Expr
       nm     : Ident
   | Field
       fld    : Ident
+      nm     : Ident
+  | AbstractField
+      meta   : Meta
       nm     : Ident
   | Prim
       pos    : Pos
@@ -105,6 +111,14 @@ DATA Expr
       pos    : Pos
       expr   : Expr
       exprs  : Exprs
+
+DATA Meta
+  | Any    pos : Pos
+  | All    pos : Pos
+  | Succ   pos : Pos
+  | Pred   pos : Pos
+  | Last   pos : Pos
+  | First  pos : Pos
 
 DATA Order
   | Relative
@@ -290,6 +304,14 @@ rootGuess = 1
 -- extract the name of the alternative
 altName :: ClosureAlt -> Ident
 altName (ClosureAlt _ _ _ (Alt_Alt nm _ _) _) = nm
+
+metaPos :: Meta -> Pos
+metaPos (Meta_Any pos)   = pos
+metaPos (Meta_All pos)   = pos
+metaPos (Meta_Succ pos)  = pos
+metaPos (Meta_Pred pos)  = pos
+metaPos (Meta_Last pos)  = pos
+metaPos (Meta_First pos) = pos
 }
 
 
@@ -819,10 +841,12 @@ stmtPos (Stmt_Bind pos _ _)      = pos
 stmtPos (Stmt_Fresh pos _)       = pos
 stmtPos (Stmt_Eval pos _)        = pos
 stmtPos (Stmt_Nop pos)           = pos
+stmtPos (Stmt_Abstract pos _)    = pos
 
 exprPos :: Expr -> Pos
 exprPos (Expr_Var _ nm)                 = identPos nm
 exprPos (Expr_Field fld _)              = identPos fld
+exprPos (Expr_AbstractField meta _)     = metaPos meta
 exprPos (Expr_Prim pos _)               = pos
 exprPos (Expr_Seq stmts _)              = stmtPos (head stmts)
 exprPos (Expr_Derivation pos _ _ _ _ _) = pos
@@ -914,6 +938,7 @@ instance Intros Stmt where
   intros (Stmt_Fresh _ nms)        = Set.fromList nms
   intros (Stmt_Eval _ expr)        = intros expr
   intros (Stmt_Nop _)              = Set.empty
+  intros (Stmt_Abstract _ stmt)    = intros stmt
 
 instance Intros Expr where
   intros (Expr_Var Mode_Def nm)          = Set.singleton nm
@@ -951,6 +976,7 @@ instance OutputRefs Stmt where
   outputRefs (Stmt_Fresh _ nms)        = return (Set.fromList $ map NmRef nms)
   outputRefs (Stmt_Eval _ expr)        = outputRefs expr
   outputRefs (Stmt_Nop _)              = return Set.empty
+  outputRefs (Stmt_Abstract _ stmt)    = outputRefs stmt
 
 instance OutputRefs Expr where
   outputRefs (Expr_Var Mode_Def nm)    = return $ Set.singleton $ NmRef nm
@@ -969,6 +995,7 @@ instance OutputRefs Expr where
                                    else if isOutput
                                         then return Set.empty
                                         else return $ Set.singleton $ FldRef fld nm
+  outputRefs (Expr_AbstractField _ _)  = return Set.empty  -- abstract fields do not participate in override mechanism!
   outputRefs (Expr_Seq stmts expr)     = do refsStmts <- outputRefs stmts
                                             refsExpr  <- outputRefs expr
                                             return (Set.union refsStmts refsExpr `Set.difference` (Set.fromList $ map NmRef $ explicitIntroducedIdents stmts))
@@ -984,7 +1011,7 @@ instance OutputRefs Expr where
 {
 type I a = ErrorT EvalError (RWS InputState OutputState SharedState) a
 
-data InputState = InputState { isBindings :: !(Map Ident Value), isCalls :: !(Map (Set Pos) (I ())), isStack :: IntSet, isOpts :: !Opts, isBindingsStack :: ![Map Ident Value] }
+data InputState = InputState { isBindings :: !(Map Ident Value), isCalls :: !(Map (Set Pos) (I ())), isStack :: IntSet, isOpts :: !Opts, isBindingsStack :: ![Map Ident Value], isChildOrder :: ![Ident] }
 data SharedState = SharedState { ssUnique :: !Int, ssSubst :: !(IntMap Value), ssFailedSpeculatives :: !(Set Pos), ssLastSubstSize :: !Int, ssExtraRoots :: ![[Value]] }
 data OutputState = OutputState { osMessages :: !(Seq Message), osDerivations :: ![(Ident, Value)] }
 
@@ -1387,6 +1414,32 @@ createSegment thunkValue cAlts
 
     -- reduce the items in the map to only those with the given keys
     restrict ids = Map.filterWithKey (\k _ -> k `elem` ids)
+
+
+-- all children defined in a segment, obtained in the right order
+-- this is actually static info that shouldn't be calculated over and over again
+-- all the time
+segmentChildren :: Segment -> [Ident]
+segmentChildren = nub . chldsSegment
+  where chldsSegment (Segment stmts subs) = concatMap chldsStmt stmts ++ concatMap chldsSegment subs
+        chldsStmt (ThunkStmt _ _ (Stmt_Inst _ _ nm)) = [nm]
+        chldsStmt _                                  = []
+
+-- returns the accessible children that has a certain field
+-- if a child is not yet known, it is returned by default
+childrenWithField :: Ident -> I [Ident]
+childrenWithField nm
+  = do order <- asks isChildOrder
+       filterM hasField order
+  where
+    hasField fld
+      = do mbChild <- tryLookupIdent fld
+           case mbChild of
+             Nothing   -> return True  -- by absence: default to True
+             Just vFld -> do vFld' <- expand vFld
+                             case vFld' of
+                               ValueThunk _ _ _ _ _ _ bindings _ _   -> return (Map.member nm bindings)
+                               ValueExternThunk _ _ _ _ bindings _ _ -> return (Map.member nm bindings)
 
 
 -- returns those visits for which the inputs are all defined.
