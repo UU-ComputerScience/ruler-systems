@@ -1,0 +1,18 @@
+let c = derivation inputs y outputs x
+{ branch main:
+    this.x == this.y;
+};
+
+
+derivation inputs args outputs res
+{ branch main:
+    inst c as c1;
+    c1.y == 1;
+    establish c1;
+
+    inst c as c2;
+    c2.y == 2;
+    establish c2;
+
+    this.res == all.x;
+}

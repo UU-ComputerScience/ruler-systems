@@ -23,7 +23,8 @@ tokens :-
   | merge | inherit
   | inputs | outputs | visit | requires | exposes
   | hide | skip | abstract | innername
-  | inst | as | establish | fresh | eval )           { reserved }               -- keywords
+  | inst | as | establish | fresh | eval | exec 
+  | any | all | first | last | pred | succ)          { reserved }               -- keywords
   ==                                                 { reserved }               -- equiv keyword
   \:=                                                { reserved }               -- bind keyword
   "-----" [\-]*                                      { reserved . take 5 }      -- horizontal line
