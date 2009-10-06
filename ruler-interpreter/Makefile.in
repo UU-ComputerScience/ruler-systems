@@ -20,11 +20,11 @@ alex-derived: $(alex-files:%.x=derived/%.hs)
 
 derived/%.hs : src/%.ag
 	mkdir -p $(dir $@)
-	cd src; @UUAGC@ -mr --strictdata --strictwrap --genlinepragmas --Werrors -o ../$@ $(patsubst src/%,%,$<)
+	cd src; "@UUAGC@" -mr --strictdata --strictwrap --genlinepragmas --Werrors -o ../$@ $(patsubst src/%,%,$<)
 
 derived/%.hs : src/%.x
 	mkdir -p $(dir $@)
-	@ALEX@ -o $@ -g $<
+	"@ALEX@" -o $@ -g $<
 
 
 invoke-cabal: setup dist/setup-config
@@ -46,7 +46,7 @@ clean:
 
 
 Makefile.depend:
-	UUAGC=@UUAGC@ ./gendeps.sh $(ag-files:%.ag=%)
+	UUAGC="@UUAGC@" ./gendeps.sh $(ag-files:%.ag=%)
 
 -include Makefile.depend
 
