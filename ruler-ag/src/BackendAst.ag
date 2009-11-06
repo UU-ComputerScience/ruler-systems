@@ -1,0 +1,14 @@
+MODULE {BackendAst} {} {}
+
+PRAGMA genlinepragmas
+
+DERIVING * : Show
+
+INCLUDE "BackendAg.ag"
+
+imports
+{
+import CommonTypes
+import UU.Scanner.Position
+}
+

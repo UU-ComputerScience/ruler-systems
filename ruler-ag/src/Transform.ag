@@ -1,0 +1,277 @@
+MODULE {Transform} {} {}
+
+PRAGMA genlinepragmas
+
+INCLUDE "BackendAg.ag"
+
+imports
+{
+import BackendAst
+import CommonTypes
+import UU.Scanner.Position
+import Data.Map(Map)
+import qualified Data.Map as Map
+import Data.Set(Set)
+import qualified Data.Set as Set
+import Language.Haskell.Pretty
+import Language.Haskell.Syntax
+import System.FilePath
+import qualified Data.ByteString.Char8 as B
+}
+
+WRAPPER Ag
+
+{
+transform :: Ag -> String
+transform ast
+  = B.unpack (output_Syn_Ag syn)
+  where
+    sem = sem_Ag ast
+    syn = wrap_Ag sem inh
+    inh = Inh_Ag {}
+}
+
+
+-- determine pat or expr context for all code parts
+ATTR Code Tks Tk [ isExprCtx : Bool | | ]
+
+SEM Block
+  | Code
+      code.isExprCtx = True  -- never evaluated
+
+SEM Stmt
+  | Child
+      code.isExprCtx = True
+  | Match
+      pat.isExprCtx  = False
+      expr.isExprCtx = True
+  | Eval
+      pat.isExprCtx  = False
+      expr.isExprCtx = True
+
+
+-- compute strings from (code) blocks
+ATTR Ag Blocks Block Code Tks Tk
+  [ | | output USE {`B.append`} {B.empty} : {B.ByteString} ]
+
+-- invariant: start with as many spaces as the the code
+--            block starts in the source file
+SEM Code
+  | Code
+      lhs.output  = @loc.spacing `B.append` @tokens.output
+      loc.spacing = B.replicate (column @pos) ' '
+
+SEM Tk
+  | String
+      lhs.output = B.pack @str
+  | Ident
+      lhs.output = B.pack $ toFieldName @lhs.isExprCtx @child @name
+  | Sem
+      lhs.output = B.unlines (  [ B.pack "let {"
+                                , ppHaskell @sem.decl
+                                , B.pack "} in _lhs"
+                                , B.replicate (column @posEnd) ' '
+                                ]
+                             )
+
+{
+ppHaskell :: Pretty a => a -> B.ByteString
+ppHaskell h = B.pack $ prettyPrintWithMode modePP h
+
+modePP :: PPHsMode
+modePP = defaultMode { layout = PPSemiColon, linePragmas = False }
+
+posToSrcLoc :: Pos -> SrcLoc
+posToSrcLoc (Pos l c f) = SrcLoc f l c
+
+identToHsn :: Ident -> HsName
+identToHsn = HsIdent . show
+
+lhsIdent :: Ident
+lhsIdent = Ident "lhs" noPos
+
+toFieldName :: Bool -> Ident -> Ident -> String
+toFieldName isExprCtx child name
+  | cStr == "lhs" = out "I" "O"
+  | cStr == "loc" = out "L" "L"
+  | otherwise     = out "O" "I"
+  where
+    cStr = show child
+    nStr = show name
+    out b1 b2 = "_" ++ cStr ++ (if isExprCtx then b1 else b2) ++ nStr
+}
+
+
+-- Gather the interfaces
+ATTR Blocks Block Interface [ | | gathItfMap USE {`Map.union`} {Map.empty} : ItfMap ]
+ATTR Blocks Block Code Tks Tk Sem Clauses Clause Stmts Stmt [ itfMap : ItfMap | | ]
+
+SEM Ag
+  | Ag
+      blocks.itfMap = @blocks.gathItfMap
+
+SEM Interface
+  | Interface
+      lhs.gathItfMap = Map.singleton @name (@inps, @outs)
+
+{
+type ItfMap = Map Ident ([Ident],[Ident])
+}
+
+
+-- semantic function declaration
+ATTR Sem [ | | decl : HsDecl ]
+
+SEM Sem
+  | Sem
+      lhs.decl = HsFunBind [ HsMatch (posToSrcLoc @pos) thisSemName
+                               [ HsPVar altSemName ]
+                               (HsUnGuardedRhs $ HsVar $ UnQual $ thisSemName)
+                               [ HsFunBind (@alts.clauses ++ [ defaultClause @pos @inputs ]) ]
+                           ]
+      (loc.inputs,loc.outputs) = Map.findWithDefault (error "interface not in map") @name @lhs.itfMap
+
+{
+altSemName :: HsName
+altSemName = HsIdent "_alt"
+
+thisSemName :: HsName
+thisSemName = HsIdent "_this"
+
+defaultClause :: Pos -> [Ident] -> HsMatch
+defaultClause pos inputs
+  = HsMatch
+      (posToSrcLoc pos) thisSemName
+      (map HsPVar vars)
+      (HsUnGuardedRhs $ foldl HsApp (HsVar $ UnQual $ altSemName) $ map (HsVar . UnQual) vars)
+      []
+  where
+    vars = map (HsIdent . toFieldName True lhsIdent) inputs
+}
+
+
+-- compute declarations from clauses
+ATTR Clauses Clause
+  [ | | clauses USE {++} {[]} : {[HsMatch]} ]
+
+ATTR Clauses Clause
+  [ inputs  : {[Ident]} outputs : {[Ident]} | | ]
+
+SEM Clause
+  | Clause
+      loc.srcLoc     = posToSrcLoc @pos
+      loc.inputVars  = map (HsIdent . toFieldName True lhsIdent)  @lhs.inputs
+      loc.outputVars = map (HsIdent . toFieldName False lhsIdent) @lhs.outputs
+      lhs.clauses    = [ HsMatch @loc.srcLoc thisSemName
+                          (map HsPVar @loc.inputVars)
+                          (HsGuardedRhss [ HsGuardedRhs @loc.srcLoc
+                                           (andExpr @stmts.matchVars)
+                                           (HsTuple $ map (HsVar . UnQual) @loc.outputVars)
+                                         ])
+                          @stmts.decls
+                       ]
+      loc.matchVars = []
+
+{
+andExpr :: [HsName] -> HsExp
+andExpr nms = HsApp (HsVar $ UnQual $ HsIdent "and") (HsList $ map (HsVar . UnQual) nms)
+}
+
+
+ATTR Stmts Stmt [ | uniq : Int | matchVars USE {++} {[]} : {[HsName]} ]
+
+SEM Clause
+  | Clause
+      stmts.uniq = 1
+
+SEM Stmt
+  | Match
+      loc.matchNr   : UNIQUEREF uniq
+      loc.matchVar  = HsIdent ("__match_" ++ show @loc.matchNr)
+      lhs.matchVars = [ @loc.matchVar ]
+
+{
+nextUnique :: Int -> (Int, Int)
+nextUnique n = (n+1, n)
+}
+
+
+ATTR Stmts Stmt [ | | decls USE {++} {[]} : {[HsDecl]} ]
+
+SEM Stmt
+  | Child
+      lhs.decls   = [ @loc.semDecl, @loc.semCall ]
+      loc.semDecl = HsPatBind (posToSrcLoc @pos)
+                              (HsPVar @loc.childIdent)
+                              (HsUnGuardedRhs $ embedExp @code.output)
+                              []
+      loc.semCall = HsPatBind (posToSrcLoc @pos)
+                              (HsPTuple $ map (HsPVar . HsIdent . toFieldName True @name) @loc.outputs)
+                              (HsUnGuardedRhs $ foldl HsApp
+                                (HsVar $ UnQual @loc.childIdent)
+                                (@loc.errExp : map (HsParen . HsVar . UnQual . HsIdent . toFieldName False @name) @loc.inputs))
+                              []
+      loc.childIdent =  HsIdent $ toChildName @name
+      (loc.inputs, loc.outputs)
+        = Map.findWithDefault (error "interface not in map") @type @lhs.itfMap
+      loc.errExp = HsParen $ HsApp (HsVar $ UnQual $ HsIdent "error") (HsLit $ HsString ("no matching clause for child " ++ show @name ++ " at " ++ show @pos))
+  | Match Eval
+      lhs.decls = [ @loc.decl ]
+      loc.decl  = HsPatBind (posToSrcLoc @pos)
+                            (HsPTuple @loc.casePats)
+                            (HsUnGuardedRhs $ embedCase @loc.outs @pat.output @expr.output @loc.caseExps @loc.caseFailExp)
+                            []
+      loc.pats = map HsPVar @loc.outs
+      loc.exps = map (HsVar . UnQual) @loc.outs
+      loc.outs = map (\(AgIdent chld fld) -> HsIdent $ toFieldName False chld fld) $ Set.toList @pat.fvs
+  | Match
+      loc.caseFailExp = Just $ HsTuple ((HsCon $ UnQual $ HsIdent "False") : replicate (length @loc.outs) (HsVar $ UnQual $ HsIdent "undefined"))
+      loc.casePats    = HsPVar @loc.matchVar : @loc.pats
+      loc.caseExps    = (HsCon $ UnQual $ HsIdent "True") : @loc.exps
+  | Eval
+      loc.caseFailExp = Nothing
+      loc.casePats    = @loc.pats
+      loc.caseExps    = @loc.exps
+
+{
+toChildName :: Ident -> String
+toChildName ident = "_" ++ show ident ++ "_sem"
+
+embedExp :: B.ByteString -> HsExp
+embedExp str
+  = HsVar $ UnQual $ HsSymbol $ B.unpack $ B.unlines
+  $ [ B.pack "let {"
+    , (B.pack "_r=") `B.append` (B.drop 3 str)
+    , B.pack "} in _r"
+    ]
+
+embedCase :: [HsName] -> B.ByteString -> B.ByteString -> [HsExp] -> Maybe HsExp -> HsExp
+embedCase fvs pat expr rhs mbAltClause
+  = HsVar $ UnQual $ HsSymbol $ B.unpack $ B.unlines
+  [ B.pack "case let {"
+  , (B.pack "_r=") `B.append` (B.drop 3 expr)
+  , B.pack "} in _r of {"
+  , pat
+  , (B.pack "    -> ") `B.append` (ppHaskell $ HsTuple rhs)
+  , case mbAltClause of
+      Just e  -> (B.pack "; _ -> ") `B.append` (ppHaskell e)
+      Nothing -> B.pack "  -- no failure clause"
+  , B.pack "}"
+  ]
+}
+
+
+-- free variables computation
+ATTR Code Tks Tk [ | | fvs USE {`Set.union`} {Set.empty} : {Set AgIdent} ]
+
+SEM Tk
+  | Ident
+      lhs.fvs = Set.singleton (AgIdent @child @name)
+
+{
+data AgIdent = AgIdent { childname :: Ident
+                       , fieldname :: Ident
+                       }
+  deriving (Show, Ord, Eq)
+}
+
