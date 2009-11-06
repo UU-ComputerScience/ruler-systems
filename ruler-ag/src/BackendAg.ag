@@ -1,0 +1,69 @@
+DATA Ag
+  | Ag
+      blocks : Blocks
+
+TYPE Blocks = [Block]
+
+DATA Block
+  | Interface
+      itf  : Interface
+  | Code
+      code : Code
+
+DATA Interface
+  | Interface
+      pos  : Pos
+      name : Ident
+      inps : {[Ident]}
+      outs : {[Ident]}
+
+DATA Sem
+  | Sem
+      pos  : Pos
+      name : Ident
+      alts : Clauses
+
+TYPE Clauses = [Clause]
+
+DATA Clause
+  | Clause
+      pos      : Pos
+      stmts    : Stmts
+
+TYPE Stmts = [Stmt]
+
+DATA Stmt
+  | Child
+      pos  : Pos
+      name : Ident
+      type : Ident
+      code : Code
+  | Match
+      pos  : Pos
+      pat  : Code
+      expr : Code
+  | Eval
+      pos  : Pos
+      pat  : Code
+      expr : Code
+
+DATA Code
+  | Code
+      pos    : Pos
+      tokens : Tks
+
+TYPE Tks = [Tk]
+
+DATA Tk
+  | String
+      pos  : Pos
+      str  : String
+  | Ident
+      pos   : Pos
+      child : Ident
+      name  : Ident
+  | Sem
+      posBegin : Pos
+      sem      : Sem
+      posEnd   : Pos
+

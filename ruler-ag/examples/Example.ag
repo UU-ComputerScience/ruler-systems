@@ -1,0 +1,31 @@
+-- AG Test File
+
+{
+data Expr
+  = Plus Expr Expr
+  | Const Int
+}
+
+interface Eval
+  inputs  e
+  outputs v
+
+{
+eval_expr =
+  { sem :: Eval
+      clause
+        match { Const @loc.x } = { @lhs.e }
+        eval  { @lhs.v       } = { @loc.x }
+
+      clause
+        match { Plus @loc.e1 @loc.e2 } = { @lhs.e }
+
+        child k1 :: Eval = { eval_expr }
+        child k2 :: Eval = { eval_expr }
+
+        eval { @k1.e}    = { @loc.e1 }
+        eval { @k2.e}    = { @loc.e2 }
+        eval { @lhs.v }  = { @k1.v + @k2.v }
+  }
+}
+
