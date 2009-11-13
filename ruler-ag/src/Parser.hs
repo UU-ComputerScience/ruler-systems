@@ -23,8 +23,27 @@ pInterface :: AgParser Interface
 pInterface =    Interface_Interface
             <$> pKeyPos "interface"
             <*> pItfIdent
-            <*> pInputs
-            <*> pOutputs
+            <*> pItfVisits
+
+pItfVisits :: AgParser ItfVisits
+pItfVisits
+  = pList1_gr pItfVisit
+
+pItfVisit :: AgParser ItfVisit
+pItfVisit
+   =  flip ItfVisit_Visit
+  <$> opt (True <$ pKey "static") False
+  <*> pKeyPos "visit"
+  <*> pVarIdent
+  <*> pParams
+
+pParams :: AgParser Params
+pParams = pList_gr pParam
+
+pParam :: AgParser Param
+pParam
+  =   Param_Inputs  <$> pInputs
+  <|> Param_Outputs <$> pOutputs
 
 pCode :: AgParser Code
 pCode = Code_Code <$> pOCurlyPos <*> pTks <* pCCurlyPos
@@ -46,7 +65,26 @@ pSem   =  Sem_Sem
       <$> pKeyPos "sem"
       <*  pKey "::"
       <*> pItfIdent
-      <*> pClauses
+      <*> pProds
+
+pProds :: AgParser Prods
+pProds = pList_gr pProd
+
+pProd :: AgParser Prod
+pProd
+   =  Prod_Prod
+  <$> pKeyPos "production"
+  <*> pProdVisits
+
+pProdVisits :: AgParser ProdVisits
+pProdVisits = pList1_gr pProdVisit
+
+pProdVisit :: AgParser ProdVisit
+pProdVisit
+   =  ProdVisit_Visit
+  <$> pKeyPos "visit"
+  <*> pVarIdent
+  <*> pClauses
 
 pInputs :: AgParser [Ident]
 pInputs = pKey "inputs" *> pList_gr pVarIdent
@@ -66,13 +104,12 @@ pStmts :: AgParser Stmts
 pStmts = pList_gr pStmt
 
 pStmt :: AgParser Stmt
-pStmt  =  Stmt_Child
-           <$> pKeyPos "child"
-           <*> pVarIdent
-           <*  pKey "::"
-           <*> pItfIdent
-           <*  pKey "="
-           <*> pCode
+pStmt  =  (\p c f -> f p c) <$> pKeyPos "child" <*> pVarIdent <*>
+            (   (\n s p c -> Stmt_ChildSem p c n s)
+                  <$ pKey "::" <*> pItfIdent <* pKey "=" <*> pCode
+            <|> (\n s p c -> Stmt_VisitSem p c n s)
+                  <$ pKey ":"  <*> pVarIdent <* pKey "=" <*> pCode
+            )
       <|> Stmt_Match
             <$> pKeyPos "match"
             <*> pCode

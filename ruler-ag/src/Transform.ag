@@ -17,6 +17,9 @@ import Language.Haskell.Pretty
 import Language.Haskell.Syntax
 import System.FilePath
 import qualified Data.ByteString.Char8 as B
+import Data.Maybe
+
+import Debug.Trace
 }
 
 WRAPPER Ag
@@ -29,10 +32,23 @@ transform ast
     sem = sem_Ag ast
     syn = wrap_Ag sem inh
     inh = Inh_Ag {}
+
+nextUnique :: Int -> (Int, Int)
+nextUnique n = (n+1, n)
+
+find :: (Show k, Ord k, Show a, Show p) => p -> k -> Map k a -> a
+find p k m = Map.findWithDefault (error (show p ++ ": no key " ++ show k ++ " in " ++ show m)) k m
 }
 
 
--- determine pat or expr context for all code parts
+----------------
+-- Analysis part
+----------------
+
+--
+-- Determine pat or expr context for all code parts
+--
+
 ATTR Code Tks Tk [ isExprCtx : Bool | | ]
 
 SEM Block
@@ -40,7 +56,9 @@ SEM Block
       code.isExprCtx = True  -- never evaluated
 
 SEM Stmt
-  | Child
+  | ChildSem
+      code.isExprCtx = True
+  | VisitSem
       code.isExprCtx = True
   | Match
       pat.isExprCtx  = False
@@ -49,6 +67,206 @@ SEM Stmt
       pat.isExprCtx  = False
       expr.isExprCtx = True
 
+
+--
+-- Gather and spread interface information
+--
+
+ATTR Blocks Block Interface
+  [ | | gathItfMap USE {`Map.union`} {Map.empty} : ItfMap ]
+ATTR Blocks Block Code Tks Tk Sem Prods Prod ProdVisits ProdVisit Clauses Clause Stmts Stmt
+  [ itfMap : ItfMap | | ]
+ATTR ItfVisits ItfVisit
+  [ | | visitInfos USE {++} {[]} : {[ItfVisitInfo]} ]
+
+SEM Ag
+  | Ag
+      blocks.itfMap = @blocks.gathItfMap
+
+SEM Interface
+  | Interface
+      lhs.gathItfMap = Map.singleton @name @visits.visitInfos
+
+SEM ItfVisit
+  | Visit
+      lhs.visitInfos = [ @loc.visitInfo ]
+      loc.visitInfo  = ItfVisitInfo @name @params.inps @params.outs (if @isStatic then Static else Dynamic)
+
+ATTR Params Param [ | | inps, outs USE {++} {[]} : {[Ident]} ]
+SEM Param
+  | Inputs   lhs.inps = @inps
+  | Outputs  lhs.outs = @outs
+
+{
+-- Per "interface" a list of visits with inputs and outputs
+type ItfMap       = Map Ident [ItfVisitInfo]
+data ItfVisitInfo = ItfVisitInfo { itfVisit   :: Ident
+                                 , itfInputs  :: [Ident]
+                                 , itfOutputs :: [Ident]
+                                 , itfMode    :: ItfMode
+                                 } deriving (Eq, Ord, Show)
+data ItfMode      = Dynamic | Static  deriving (Eq, Ord, Show)
+}
+
+
+--
+-- collect the defined fields of each clause
+--
+
+ATTR Clause Stmts Stmt
+  [ | | defs USE {`Set.union`} {Set.empty} : {Set AttrOcc} ]
+
+SEM Stmt
+  | ChildSem
+      lhs.defs = Set.empty
+  | VisitSem
+      lhs.defs     = Set.fromList @loc.defsL 
+      loc.defsL    = @loc.semDefs ++ @loc.outpDefs
+      loc.semDefs  = case @loc.mbNextVisit of
+                       Just v  -> [ AttrOcc @name v AtSem ]
+                       Nothing -> []
+      loc.outpDefs = [ AttrOcc @name outp AtInput | outp <- itfOutputs @loc.visitInfo ]
+  | Match Eval
+      lhs.defs = @pat.attrs
+      
+
+ATTR Code Tks Tk [ | | attrs USE {`Set.union`} {Set.empty} : {Set AttrOcc} ]
+
+SEM Tk
+  | Ident
+      lhs.attrs = Set.singleton $ AttrOcc @child @name $ toInOutClass @lhs.isExprCtx
+
+{
+data AttrOcc
+  = AttrOcc !Ident !Ident !AttrClass  -- child + field + type
+  deriving (Show, Eq, Ord)
+
+data AttrClass
+  = AtSem
+  | AtInput
+  | AtOutput
+  | AtLocal
+  deriving (Show, Eq, Ord)
+
+toInOutClass :: Bool -> AttrClass
+toInOutClass True  = AtInput
+toInOutClass False = AtOutput
+}
+
+ATTR Clauses [ | | defs : {[Set AttrOcc]} ]
+SEM Clauses
+  | Cons  lhs.defs = @hd.defs : @tl.defs
+  | Nil   lhs.defs = []
+
+SEM ProdVisit
+  | Visit
+      loc.commonDefs = foldr1 Set.intersection @clauses.defs
+      loc.commonVars = map (\(AttrOcc chld nm atClass) -> toFieldHsn atClass chld nm) (Set.toList @loc.commonDefs)
+
+ATTR Clauses Clause [ commonVars : {[HsName]} | | ]
+
+
+--
+-- Synthesize and spread defined children through a production
+--
+
+-- invariant: contains the children in scope, with their interface name
+ATTR ProdVisits ProdVisit
+  [ | childInfo : {Map Ident Ident} | ]
+ATTR Clauses Clause Stmts Stmt
+  [ childInfo : {Map Ident Ident} | | ]
+
+SEM Prod
+  | Prod
+      visits.childInfo = Map.empty
+
+SEM ProdVisit
+  | Visit
+      loc.newChildInfos = foldr1 Map.intersection @clauses.gathChildInfos
+      loc.childInfo = @loc.newChildInfos `Map.union` @lhs.childInfo
+
+ATTR Clause Stmts Stmt
+  [ | | gathChildInfo USE {`Map.union`} {Map.empty} : {Map Ident Ident} ]
+ATTR Clauses
+  [ | | gathChildInfos : {[Map Ident Ident]} ]
+
+SEM Clauses
+  | Cons  lhs.gathChildInfos = @hd.gathChildInfo : @tl.gathChildInfos
+  | Nil   lhs.gathChildInfos = []
+
+SEM Stmt
+  | ChildSem
+      lhs.gathChildInfo = Map.singleton @name @type
+
+
+--
+-- Obtain relevant interface info
+--
+
+SEM Stmt
+  | ChildSem VisitSem
+      loc.type           = find @pos @name @lhs.childInfo
+      loc.visitsInfo     = find @pos @loc.type @lhs.itfMap
+  | ChildSem
+      loc.firstVisitInfo = head @loc.visitsInfo
+  | VisitSem
+      loc.visitInfo      = findVisitInfo @pos @visit @loc.visitsInfo
+      loc.mbNextVisit    = nextVisit @visit @loc.visitsInfo
+
+SEM Sem
+  | Sem
+      loc.visitsInfo = find @pos @type @lhs.itfMap
+      loc.firstVisit = head @loc.visitsInfo
+
+ATTR Prods Prod ProdVisits ProdVisit [ visitsInfo : {[ItfVisitInfo]} | | ]
+ATTR Clauses Clause [ visitInfo : ItfVisitInfo | | ]
+
+SEM ProdVisit
+  | Visit
+      loc.visitInfo = findVisitInfo @pos @name @lhs.visitsInfo
+
+{
+findVisitInfo :: Pos -> Ident -> [ItfVisitInfo] -> ItfVisitInfo
+findVisitInfo p n (v:vs)
+  | itfVisit v == n  = v
+  | otherwise        = findVisitInfo p n vs
+findVisitInfo p n [] = error (show p ++ ": no visit " ++ show n)
+
+nextVisit :: Ident -> [ItfVisitInfo] -> Maybe Ident
+nextVisit n (v:vs)
+  | itfVisit v == n && not (null vs) = Just (itfVisit $ head vs)
+  | otherwise    = nextVisit n vs
+nextVisit _ [] = Nothing
+}
+
+
+--
+-- Hand out match variables
+--
+
+ATTR Clauses Clause Stmts Stmt [ | uniq : Int | ]
+ATTR Stmts Stmt [ | | matchVars USE {++} {[]} : {[HsName]} ]
+
+SEM ProdVisit
+  | Visit
+      clauses.uniq = 1
+
+SEM Stmt
+  | Match
+      loc.matchNr   : UNIQUEREF uniq
+      loc.matchVar  = matchNameId @loc.matchNr
+      lhs.matchVars = [ @loc.matchVar ]
+
+{
+matchNameId :: Int -> HsName
+matchNameId n
+  = HsIdent ("__match_" ++ show n)
+}
+
+
+--
+-- Code generation part
+--
 
 -- compute strings from (code) blocks
 ATTR Ag Blocks Block Code Tks Tk
@@ -65,11 +283,12 @@ SEM Tk
   | String
       lhs.output = B.pack @str
   | Ident
-      lhs.output = B.pack $ toFieldName @lhs.isExprCtx @child @name
-  | Sem
+      lhs.output = B.pack $ toFieldName (toInOutClass @lhs.isExprCtx) @child @name
+
+| Sem
       lhs.output = B.unlines (  [ B.pack "let {"
                                 , ppHaskell @sem.decl
-                                , B.pack "} in _lhs"
+                                , B.pack ("} in " ++ lhsIdentStr)
                                 , B.replicate (column @posEnd) ' '
                                 ]
                              )
@@ -90,32 +309,24 @@ identToHsn = HsIdent . show
 lhsIdent :: Ident
 lhsIdent = Ident "lhs" noPos
 
-toFieldName :: Bool -> Ident -> Ident -> String
-toFieldName isExprCtx child name
-  | cStr == "lhs" = out "I" "O"
-  | cStr == "loc" = out "L" "L"
-  | otherwise     = out "O" "I"
+lhsIdentStr :: String
+lhsIdentStr = "__lhs"
+
+toFieldName :: AttrClass -> Ident -> Ident -> String
+toFieldName isInput child name
+  | cStr == "loc" = out AtLocal
+  | otherwise     = out isInput
   where
     cStr = show child
     nStr = show name
-    out b1 b2 = "_" ++ cStr ++ (if isExprCtx then b1 else b2) ++ nStr
-}
+    out c = "_" ++ cStr ++ byClass c ++ nStr
+    byClass AtLocal  = "L"
+    byClass AtInput  = "I"
+    byClass AtOutput = "O"
+    byClass AtSem    = "S"
 
-
--- Gather the interfaces
-ATTR Blocks Block Interface [ | | gathItfMap USE {`Map.union`} {Map.empty} : ItfMap ]
-ATTR Blocks Block Code Tks Tk Sem Clauses Clause Stmts Stmt [ itfMap : ItfMap | | ]
-
-SEM Ag
-  | Ag
-      blocks.itfMap = @blocks.gathItfMap
-
-SEM Interface
-  | Interface
-      lhs.gathItfMap = Map.singleton @name (@inps, @outs)
-
-{
-type ItfMap = Map Ident ([Ident],[Ident])
+toFieldHsn :: AttrClass -> Ident -> Ident -> HsName
+toFieldHsn attrClass child name = HsIdent $ toFieldName attrClass child name
 }
 
 
@@ -124,97 +335,243 @@ ATTR Sem [ | | decl : HsDecl ]
 
 SEM Sem
   | Sem
-      lhs.decl = HsFunBind [ HsMatch (posToSrcLoc @pos) thisSemName
-                               [ HsPVar altSemName ]
-                               (HsUnGuardedRhs $ HsVar $ UnQual $ thisSemName)
-                               [ HsFunBind (@alts.clauses ++ [ defaultClause @pos @inputs ]) ]
-                           ]
-      (loc.inputs,loc.outputs) = Map.findWithDefault (error "interface not in map") @name @lhs.itfMap
+      loc.srcLoc = posToSrcLoc @pos
+      lhs.decl = HsPatBind @loc.srcLoc
+                   (HsPVar thisSemName)
+                   (HsUnGuardedRhs $ HsVar $ UnQual itfName)
+                   [@loc.itfCode, @loc.impCode]
+
+      loc.fstVisitInps = map (toFieldHsn AtInput lhsIdent) $ itfInputs @loc.firstVisit
+      loc.itfCode   = genItf @loc.srcLoc (itfMode @loc.firstVisit) @loc.fstVisitInps
+      loc.impCode   = HsFunBind (@prods.firstVisitClauses ++ [@loc.defClause])
+      loc.defClause = HsMatch @loc.srcLoc impName
+                        (replicate (length @loc.fstVisitInps) HsPWildCard)
+                        (HsUnGuardedRhs $ HsVar $ Qual (Module "Prelude") $ HsIdent "Nothing")
+                        []
 
 {
 altSemName :: HsName
-altSemName = HsIdent "_alt"
+altSemName = HsIdent "__alt"
 
 thisSemName :: HsName
-thisSemName = HsIdent "_this"
+thisSemName = HsIdent lhsIdentStr
 
-defaultClause :: Pos -> [Ident] -> HsMatch
-defaultClause pos inputs
-  = HsMatch
-      (posToSrcLoc pos) thisSemName
-      (map HsPVar vars)
-      (HsUnGuardedRhs $ foldl HsApp (HsVar $ UnQual $ altSemName) $ map (HsVar . UnQual) vars)
-      []
-  where
-    vars = map (HsIdent . toFieldName True lhsIdent) inputs
+itfName :: HsName
+itfName = HsIdent "__itf"
+
+impName :: HsName
+impName = HsIdent "__imp"
+
+genItf :: SrcLoc -> ItfMode -> [HsName] -> HsDecl
+genItf srcLoc mode fstVisitInps
+  = case mode of
+      Dynamic -> HsFunBind
+        [ HsMatch srcLoc
+            itfName
+            ( [ HsPVar $ altSemName ]
+              ++ map HsPVar fstVisitInps )
+            ( HsUnGuardedRhs
+            $ HsCase
+                (foldl HsApp (HsVar $ UnQual $ impName)
+                             (map (HsVar . UnQual)fstVisitInps))
+                [ HsAlt srcLoc
+                    (HsPApp (UnQual $ HsIdent "Just") [HsPVar $ HsIdent "r"])
+                    (HsUnGuardedAlt $ HsVar $ UnQual $ HsIdent "r") []
+                , HsAlt srcLoc
+                   (HsPApp (UnQual $ HsIdent "Nothing") [])
+                    (HsUnGuardedAlt $ foldl HsApp (HsVar $ UnQual $ altSemName)
+                      (map (HsVar . UnQual) fstVisitInps)) []
+                ]
+            )
+            []
+        ]
+      Static  -> let selName = HsIdent "sel"
+                     preName = HsIdent "pre"
+                     varExps = map (HsVar . UnQual) fstVisitInps
+                 in HsPatBind srcLoc
+                      (HsPVar itfName)
+                      (HsUnGuardedRhs $ HsVar $ UnQual selName)
+                      [ HsFunBind
+                          [ HsMatch srcLoc
+                              selName
+                              ( [ HsPVar $ altSemName ]
+                                ++ map HsPVar fstVisitInps )
+                              ( HsUnGuardedRhs
+                              $ HsCase
+                                  ( foldl HsApp
+                                      (HsVar $ Qual (Module "Data.Map") (HsIdent "findWithDefault"))
+                                      [ HsVar $ Qual (Module "Prelude") (HsIdent "undefined")
+                                      , HsTuple varExps
+                                      , HsVar $ UnQual $ preName ]
+                                  )
+                                  [ HsAlt srcLoc
+                                      (HsPApp (UnQual $ HsIdent "Just") [HsPVar $ HsIdent "r"])
+                                      (HsUnGuardedAlt $ HsVar $ UnQual $ HsIdent "r") []
+                                  , HsAlt srcLoc
+                                     (HsPApp (UnQual $ HsIdent "Nothing") [])
+                                      (HsUnGuardedAlt $ foldl HsApp (HsVar $ UnQual $ altSemName)
+                                        (map (HsVar . UnQual) fstVisitInps)) []
+                                  ]
+                              )
+                              []
+                          ]
+                      , HsPatBind srcLoc
+                          (HsPVar preName)
+                          (HsUnGuardedRhs $ HsApp
+                             (HsVar $ Qual (Module "Data.Map") (HsIdent "fromList"))
+                             (HsListComp
+                               (HsTuple [ HsTuple varExps
+                                        , foldl HsApp (HsVar $ UnQual impName) varExps
+                                        ])
+                               (map (\x -> HsGenerator srcLoc
+                                             (HsPVar x)
+                                             (HsEnumFromTo
+                                               (HsVar $ Qual (Module "Prelude") (HsIdent "minBound"))
+                                               (HsVar $ Qual (Module "Prelude") (HsIdent "maxBound")))
+                                    ) fstVisitInps))
+                          )
+                          []
+                      ]
 }
 
 
--- compute declarations from clauses
-ATTR Clauses Clause
-  [ | | clauses USE {++} {[]} : {[HsMatch]} ]
+--
+-- Compute the clauses of the first visit
+--
 
-ATTR Clauses Clause
-  [ inputs  : {[Ident]} outputs : {[Ident]} | | ]
+ATTR Prods Prod ProdVisits ProdVisit Clauses Clause
+  [ | | firstVisitClauses USE {++} {[]} : {[HsMatch]} ]
+
+SEM ProdVisits
+  | Cons  lhs.firstVisitClauses = @hd.firstVisitClauses
+
 
 SEM Clause
   | Clause
-      loc.srcLoc     = posToSrcLoc @pos
-      loc.inputVars  = map (HsIdent . toFieldName True lhsIdent)  @lhs.inputs
-      loc.outputVars = map (HsIdent . toFieldName False lhsIdent) @lhs.outputs
-      lhs.clauses    = [ HsMatch @loc.srcLoc thisSemName
-                          (map HsPVar @loc.inputVars)
-                          (HsGuardedRhss [ HsGuardedRhs @loc.srcLoc
-                                           (andExpr @stmts.matchVars)
-                                           (HsTuple $ map (HsVar . UnQual) @loc.outputVars)
-                                         ])
-                          @stmts.decls
-                       ]
-      loc.matchVars = []
+      loc.srcLoc = posToSrcLoc @pos
+      lhs.firstVisitClauses = [ HsMatch @loc.srcLoc
+                                  impName
+                                  (map HsPVar @loc.visitInputs)
+                                  (HsGuardedRhss
+                                    [HsGuardedRhs @loc.srcLoc
+                                      (HsVar $ UnQual matchName)
+                                      (HsApp (HsVar $ Qual (Module "Prelude") (HsIdent "Just"))
+                                             (HsTuple $ map (HsVar . UnQual) @loc.visitOutputs))
+                                    ])
+                                  (  [@loc.matchDecl]
+                                  ++ @stmts.decls
+                                  ++ ( maybe [] id @lhs.nextDecls )
+                                  )
+                              ]
+
+      loc.visitInputs  = map (toFieldHsn AtInput lhsIdent)  $ itfInputs @lhs.visitInfo
+      loc.visitOutputs = (if isJust @lhs.nextDecls then [itfName] else [])
+                         ++ (map (toFieldHsn AtOutput lhsIdent) $ itfOutputs @lhs.visitInfo)
+      
+      loc.matchDecl = HsPatBind @loc.srcLoc
+                        (HsPVar matchName)
+                        (HsUnGuardedRhs $ andExpr @stmts.matchVars)
+                        []
 
 {
+matchName :: HsName
+matchName = HsIdent "__match"
+
 andExpr :: [HsName] -> HsExp
 andExpr nms = HsApp (HsVar $ UnQual $ HsIdent "and") (HsList $ map (HsVar . UnQual) nms)
 }
 
 
-ATTR Stmts Stmt [ | uniq : Int | matchVars USE {++} {[]} : {[HsName]} ]
+--
+-- Threading of declarations of the next visit
+--
+
+ATTR ProdVisits
+  [ | | gathDecls : {Maybe [HsDecl]} ]
+
+ATTR ProdVisit Clauses Clause [ nextDecls : {Maybe [HsDecl]} | | ]
+ATTR ProdVisit [ | | gathDecls : {[HsDecl]} ]
+
+SEM ProdVisits
+  | Cons
+      hd.nextDecls  = @tl.gathDecls
+      lhs.gathDecls = Just @hd.gathDecls
+  | Nil
+      lhs.gathDecls = Nothing
+
+
+--
+-- Next visit declarations
+--
+
+SEM ProdVisit
+  | Visit
+      lhs.gathDecls = [ @loc.itfDecl, @loc.impDecl ]
+      loc.srcLoc  = posToSrcLoc @pos
+      loc.itfDecl = genItf @loc.srcLoc (itfMode @loc.visitInfo) @loc.visitInputs
+      loc.impDecl = HsFunBind [ HsMatch @loc.srcLoc impName
+                                (map HsPVar @loc.visitInputs)
+                                (HsGuardedRhss
+                                  [ HsGuardedRhs @loc.srcLoc
+                                      (HsVar $ UnQual matchName)
+                                      (HsApp (HsVar $ Qual (Module "Prelude") (HsIdent "Just"))
+                                             (HsTuple $ map (HsVar . UnQual) @loc.visitOutputs))
+                                  , HsGuardedRhs @loc.srcLoc
+                                      (HsVar $ Qual (Module "Prelude") $ HsIdent "otherwise")
+                                      (HsVar $ Qual (Module "Prelude") $ HsIdent "Nothing")
+                                  ]
+                                )
+                                ( HsPatBind @loc.srcLoc
+                                    (HsPTuple (HsPVar matchName : map HsPVar @loc.commonVars))
+                                    (HsUnGuardedRhs
+                                      $ HsCase (HsTuple []) (@clauses.alts ++ [@loc.defAlt])
+                                    )
+                                    []
+                                : maybe [] id @lhs.nextDecls)
+                              ]
+      loc.defAlt       = HsAlt @loc.srcLoc HsPWildCard
+                           (HsUnGuardedAlt 
+                              (HsTuple ( (HsVar $ Qual (Module "Prelude") (HsIdent "False"))
+                                       : replicate (Set.size @loc.commonDefs)
+                                                   (HsVar $ Qual (Module "Prelude") (HsIdent "undefined"))))
+                           ) []
+      loc.visitInputs  = map (toFieldHsn AtInput lhsIdent) $ itfInputs @loc.visitInfo
+      loc.visitOutputs = (if isJust @lhs.nextDecls then [itfName] else [])
+                         ++ (map (toFieldHsn AtOutput lhsIdent) $ itfOutputs @loc.visitInfo)
+
+
+--
+-- Clauses again
+--
+
+ATTR Clauses Clause
+  [ | | alts USE {++} {[]} : {[HsAlt]} ]
 
 SEM Clause
   | Clause
-      stmts.uniq = 1
+      lhs.alts = [ HsAlt @loc.srcLoc
+                     HsPWildCard
+                     (HsGuardedAlts
+                       [HsGuardedAlt @loc.srcLoc
+                          (HsVar $ UnQual $ matchName) 
+                           (HsTuple ( (HsVar $ Qual (Module "Prelude") (HsIdent "True"))
+                                    : map (HsVar . UnQual) @lhs.commonVars))
+                       ]
+                     )
+                     (  [@loc.matchDecl]
+                     ++ @stmts.decls
+                     ++ ( maybe [] id @lhs.nextDecls )
+                     )
+                 ]
 
-SEM Stmt
-  | Match
-      loc.matchNr   : UNIQUEREF uniq
-      loc.matchVar  = HsIdent ("__match_" ++ show @loc.matchNr)
-      lhs.matchVars = [ @loc.matchVar ]
 
-{
-nextUnique :: Int -> (Int, Int)
-nextUnique n = (n+1, n)
-}
-
+--
+-- Statement decls
+--
 
 ATTR Stmts Stmt [ | | decls USE {++} {[]} : {[HsDecl]} ]
 
 SEM Stmt
-  | Child
-      lhs.decls   = [ @loc.semDecl, @loc.semCall ]
-      loc.semDecl = HsPatBind (posToSrcLoc @pos)
-                              (HsPVar @loc.childIdent)
-                              (HsUnGuardedRhs $ embedExp @code.output)
-                              []
-      loc.semCall = HsPatBind (posToSrcLoc @pos)
-                              (HsPTuple $ map (HsPVar . HsIdent . toFieldName True @name) @loc.outputs)
-                              (HsUnGuardedRhs $ foldl HsApp
-                                (HsVar $ UnQual @loc.childIdent)
-                                (@loc.errExp : map (HsParen . HsVar . UnQual . HsIdent . toFieldName False @name) @loc.inputs))
-                              []
-      loc.childIdent =  HsIdent $ toChildName @name
-      (loc.inputs, loc.outputs)
-        = Map.findWithDefault (error "interface not in map") @type @lhs.itfMap
-      loc.errExp = HsParen $ HsApp (HsVar $ UnQual $ HsIdent "error") (HsLit $ HsString ("no matching clause for child " ++ show @name ++ " at " ++ show @pos))
   | Match Eval
       lhs.decls = [ @loc.decl ]
       loc.decl  = HsPatBind (posToSrcLoc @pos)
@@ -223,9 +580,10 @@ SEM Stmt
                             []
       loc.pats = map HsPVar @loc.outs
       loc.exps = map (HsVar . UnQual) @loc.outs
-      loc.outs = map (\(AgIdent chld fld) -> HsIdent $ toFieldName False chld fld) $ Set.toList @pat.fvs
+      loc.outs = map (\(AttrOcc chld fld atClass) -> toFieldHsn atClass chld fld) $ Set.toList @pat.attrs
   | Match
-      loc.caseFailExp = Just $ HsTuple ((HsCon $ UnQual $ HsIdent "False") : replicate (length @loc.outs) (HsVar $ UnQual $ HsIdent "undefined"))
+      loc.caseFailExp = Just $ HsTuple ( (HsCon $ UnQual $ HsIdent "False")
+                                       : replicate (length @loc.outs) (HsVar $ UnQual $ HsIdent "undefined"))
       loc.casePats    = HsPVar @loc.matchVar : @loc.pats
       loc.caseExps    = (HsCon $ UnQual $ HsIdent "True") : @loc.exps
   | Eval
@@ -233,9 +591,35 @@ SEM Stmt
       loc.casePats    = @loc.pats
       loc.caseExps    = @loc.exps
 
+SEM Stmt
+  | ChildSem  -- produces the semantics for the first visit
+      lhs.decls = [ HsPatBind (posToSrcLoc @pos)
+                      (HsPVar $ semName @name (itfVisit @loc.firstVisitInfo))
+                      (HsUnGuardedRhs $ embedExp @code.output)
+                      []
+                  ]
+  | VisitSem
+      loc.srcLoc  = posToSrcLoc @pos
+      lhs.decls   = [ @loc.trfDecl, @loc.vstDecl ]
+      loc.trfDecl = HsPatBind @loc.srcLoc
+                      (HsPVar $ trfName @name @visit)
+                      (HsUnGuardedRhs $ embedExp @code.output)
+                      []
+      loc.vstDecl = HsPatBind @loc.srcLoc
+                      (HsPTuple ((maybe [] (return . HsPVar . semName @name) @loc.mbNextVisit)
+                         ++ map (HsPVar . toFieldHsn AtInput @name) (itfOutputs @loc.visitInfo)))
+                      (HsUnGuardedRhs $ foldl HsApp
+                        (HsVar $ UnQual $ trfName @name @visit)
+                        ((HsVar $ UnQual $ semName @name @visit)
+                           : map (HsVar . UnQual . toFieldHsn AtOutput @name) (itfInputs @loc.visitInfo))
+                      ) []
+
 {
-toChildName :: Ident -> String
-toChildName ident = "_" ++ show ident ++ "_sem"
+semName :: Ident -> Ident -> HsName
+semName chld vst = HsIdent ("_" ++ show chld ++ "S" ++ show vst)
+
+trfName :: Ident -> Ident -> HsName
+trfName chld vst = HsIdent ("_" ++ show chld ++ "X" ++ show vst)
 
 embedExp :: B.ByteString -> HsExp
 embedExp str
@@ -259,19 +643,3 @@ embedCase fvs pat expr rhs mbAltClause
   , B.pack "}"
   ]
 }
-
-
--- free variables computation
-ATTR Code Tks Tk [ | | fvs USE {`Set.union`} {Set.empty} : {Set AgIdent} ]
-
-SEM Tk
-  | Ident
-      lhs.fvs = Set.singleton (AgIdent @child @name)
-
-{
-data AgIdent = AgIdent { childname :: Ident
-                       , fieldname :: Ident
-                       }
-  deriving (Show, Ord, Eq)
-}
-

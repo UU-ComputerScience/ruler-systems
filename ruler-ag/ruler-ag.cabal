@@ -1,8 +1,8 @@
 cabal-version: >=1.2
 build-type: Simple
 name: ruler-ag
-version: 0.1
-license: GPL
+version: 0.2
+license: LGPL
 maintainer: Arie Middelkoop <ariem@cs.uu.nl>
 homepage: http://www.cs.uu.nl/wiki/HUT/WebHome
 description: Ruler Attribute Grammar
@@ -11,10 +11,9 @@ stability: Experimental
 copyright: Arie Middelkoop
 
 executable ruler-ag
-  build-depends: base >= 3, base < 5, containers, pretty, uulib, array, mtl, haskell-src, filepath, bytestring
+  build-depends: base >= 4, base < 5, containers, pretty, uulib, array, mtl, haskell-src, filepath, bytestring
   build-depends: haskell98
   main-is: Main.hs
-  ghc-options: -fglasgow-exts
   hs-source-dirs: src
   other-modules:
     Scanner, Parser, BackendAst, CommonTypes, Transform, Opts
