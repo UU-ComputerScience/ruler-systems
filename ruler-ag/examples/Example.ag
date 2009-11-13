@@ -1,31 +1,56 @@
 -- AG Test File
 
 {
+module Example where
+
+
+}
+
+{
 data Expr
   = Plus Expr Expr
   | Const Int
 }
 
 interface Eval
-  inputs  e
-  outputs v
+  visit select
+    inputs  e
+  visit compute
+    outputs v
 
 {
 eval_expr =
   { sem :: Eval
-      clause
-        match { Const @loc.x } = { @lhs.e }
-        eval  { @lhs.v       } = { @loc.x }
+      production
+        visit select
+          clause
+            match { Const @loc.x } = { @lhs.e }
+        visit compute
+          clause
+            eval { @lhs.v       } = { @loc.x }
 
-      clause
-        match { Plus @loc.e1 @loc.e2 } = { @lhs.e }
+      production
+        visit select
+          clause
+            match { Plus @loc.e1 @loc.e2 } = { @lhs.e }
 
-        child k1 :: Eval = { eval_expr }
-        child k2 :: Eval = { eval_expr }
+        visit compute
+          clause
+            child k1 :: Eval   = { eval_expr }
+            child k1 : select  = { \s -> s (error "no clause for k1:select") }
+            child k1 : compute = { \s -> s (error "no clause for k1:compute") }
+            
+            child k2 :: Eval   = { eval_expr }
+            child k2 : select  = { \s -> s (error "no clause for k2:select") }
+            child k2 : compute = { \s -> s (error "no clause for k2:compute") }
 
-        eval { @k1.e}    = { @loc.e1 }
-        eval { @k2.e}    = { @loc.e2 }
-        eval { @lhs.v }  = { @k1.v + @k2.v }
+            eval { @k1.e}    = { @loc.e1 }
+            eval { @k2.e}    = { @loc.e2 }
+            eval { @lhs.v }  = { @k1.v + @k2.v }
   }
-}
 
+main = let sem_select  = eval_expr
+           sem_compute = sem_select (error "no suitable clause") (Plus (Plus (Const 1) (Const 2)) (Const 3))
+           v           = sem_compute (error "no suitable clause")
+       in  putStrLn (show v)
+}

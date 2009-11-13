@@ -19,11 +19,12 @@ tokens :-
   <0>  $white+                       ;
   <0>  "--" $white .*                ;
 
-  <0>  interface | inputs | outputs |
-       sem | clause |
-       match | eval | child          { tokenAct reserved }
+  <0>  interface | visit | static |
+       inputs | outputs |
+       sem | production | clause |
+       child | match | eval          { tokenAct reserved }
 
-  <0>  "=" | "::"                    { tokenAct reserved }
+  <0>  "=" | "::" | ":"              { tokenAct reserved }
 
   <0>  @lcIdent                      { tokenAct (valueToken TkVarid) }
   <0>  @ucIdent                      { tokenAct (valueToken TkConid) }

@@ -14,14 +14,45 @@ DATA Interface
   | Interface
       pos  : Pos
       name : Ident
+      visits : ItfVisits
+
+TYPE ItfVisits = [ItfVisit]
+
+DATA ItfVisit
+  | Visit
+      pos      : Pos
+      isStatic : Bool
+      name     : Ident
+      params   : Params
+
+TYPE Params = [Param]
+
+DATA Param
+  | Inputs
       inps : {[Ident]}
+  | Outputs
       outs : {[Ident]}
 
 DATA Sem
   | Sem
-      pos  : Pos
-      name : Ident
-      alts : Clauses
+      pos   : Pos
+      type  : Ident
+      prods : Prods
+
+TYPE Prods = [Prod]
+
+DATA Prod
+  | Prod
+      pos    : Pos
+      visits : ProdVisits
+
+TYPE ProdVisits = [ProdVisit]
+
+DATA ProdVisit
+  | Visit
+      pos     : Pos
+      name    : Ident
+      clauses : Clauses
 
 TYPE Clauses = [Clause]
 
@@ -33,11 +64,16 @@ DATA Clause
 TYPE Stmts = [Stmt]
 
 DATA Stmt
-  | Child
+  | ChildSem
       pos  : Pos
       name : Ident
       type : Ident
       code : Code
+  | VisitSem
+      pos   : Pos
+      name  : Ident
+      visit : Ident
+      code  : Code
   | Match
       pos  : Pos
       pat  : Code
@@ -66,4 +102,3 @@ DATA Tk
       posBegin : Pos
       sem      : Sem
       posEnd   : Pos
-
