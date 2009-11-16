@@ -10,6 +10,7 @@ module Example where
 data Expr
   = Plus Expr Expr
   | Const Int
+  | Funny
 }
 
 interface Eval
@@ -17,6 +18,8 @@ interface Eval
     inputs  e
   visit compute
     outputs v
+  visit funny
+    outputs z
 
 {
 eval_expr =
@@ -27,7 +30,10 @@ eval_expr =
             match { Const @loc.x } = { @lhs.e }
         visit compute
           clause
-            eval { @lhs.v       } = { @loc.x }
+            eval  { @lhs.v       } = { @loc.x }
+        visit funny
+          clause
+            eval  { @lhs.z       } = { 'a' }
 
       production
         visit select
@@ -37,20 +43,33 @@ eval_expr =
         visit compute
           clause
             child k1 :: Eval   = { eval_expr }
-            child k1 : select  = { \s -> s (error "no clause for k1:select") }
-            child k1 : compute = { \s -> s (error "no clause for k1:compute") }
+            child k1 : select  = { id }
+            child k1 : compute = { id}
             
             child k2 :: Eval   = { eval_expr }
-            child k2 : select  = { \s -> s (error "no clause for k2:select") }
-            child k2 : compute = { \s -> s (error "no clause for k2:compute") }
+            child k2 : select  = { id }
+            child k2 : compute = { id }
 
             eval { @k1.e}    = { @loc.e1 }
             eval { @k2.e}    = { @loc.e2 }
             eval { @lhs.v }  = { @k1.v + @k2.v }
+        
+        visit funny
+          clause
+            eval { @lhs.z }  = { 'b' }
+      
+      production
+        visit select
+          clause
+        visit compute
+          external { Just (Just 'c', 2) }
+        
+        visit funny
   }
 
 main = let sem_select  = eval_expr
-           sem_compute = sem_select (error "no suitable clause") (Plus (Plus (Const 1) (Const 2)) (Const 3))
-           v           = sem_compute (error "no suitable clause")
-       in  putStrLn (show v)
+           (Just sem_compute)    = sem_select Funny   -- (Plus (Plus (Const 1) (Const 2)) (Const 3))
+           (Just (sem_funny, v)) = sem_compute
+           (Just z)              = sem_funny
+       in  putStrLn (z : show v)
 }

@@ -21,7 +21,8 @@ tokens :-
 
   <0>  interface | visit | static |
        inputs | outputs |
-       sem | production | clause |
+       sem | production |
+       clause | external |
        child | match | eval          { tokenAct reserved }
 
   <0>  "=" | "::" | ":"              { tokenAct reserved }
@@ -34,6 +35,7 @@ tokens :-
   <h>  "{" | "}"                     { tokenAct reserved `andBegin` 0 }
   <h>  [^@\n\}\{]+                   { tokenAct (valueToken TkString) }
   <h>  "@" @lcIdent "." @lcIdent     { tokenAct (valueToken TkVarid)  }
+  <h>  "@" @lcIdent ":" @lcIdent     { tokenAct (valueToken TkConid)  }
   <h>  \n                            { tokenAct (valueToken TkString) }
 
 
