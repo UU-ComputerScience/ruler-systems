@@ -12,18 +12,17 @@ DATA Block
 
 DATA Interface
   | Interface
-      pos  : Pos
-      name : Ident
+      pos    : Pos
+      name   : Ident
       visits : ItfVisits
 
 TYPE ItfVisits = [ItfVisit]
 
 DATA ItfVisit
   | Visit
-      pos      : Pos
-      isStatic : Bool
-      name     : Ident
-      params   : Params
+      pos    : Pos
+      name   : Ident
+      params : Params
 
 TYPE Params = [Param]
 
@@ -50,16 +49,20 @@ TYPE ProdVisits = [ProdVisit]
 
 DATA ProdVisit
   | Visit
-      pos     : Pos
-      name    : Ident
-      clauses : Clauses
+      pos      : Pos
+      isStatic : Bool
+      name     : Ident
+      clauses  : Clauses
 
 TYPE Clauses = [Clause]
 
 DATA Clause
-  | Clause
+  | Internal
       pos      : Pos
       stmts    : Stmts
+  | External
+      pos      : Pos
+      code     : Code
 
 TYPE Stmts = [Stmt]
 
@@ -95,6 +98,10 @@ DATA Tk
       pos  : Pos
       str  : String
   | Ident
+      pos   : Pos
+      child : Ident
+      name  : Ident
+  | Visit
       pos   : Pos
       child : Ident
       name  : Ident

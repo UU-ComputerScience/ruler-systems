@@ -31,9 +31,8 @@ pItfVisits
 
 pItfVisit :: AgParser ItfVisit
 pItfVisit
-   =  flip ItfVisit_Visit
-  <$> opt (True <$ pKey "static") False
-  <*> pKeyPos "visit"
+   =  ItfVisit_Visit
+  <$> pKeyPos "visit"
   <*> pVarIdent
   <*> pParams
 
@@ -53,12 +52,13 @@ pTks = pList_gr pTk
 
 pTk :: AgParser Tk
 pTk  =   uncurry (flip Tk_String) <$> pStringPos
-     <|> mkTkIdent <$> pVaridPos
+     <|> mkTk Tk_Ident '.' <$> pVaridPos
+     <|> mkTk Tk_Visit ':' <$> pConidPos
      <|> Tk_Sem    <$> pOCurlyPos <*> pSem <*> pCCurlyPos
-  where mkTkIdent (s,p)
-          = let (before,incl) = break (== '.') (tail s)
+  where mkTk f c (s,p)
+          = let (before,incl) = break (== c) (tail s)
                 after = tail incl
-            in Tk_Ident p (Ident before p) (Ident after p)
+            in f p (Ident before p) (Ident after p)
 
 pSem :: AgParser Sem
 pSem   =  Sem_Sem
@@ -81,8 +81,9 @@ pProdVisits = pList1_gr pProdVisit
 
 pProdVisit :: AgParser ProdVisit
 pProdVisit
-   =  ProdVisit_Visit
-  <$> pKeyPos "visit"
+   =  flip ProdVisit_Visit
+  <$> opt (True <$ pKey "static") False
+  <*> pKeyPos "visit"
   <*> pVarIdent
   <*> pClauses
 
@@ -96,9 +97,12 @@ pClauses :: AgParser Clauses
 pClauses = pList_gr pClause
 
 pClause :: AgParser Clause
-pClause  =   Clause_Clause
-        <$> pKeyPos "clause"
-        <*> pStmts
+pClause  =   Clause_Internal
+               <$> pKeyPos "clause"
+               <*> pStmts
+         <|> Clause_External
+               <$> pKeyPos "external"
+               <*> pCode
 
 pStmts :: AgParser Stmts
 pStmts = pList_gr pStmt
@@ -140,4 +144,3 @@ format (Msg exp mtok _)
                           ++ case tok of
                                Reserved str _    -> "symbol " ++ show str
                                ValToken _ val _  -> show val
-

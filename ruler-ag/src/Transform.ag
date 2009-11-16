@@ -67,6 +67,10 @@ SEM Stmt
       pat.isExprCtx  = False
       expr.isExprCtx = True
 
+SEM Clause
+  | External
+      code.isExprCtx = True
+
 
 --
 -- Gather and spread interface information
@@ -90,7 +94,7 @@ SEM Interface
 SEM ItfVisit
   | Visit
       lhs.visitInfos = [ @loc.visitInfo ]
-      loc.visitInfo  = ItfVisitInfo @name @params.inps @params.outs (if @isStatic then Static else Dynamic)
+      loc.visitInfo  = ItfVisitInfo @name @params.inps @params.outs
 
 ATTR Params Param [ | | inps, outs USE {++} {[]} : {[Ident]} ]
 SEM Param
@@ -103,9 +107,7 @@ type ItfMap       = Map Ident [ItfVisitInfo]
 data ItfVisitInfo = ItfVisitInfo { itfVisit   :: Ident
                                  , itfInputs  :: [Ident]
                                  , itfOutputs :: [Ident]
-                                 , itfMode    :: ItfMode
                                  } deriving (Eq, Ord, Show)
-data ItfMode      = Dynamic | Static  deriving (Eq, Ord, Show)
 }
 
 
@@ -116,9 +118,13 @@ data ItfMode      = Dynamic | Static  deriving (Eq, Ord, Show)
 ATTR Clause Stmts Stmt
   [ | | defs USE {`Set.union`} {Set.empty} : {Set AttrOcc} ]
 
+SEM Clause
+  | External
+      lhs.defs     = Set.fromList $ map (\p -> AttrOcc lhsIdent p AtOutput) (itfOutputs @lhs.visitInfo)
+
 SEM Stmt
   | ChildSem
-      lhs.defs = Set.empty
+      lhs.defs     = Set.empty
   | VisitSem
       lhs.defs     = Set.fromList @loc.defsL 
       loc.defsL    = @loc.semDefs ++ @loc.outpDefs
@@ -239,6 +245,15 @@ nextVisit n (v:vs)
 nextVisit _ [] = Nothing
 }
 
+ATTR Prods Prod Prod ProdVisits ProdVisit [ | | fstVisitStatic USE {||} {False} : Bool ]
+
+SEM ProdVisit
+  | Visit
+      lhs.fstVisitStatic = @isStatic
+
+SEM ProdVisits
+  | Cons  lhs.fstVisitStatic = @hd.fstVisitStatic
+
 
 --
 -- Hand out match variables
@@ -265,6 +280,47 @@ matchNameId n
 
 
 --
+-- Check if this visit is the last visit
+--
+
+ATTR ProdVisits [ | | hasNextVisits : Bool ]
+ATTR ProdVisit Clauses Clause [ isLastVisit : Bool | | ]
+
+SEM ProdVisits
+  | Cons
+      hd.isLastVisit    = not @tl.hasNextVisits
+      lhs.hasNextVisits = True
+  | Nil
+      lhs.hasNextVisits = False
+
+
+--
+-- Check if this visit is the first visit
+--
+
+ATTR ProdVisits ProdVisit Clauses Clause [ isFirstVisit : Bool | | ]
+
+SEM Prod
+  | Prod
+      visits.isFirstVisit = True
+
+SEM ProdVisits
+  | Cons
+      tl.isFirstVisit = False
+
+
+--
+-- Check if internal clauses are defined
+--
+
+ATTR Clauses Clause [ | | hasInternalClauses USE {||} {False} : Bool ]
+
+SEM Clause
+  | Internal
+      lhs.hasInternalClauses = True
+
+
+--
 -- Code generation part
 --
 
@@ -284,11 +340,12 @@ SEM Tk
       lhs.output = B.pack @str
   | Ident
       lhs.output = B.pack $ toFieldName (toInOutClass @lhs.isExprCtx) @child @name
-
-| Sem
-      lhs.output = B.unlines (  [ B.pack "let {"
+  | Visit
+      lhs.output = B.pack $ show $ semName @child @name
+  | Sem
+      lhs.output = B.unlines (  [ B.pack "(let {"
                                 , ppHaskell @sem.decl
-                                , B.pack ("} in " ++ lhsIdentStr)
+                                , B.pack ("} in " ++ lhsIdentStr ++ ")")
                                 , B.replicate (column @posEnd) ' '
                                 ]
                              )
@@ -342,17 +399,15 @@ SEM Sem
                    [@loc.itfCode, @loc.impCode]
 
       loc.fstVisitInps = map (toFieldHsn AtInput lhsIdent) $ itfInputs @loc.firstVisit
-      loc.itfCode   = genItf @loc.srcLoc (itfMode @loc.firstVisit) @loc.fstVisitInps
-      loc.impCode   = HsFunBind (@prods.firstVisitClauses ++ [@loc.defClause])
-      loc.defClause = HsMatch @loc.srcLoc impName
-                        (replicate (length @loc.fstVisitInps) HsPWildCard)
-                        (HsUnGuardedRhs $ HsVar $ Qual (Module "Prelude") $ HsIdent "Nothing")
-                        []
+      loc.itfCode   = genItf @loc.srcLoc @prods.fstVisitStatic @loc.fstVisitInps
+      loc.impCode   = HsFunBind
+                        [ HsMatch @loc.srcLoc impName
+                            (map HsPVar @loc.fstVisitInps)
+                            (HsUnGuardedRhs $ genImpCaseSequence @loc.srcLoc @prods.clauses)
+                            (genImpCases @loc.srcLoc @prods.clauses)
+                        ]
 
 {
-altSemName :: HsName
-altSemName = HsIdent "__alt"
-
 thisSemName :: HsName
 thisSemName = HsIdent lhsIdentStr
 
@@ -362,207 +417,254 @@ itfName = HsIdent "__itf"
 impName :: HsName
 impName = HsIdent "__imp"
 
-genItf :: SrcLoc -> ItfMode -> [HsName] -> HsDecl
-genItf srcLoc mode fstVisitInps
-  = case mode of
-      Dynamic -> HsFunBind
-        [ HsMatch srcLoc
-            itfName
-            ( [ HsPVar $ altSemName ]
-              ++ map HsPVar fstVisitInps )
-            ( HsUnGuardedRhs
-            $ HsCase
-                (foldl HsApp (HsVar $ UnQual $ impName)
-                             (map (HsVar . UnQual)fstVisitInps))
-                [ HsAlt srcLoc
-                    (HsPApp (UnQual $ HsIdent "Just") [HsPVar $ HsIdent "r"])
-                    (HsUnGuardedAlt $ HsVar $ UnQual $ HsIdent "r") []
-                , HsAlt srcLoc
-                   (HsPApp (UnQual $ HsIdent "Nothing") [])
-                    (HsUnGuardedAlt $ foldl HsApp (HsVar $ UnQual $ altSemName)
-                      (map (HsVar . UnQual) fstVisitInps)) []
-                ]
-            )
-            []
-        ]
-      Static  -> let selName = HsIdent "sel"
-                     preName = HsIdent "pre"
-                     varExps = map (HsVar . UnQual) fstVisitInps
-                 in HsPatBind srcLoc
-                      (HsPVar itfName)
-                      (HsUnGuardedRhs $ HsVar $ UnQual selName)
-                      [ HsFunBind
-                          [ HsMatch srcLoc
-                              selName
-                              ( [ HsPVar $ altSemName ]
-                                ++ map HsPVar fstVisitInps )
-                              ( HsUnGuardedRhs
-                              $ HsCase
-                                  ( foldl HsApp
-                                      (HsVar $ Qual (Module "Data.Map") (HsIdent "findWithDefault"))
-                                      [ HsVar $ Qual (Module "Prelude") (HsIdent "undefined")
-                                      , HsTuple varExps
-                                      , HsVar $ UnQual $ preName ]
-                                  )
-                                  [ HsAlt srcLoc
-                                      (HsPApp (UnQual $ HsIdent "Just") [HsPVar $ HsIdent "r"])
-                                      (HsUnGuardedAlt $ HsVar $ UnQual $ HsIdent "r") []
-                                  , HsAlt srcLoc
-                                     (HsPApp (UnQual $ HsIdent "Nothing") [])
-                                      (HsUnGuardedAlt $ foldl HsApp (HsVar $ UnQual $ altSemName)
-                                        (map (HsVar . UnQual) fstVisitInps)) []
-                                  ]
-                              )
+impNameN :: Int -> HsName
+impNameN n = HsIdent ("__imp_" ++ show n)
+
+nothingQName :: HsQName
+nothingQName = Qual (Module "Prelude") (HsIdent "Nothing")
+
+justQName :: HsQName
+justQName = Qual (Module "Prelude") (HsIdent "Just")
+
+genImpCaseSequence :: SrcLoc -> [HsExp] -> HsExp
+genImpCaseSequence srcLoc clauses
+  = foldr cons nil $ zipWith const [1..] clauses
+  where
+    nil  = if null clauses
+           then HsVar nothingQName
+           else HsVar $ UnQual $ matchName  -- pointing to a Nothing-node
+    cons n e
+      = HsCase (HsVar $ UnQual $ impNameN n)
+          [ HsAlt srcLoc
+              (HsPAsPat matchName $ HsPParen $ HsPApp justQName [HsPWildCard])
+              (HsUnGuardedAlt $ HsVar $ UnQual $ matchName)
+              []
+          , HsAlt srcLoc
+              (HsPAsPat matchName $ HsPParen $ HsPApp nothingQName [])
+              (HsUnGuardedAlt $ e)
+              []
+          ]
+
+genImpCases :: SrcLoc -> [HsExp] -> [HsDecl]
+genImpCases srcLoc
+  = zipWith genCase [1..]
+  where
+    genCase n exp
+      = HsPatBind srcLoc
+          (HsPVar (impNameN n))
+          (HsUnGuardedRhs exp)
+          []
+
+genItf :: SrcLoc -> Bool -> [HsName] -> HsDecl
+genItf srcLoc isStatic fstVisitInps
+  = if isStatic
+    then let selName = HsIdent "sel"
+             preName = HsIdent "pre"
+             varExps = map (HsVar . UnQual) fstVisitInps
+         in HsPatBind srcLoc
+              (HsPVar itfName)
+              (HsUnGuardedRhs $ HsVar $ UnQual selName)
+              [ HsFunBind
+                  [ HsMatch srcLoc
+                      selName
+                      ( map HsPVar fstVisitInps )
+                      ( HsUnGuardedRhs
+                      $ HsCase
+                          ( foldl HsApp
+                              (HsVar $ Qual (Module "Data.Map") (HsIdent "findWithDefault"))
+                              [ HsVar $ Qual (Module "Prelude") (HsIdent "undefined")
+                              , HsTuple varExps
+                              , HsVar $ UnQual $ preName ]
+                          )
+                          [ HsAlt srcLoc
+                              (HsPParen $ HsPApp justQName [HsPVar $ matchName])
+                              (HsUnGuardedAlt $ HsVar $ UnQual $ matchName) []
+                          , HsAlt srcLoc
+                             (HsPParen $ HsPApp nothingQName [])
+                              (HsUnGuardedAlt $ HsVar $ nothingQName)
                               []
                           ]
-                      , HsPatBind srcLoc
-                          (HsPVar preName)
-                          (HsUnGuardedRhs $ HsApp
-                             (HsVar $ Qual (Module "Data.Map") (HsIdent "fromList"))
-                             (HsListComp
-                               (HsTuple [ HsTuple varExps
-                                        , foldl HsApp (HsVar $ UnQual impName) varExps
-                                        ])
-                               (map (\x -> HsGenerator srcLoc
-                                             (HsPVar x)
-                                             (HsEnumFromTo
-                                               (HsVar $ Qual (Module "Prelude") (HsIdent "minBound"))
-                                               (HsVar $ Qual (Module "Prelude") (HsIdent "maxBound")))
-                                    ) fstVisitInps))
-                          )
-                          []
-                      ]
+                      )
+                      []
+                  ]
+              , HsPatBind srcLoc
+                  (HsPVar preName)
+                  (HsUnGuardedRhs $ HsApp
+                     (HsVar $ Qual (Module "Data.Map") (HsIdent "fromList"))
+                     (HsListComp
+                       (HsTuple [ HsTuple varExps
+                                , foldl HsApp (HsVar $ UnQual impName) varExps
+                                ])
+                       (map (\x -> HsGenerator srcLoc
+                                     (HsPVar x)
+                                     (HsEnumFromTo
+                                       (HsVar $ Qual (Module "Prelude") (HsIdent "minBound"))
+                                       (HsVar $ Qual (Module "Prelude") (HsIdent "maxBound")))
+                            ) fstVisitInps))
+                  )
+                  []
+              ]
+    else HsPatBind srcLoc (HsPVar itfName)
+           (HsUnGuardedRhs $ HsVar $ UnQual $ impName)
+           []
 }
 
 
 --
--- Compute the clauses of the first visit
+-- Threading of decls of the next visit
+--   these have to be incorporated in the current visit
+--   (threading from right to left)
 --
 
-ATTR Prods Prod ProdVisits ProdVisit Clauses Clause
-  [ | | firstVisitClauses USE {++} {[]} : {[HsMatch]} ]
-
-SEM ProdVisits
-  | Cons  lhs.firstVisitClauses = @hd.firstVisitClauses
-
-
-SEM Clause
-  | Clause
-      loc.srcLoc = posToSrcLoc @pos
-      lhs.firstVisitClauses = [ HsMatch @loc.srcLoc
-                                  impName
-                                  (map HsPVar @loc.visitInputs)
-                                  (HsGuardedRhss
-                                    [HsGuardedRhs @loc.srcLoc
-                                      (HsVar $ UnQual matchName)
-                                      (HsApp (HsVar $ Qual (Module "Prelude") (HsIdent "Just"))
-                                             (HsTuple $ map (HsVar . UnQual) @loc.visitOutputs))
-                                    ])
-                                  (  [@loc.matchDecl]
-                                  ++ @stmts.decls
-                                  ++ ( maybe [] id @lhs.nextDecls )
-                                  )
-                              ]
-
-      loc.visitInputs  = map (toFieldHsn AtInput lhsIdent)  $ itfInputs @lhs.visitInfo
-      loc.visitOutputs = (if isJust @lhs.nextDecls then [itfName] else [])
-                         ++ (map (toFieldHsn AtOutput lhsIdent) $ itfOutputs @lhs.visitInfo)
-      
-      loc.matchDecl = HsPatBind @loc.srcLoc
-                        (HsPVar matchName)
-                        (HsUnGuardedRhs $ andExpr @stmts.matchVars)
-                        []
-
-{
-matchName :: HsName
-matchName = HsIdent "__match"
-
-andExpr :: [HsName] -> HsExp
-andExpr nms = HsApp (HsVar $ UnQual $ HsIdent "and") (HsList $ map (HsVar . UnQual) nms)
-}
-
-
---
--- Threading of declarations of the next visit
---
-
-ATTR ProdVisits
-  [ | | gathDecls : {Maybe [HsDecl]} ]
-
-ATTR ProdVisit Clauses Clause [ nextDecls : {Maybe [HsDecl]} | | ]
-ATTR ProdVisit [ | | gathDecls : {[HsDecl]} ]
+ATTR ProdVisits ProdVisit [ | | decls : {[HsDecl]} ]
+ATTR ProdVisit Clauses Clause [ nextDecls : {[HsDecl]} | | ]
 
 SEM ProdVisits
   | Cons
-      hd.nextDecls  = @tl.gathDecls
-      lhs.gathDecls = Just @hd.gathDecls
+      lhs.decls    = @hd.decls
+      hd.nextDecls = @tl.decls
   | Nil
-      lhs.gathDecls = Nothing
+      lhs.decls    = []
 
 
 --
--- Next visit declarations
+-- Generate itf and imp to be included in the previous visit
 --
 
 SEM ProdVisit
   | Visit
-      lhs.gathDecls = [ @loc.itfDecl, @loc.impDecl ]
+      lhs.decls   = [ @loc.itfDecl, @loc.impDecl ]
       loc.srcLoc  = posToSrcLoc @pos
-      loc.itfDecl = genItf @loc.srcLoc (itfMode @loc.visitInfo) @loc.visitInputs
-      loc.impDecl = HsFunBind [ HsMatch @loc.srcLoc impName
-                                (map HsPVar @loc.visitInputs)
-                                (HsGuardedRhss
-                                  [ HsGuardedRhs @loc.srcLoc
-                                      (HsVar $ UnQual matchName)
-                                      (HsApp (HsVar $ Qual (Module "Prelude") (HsIdent "Just"))
-                                             (HsTuple $ map (HsVar . UnQual) @loc.visitOutputs))
-                                  , HsGuardedRhs @loc.srcLoc
-                                      (HsVar $ Qual (Module "Prelude") $ HsIdent "otherwise")
-                                      (HsVar $ Qual (Module "Prelude") $ HsIdent "Nothing")
-                                  ]
-                                )
-                                ( HsPatBind @loc.srcLoc
-                                    (HsPTuple (HsPVar matchName : map HsPVar @loc.commonVars))
-                                    (HsUnGuardedRhs
-                                      $ HsCase (HsTuple []) (@clauses.alts ++ [@loc.defAlt])
-                                    )
-                                    []
-                                : maybe [] id @lhs.nextDecls)
-                              ]
-      loc.defAlt       = HsAlt @loc.srcLoc HsPWildCard
-                           (HsUnGuardedAlt 
-                              (HsTuple ( (HsVar $ Qual (Module "Prelude") (HsIdent "False"))
-                                       : replicate (Set.size @loc.commonDefs)
-                                                   (HsVar $ Qual (Module "Prelude") (HsIdent "undefined"))))
-                           ) []
+      loc.itfDecl = genItf @loc.srcLoc @isStatic @loc.visitInputs
+      loc.impDecl = HsFunBind
+                      [ HsMatch @loc.srcLoc impName
+                        (map HsPVar @loc.visitInputs)
+                        (HsUnGuardedRhs $
+                          HsCase (HsVar $ UnQual $ matchName)
+                            [ HsAlt @loc.srcLoc
+                                (HsPParen $ HsPApp justQName [HsPWildCard])
+                                (HsUnGuardedAlt $
+                                  HsApp (HsVar $ Qual (Module "Prelude") (HsIdent "Just"))
+                                        (HsTuple $ map (HsVar . UnQual) @loc.visitOutputs))
+                                []
+                            , HsAlt @loc.srcLoc
+                                (HsPApp nothingQName [])
+                                (HsUnGuardedAlt $ HsVar $ nothingQName)
+                                []
+                            ])
+                        (  [ HsPatBind @loc.srcLoc
+                               ( HsPAsPat matchName $ HsPParen $ HsPIrrPat $ HsPParen $
+                                 HsPApp justQName
+                                   [ HsPTuple $ map HsPVar
+                                       (  (if @lhs.isLastVisit then [] else [customItfName])
+                                       ++ @loc.commonVars)]
+                               )
+                               (HsUnGuardedRhs $ genImpCaseSequence @loc.srcLoc @clauses.clauses)
+                               []
+                           ]
+                        ++ genImpCases @loc.srcLoc @clauses.clauses
+                        ++ ( if @clauses.hasInternalClauses
+                             then @lhs.nextDecls
+                             else []
+                           )
+                        )
+                      ]
+
       loc.visitInputs  = map (toFieldHsn AtInput lhsIdent) $ itfInputs @loc.visitInfo
-      loc.visitOutputs = (if isJust @lhs.nextDecls then [itfName] else [])
+      loc.visitOutputs = (if @lhs.isLastVisit then [] else [customItfName])
                          ++ (map (toFieldHsn AtOutput lhsIdent) $ itfOutputs @loc.visitInfo)
+
+{
+matchName :: HsName
+matchName = HsIdent "__match"
+}
 
 
 --
--- Clauses again
+-- Threading of clauses of the next visit
+-- (right to left)
+--
+
+ATTR Prods Prod [ | | clauses USE {++} {[]} : {[HsExp]} ]
+ATTR ProdVisits ProdVisit [ | | clauses : {[HsExp]} ]
+ATTR ProdVisit Clauses Clause [ nextClauses : {[HsExp]} | | ]
+
+SEM ProdVisits
+  | Cons
+      hd.nextClauses = @tl.clauses
+      lhs.clauses    = @hd.clauses
+  | Nil
+      lhs.clauses    = []
+
+
+--
+-- Computation of clauses
 --
 
 ATTR Clauses Clause
-  [ | | alts USE {++} {[]} : {[HsAlt]} ]
+  [ | | clauses USE {++} {[]} : {[HsExp]} ]
 
 SEM Clause
-  | Clause
-      lhs.alts = [ HsAlt @loc.srcLoc
-                     HsPWildCard
-                     (HsGuardedAlts
-                       [HsGuardedAlt @loc.srcLoc
-                          (HsVar $ UnQual $ matchName) 
-                           (HsTuple ( (HsVar $ Qual (Module "Prelude") (HsIdent "True"))
-                                    : map (HsVar . UnQual) @lhs.commonVars))
-                       ]
-                     )
-                     (  [@loc.matchDecl]
-                     ++ @stmts.decls
-                     ++ ( maybe [] id @lhs.nextDecls )
-                     )
-                 ]
+  | Internal
+      loc.srcLoc  = posToSrcLoc @pos
+      lhs.clauses = [ HsParen $ HsLet
+                        (  [@loc.matchDecl]
+                        ++ @stmts.decls
+                        ++ if @lhs.isFirstVisit
+                           then @lhs.nextDecls
+                           else []
+                        ++ if @lhs.isLastVisit
+                           then []
+                           else [@loc.customItfDecl]
+                        )
+                        ( HsParen $ HsIf
+                            (HsVar $ UnQual $ matchName)
+                            (HsParen $ HsApp (HsVar $ justQName) (HsTuple $ map (HsVar . UnQual) @loc.outputs))
+                            (HsVar $ nothingQName)
+                        )
+                    ]
+      loc.outputs   = if @lhs.isFirstVisit
+                      then (if @lhs.isLastVisit then [] else [itfName])
+                           ++ (map (toFieldHsn AtOutput lhsIdent) $ itfOutputs @lhs.visitInfo)
+                      else (if @lhs.isLastVisit then [] else [customItfName])
+                           ++ @lhs.commonVars
+      loc.matchDecl = HsPatBind @loc.srcLoc
+                        (HsPVar matchName)
+                        (HsUnGuardedRhs $ andExpr @stmts.matchVars)
+                        []
+      loc.customItfDecl = HsPatBind @loc.srcLoc
+                            (HsPVar customItfName)
+                            (HsUnGuardedRhs $ HsVar $ UnQual itfName)
+                            []
+  | External
+      loc.srcLoc  = posToSrcLoc @pos
+      lhs.clauses = [ HsCase (embedExp @code.output)
+                      [ HsAlt @loc.srcLoc
+                          (HsPParen $ HsPApp justQName
+                            [ HsPTuple (map HsPVar @loc.extOuts) ])
+                          (HsUnGuardedAlt $ HsParen $ HsApp (HsVar justQName)
+                            (HsTuple $ map (HsVar . UnQual) @loc.realOuts))
+                          []
+                      , HsAlt @loc.srcLoc
+                          (HsPApp nothingQName [])
+                          (HsUnGuardedAlt $ HsVar $ nothingQName)
+                          []
+                      ] ]
+      loc.extOuts   = (if @lhs.isLastVisit then [] else [customItfName])
+                      ++ (map (toFieldHsn AtOutput lhsIdent) $ itfOutputs @lhs.visitInfo)
+      loc.realOuts  = if @lhs.isFirstVisit
+                      then (if @lhs.isLastVisit then [] else [customItfName])
+                           ++ (map (toFieldHsn AtOutput lhsIdent) $ itfOutputs @lhs.visitInfo)
+                      else (if @lhs.isLastVisit then [] else [customItfName])
+                           ++ @lhs.commonVars
+
+{
+andExpr :: [HsName] -> HsExp
+andExpr nms = HsApp (HsVar $ UnQual $ HsIdent "and") (HsList $ map (HsVar . UnQual) nms)
+
+customItfName :: HsName
+customItfName = HsIdent "__itf_custom"
+}
 
 
 --
@@ -608,10 +710,21 @@ SEM Stmt
       loc.vstDecl = HsPatBind @loc.srcLoc
                       (HsPTuple ((maybe [] (return . HsPVar . semName @name) @loc.mbNextVisit)
                          ++ map (HsPVar . toFieldHsn AtInput @name) (itfOutputs @loc.visitInfo)))
-                      (HsUnGuardedRhs $ foldl HsApp
-                        (HsVar $ UnQual $ trfName @name @visit)
-                        ((HsVar $ UnQual $ semName @name @visit)
-                           : map (HsVar . UnQual . toFieldHsn AtOutput @name) (itfInputs @loc.visitInfo))
+                      (HsUnGuardedRhs $ HsCase
+                        (HsParen $ foldl HsApp
+                          (HsVar $ UnQual $ trfName @name @visit)
+                          ((HsVar $ UnQual $ semName @name @visit)
+                             : map (HsVar . UnQual . toFieldHsn AtOutput @name) (itfInputs @loc.visitInfo))
+                        )
+                        [ HsAlt @loc.srcLoc
+                            (HsPParen $ HsPApp justQName [HsPVar matchName])
+                            (HsUnGuardedAlt $ HsVar $ UnQual $ matchName)
+                            []
+                        , HsAlt @loc.srcLoc
+                            (HsPAsPat matchName $ HsPParen $ HsPApp nothingQName [])
+                            (HsUnGuardedAlt $ errorExp ("no clause for child " ++ show @name ++ " at " ++ show @pos))
+                            []
+                        ]
                       ) []
 
 {
@@ -624,22 +737,27 @@ trfName chld vst = HsIdent ("_" ++ show chld ++ "X" ++ show vst)
 embedExp :: B.ByteString -> HsExp
 embedExp str
   = HsVar $ UnQual $ HsSymbol $ B.unpack $ B.unlines
-  $ [ B.pack "let {"
+  $ [ B.pack "(let {"
     , (B.pack "_r=") `B.append` (B.drop 3 str)
-    , B.pack "} in _r"
+    , B.pack "} in _r)"
     ]
 
 embedCase :: [HsName] -> B.ByteString -> B.ByteString -> [HsExp] -> Maybe HsExp -> HsExp
 embedCase fvs pat expr rhs mbAltClause
   = HsVar $ UnQual $ HsSymbol $ B.unpack $ B.unlines
-  [ B.pack "case let {"
+  [ B.pack "(case (let {"
   , (B.pack "_r=") `B.append` (B.drop 3 expr)
-  , B.pack "} in _r of {"
+  , B.pack "} in _r) of {"
   , pat
   , (B.pack "    -> ") `B.append` (ppHaskell $ HsTuple rhs)
   , case mbAltClause of
       Just e  -> (B.pack "; _ -> ") `B.append` (ppHaskell e)
       Nothing -> B.pack "  -- no failure clause"
-  , B.pack "}"
+  , B.pack "})"
   ]
+
+errorExp :: String -> HsExp
+errorExp s
+  = HsApp (HsVar $ Qual (Module "Prelude") $ HsIdent "error")
+          (HsLit $ HsString s)
 }

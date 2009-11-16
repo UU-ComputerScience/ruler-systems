@@ -1,7 +1,7 @@
 cabal-version: >=1.2
 build-type: Simple
 name: ruler-ag
-version: 0.2
+version: 0.3
 license: LGPL
 maintainer: Arie Middelkoop <ariem@cs.uu.nl>
 homepage: http://www.cs.uu.nl/wiki/HUT/WebHome
@@ -11,7 +11,7 @@ stability: Experimental
 copyright: Arie Middelkoop
 
 executable ruler-ag
-  build-depends: base >= 4, base < 5, containers, pretty, uulib, array, mtl, haskell-src, filepath, bytestring
+  build-depends: base >= 4, base < 5, containers, pretty, uulib, array, mtl, haskell-src, filepath, bytestring, uuagc>=0.9.12
   build-depends: haskell98
   main-is: Main.hs
   hs-source-dirs: src
