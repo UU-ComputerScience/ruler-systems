@@ -23,20 +23,25 @@ DATA ItfVisit
       pos    : Pos
       name   : Ident
       params : Params
+--  | Tail
+--      pos     : Pos
+--      name    : Ident
+--      mbVisit : {Maybe Ident}
 
 TYPE Params = [Param]
 
 DATA Param
-  | Inputs
-      inps : {[Ident]}
-  | Outputs
-      outs : {[Ident]}
+  | Param
+      name    : Ident
+      type    : Code
+      isInput : Bool
 
 DATA Sem
   | Sem
-      pos   : Pos
-      type  : Ident
-      prods : Prods
+      pos     : Pos
+      type    : Ident
+      mbVisit : {Maybe Ident}
+      prods   : Prods
 
 TYPE Prods = [Prod]
 
@@ -68,10 +73,11 @@ TYPE Stmts = [Stmt]
 
 DATA Stmt
   | ChildSem
-      pos  : Pos
-      name : Ident
-      type : Ident
-      code : Code
+      pos     : Pos
+      name    : Ident
+      type    : Ident
+      mbVisit : {Maybe Ident}
+      code    : Code
   | VisitSem
       pos   : Pos
       name  : Ident

@@ -19,7 +19,8 @@ tokens :-
   <0>  $white+                       ;
   <0>  "--" $white .*                ;
 
-  <0>  interface | visit | static |
+  <0>  interface | visit |
+       static | tail |
        inputs | outputs |
        sem | production |
        clause | external |

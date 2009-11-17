@@ -2,8 +2,6 @@
 
 {
 module Example where
-
-
 }
 
 {
@@ -15,11 +13,11 @@ data Expr
 
 interface Eval
   visit select
-    inputs  e
+    inputs  e :: {Expr}
   visit compute
-    outputs v
+    outputs v :: {Int}
   visit funny
-    outputs z
+    outputs z :: {Char}
 
 {
 eval_expr =
@@ -62,14 +60,16 @@ eval_expr =
         visit select
           clause
         visit compute
-          external { Just (Just 'c', 2) }
+          external { Just (Eval_funny (Just 'c'), 2) }
         
         visit funny
   }
 
-main = let sem_select  = eval_expr
-           (Just sem_compute)    = sem_select Funny   -- (Plus (Plus (Const 1) (Const 2)) (Const 3))
-           (Just (sem_funny, v)) = sem_compute
-           (Just z)              = sem_funny
-       in  putStrLn (z : show v)
+
+main = let e   = Plus (Plus (Const 1) (Const 2)) (Const 3)
+           inh = Inh_Eval_select e
+           syn = wrap_Eval_select eval_expr inh
+           v   = v_Syn_Eval_select syn
+           z   = z_Syn_Eval_select syn
+       in putStrLn (z : show v)
 }
