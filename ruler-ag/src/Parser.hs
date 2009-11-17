@@ -31,18 +31,35 @@ pItfVisits
 
 pItfVisit :: AgParser ItfVisit
 pItfVisit
-   =  ItfVisit_Visit
-  <$> pKeyPos "visit"
-  <*> pVarIdent
-  <*> pParams
+   =   ( ItfVisit_Visit
+           <$> pKeyPos "visit"
+           <*> pVarIdent
+           <*> pParamSets
+       )
+--   To be implemented in front-end
+--   <|> ( ItfVisit_Tail
+--           <$> pKeyPos "tail"
+--           <*> pItfIdent
+--           <*> opt (Just <$ pKey ":" <*> pVarIdent) Nothing
+--       )
 
-pParams :: AgParser Params
-pParams = pList_gr pParam
+pParamSets :: AgParser Params
+pParamSets = concat <$> pList_gr (pInputs <|> pOutputs)
 
-pParam :: AgParser Param
-pParam
-  =   Param_Inputs  <$> pInputs
-  <|> Param_Outputs <$> pOutputs
+pInputs :: AgParser [Param]
+pInputs = pKey "inputs" *> pListSep_gr (pKey ",") pParamInput
+
+pOutputs :: AgParser [Param]
+pOutputs = pKey "outputs" *> pListSep_gr (pKey ",") pParamOutput
+
+pParamInput :: AgParser Param
+pParamInput = pParam True
+
+pParamOutput :: AgParser Param
+pParamOutput = pParam False
+
+pParam :: Bool -> AgParser Param
+pParam mode = (\n c -> Param_Param n c mode) <$> pVarIdent <* pKey "::" <*> pCode
 
 pCode :: AgParser Code
 pCode = Code_Code <$> pOCurlyPos <*> pTks <* pCCurlyPos
@@ -65,6 +82,7 @@ pSem   =  Sem_Sem
       <$> pKeyPos "sem"
       <*  pKey "::"
       <*> pItfIdent
+      <*> opt (Just <$ pKey ":" <*> pVarIdent) Nothing
       <*> pProds
 
 pProds :: AgParser Prods
@@ -87,12 +105,6 @@ pProdVisit
   <*> pVarIdent
   <*> pClauses
 
-pInputs :: AgParser [Ident]
-pInputs = pKey "inputs" *> pList_gr pVarIdent
-
-pOutputs :: AgParser [Ident]
-pOutputs = pKey "outputs" *> pList_gr pVarIdent
-
 pClauses :: AgParser Clauses
 pClauses = pList_gr pClause
 
@@ -109,8 +121,8 @@ pStmts = pList_gr pStmt
 
 pStmt :: AgParser Stmt
 pStmt  =  (\p c f -> f p c) <$> pKeyPos "child" <*> pVarIdent <*>
-            (   (\n s p c -> Stmt_ChildSem p c n s)
-                  <$ pKey "::" <*> pItfIdent <* pKey "=" <*> pCode
+            (   (\n v s p c -> Stmt_ChildSem p c n v s)
+                  <$ pKey "::" <*> pItfIdent <*> opt (Just <$ pKey ":" <*> pVarIdent) Nothing <* pKey "=" <*> pCode
             <|> (\n s p c -> Stmt_VisitSem p c n s)
                   <$ pKey ":"  <*> pVarIdent <* pKey "=" <*> pCode
             )
