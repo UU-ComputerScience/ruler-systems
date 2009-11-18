@@ -632,6 +632,45 @@ SEM ItfVisit
                                @lhs.allCurrentInfos)
                               []
                           ]
+                   
+                   
+                     -- unwrapper
+                   , let funName = HsIdent "fun"
+                         ins  = [ toFieldHsn AtInput lhsIdent (paramName p)
+                                | p <- @params.params, paramIsInput p ]
+                         outs = maybe [] (\v -> [toFieldHsn AtSem lhsIdent v]) @lhs.nextVisitName
+                                ++ [ toFieldHsn AtOutput lhsIdent (paramName p)
+                                | p <- @params.params, not (paramIsInput p)]
+                     in HsFunBind
+                         [ HsMatch @loc.srcLoc (unwrapperName @lhs.tycon @name)
+                             [ HsPVar semParam ]
+                             ( HsUnGuardedRhs $ HsApp (HsCon $ UnQual @loc.itfCon) (HsVar $ UnQual funName)
+                             )
+                             [ HsFunBind [ HsMatch @loc.srcLoc funName
+                                 (map HsPVar ins)
+                                 ( HsUnGuardedRhs $
+                                     HsCase (HsParen $ HsApp (HsVar $ UnQual semParam) $ HsParen $
+                                             foldl1 HsApp ([ HsVar $ UnQual @loc.inhCon' ]
+                                                           ++ (map (HsVar . UnQual) ins)))
+                                       [ HsAlt @loc.srcLoc
+                                           (HsPParen $ HsPApp justQName
+                                            [HsPParen $ HsPApp (UnQual @loc.synCon')
+                                               (map HsPVar outs)
+                                            ])
+                                            (HsUnGuardedAlt $
+                                              HsApp (HsCon $ justQName) $
+                                                HsTuple (map (HsVar . UnQual) outs)
+                                            )
+                                            []
+                                       , HsAlt @loc.srcLoc
+                                           (HsPApp nothingQName [])
+                                           (HsUnGuardedAlt $ HsCon nothingQName)
+                                           []
+                                       ]
+                                 )
+                                 []
+                             ] ]
+                         ]
                    ]
 
       loc.maybeTp  = HsTyCon $ Qual (Module "Prelude") $ HsIdent "Maybe"
@@ -687,6 +726,10 @@ wrapperName' nm visit
 wrapperName :: Ident -> Ident -> HsName
 wrapperName nm visit
   = HsIdent ("wrap_" ++ show nm ++ "_" ++ show visit)
+
+unwrapperName :: Ident -> Ident -> HsName
+unwrapperName nm visit
+  = HsIdent ("unwrap_" ++ show nm ++ "_" ++ show visit)
 
 semParam :: HsName
 semParam = HsIdent "_sem"

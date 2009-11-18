@@ -65,17 +65,20 @@ pCode :: AgParser Code
 pCode = Code_Code <$> pOCurlyPos <*> pTks <* pCCurlyPos
 
 pTks :: AgParser Tks
-pTks = pList_gr pTk
+pTks = concat <$> pList_gr pTk
 
-pTk :: AgParser Tk
-pTk  =   uncurry (flip Tk_String) <$> pStringPos
+pTk :: AgParser Tks
+pTk  =   (\(s,p) -> [Tk_String p s]) <$> pStringPos
+     <|> (\x y z -> x ++ y ++ z) <$> key "{" <*> pTks <*> key "}"
      <|> mkTk Tk_Ident '.' <$> pVaridPos
      <|> mkTk Tk_Visit ':' <$> pConidPos
-     <|> Tk_Sem    <$> pOCurlyPos <*> pSem <*> pCCurlyPos
+     <|> (\p1 s p2 -> [Tk_Sem p1 s p2]) <$> pKeyPos "{{" <*> pSem <*> pKeyPos "}}"
   where mkTk f c (s,p)
           = let (before,incl) = break (== c) (tail s)
                 after = tail incl
-            in f p (Ident before p) (Ident after p)
+            in [f p (Ident before p) (Ident after p)]
+        
+        key s = (\p -> [Tk_String p s]) <$> pKeyPos s
 
 pSem :: AgParser Sem
 pSem   =  Sem_Sem

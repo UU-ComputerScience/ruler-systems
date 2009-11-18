@@ -16,28 +16,34 @@ $identChar   = [a-zA-Z0-9\'_]
 @lcIdent     = [a-z] $identChar*
 
 tokens :-
-  <0>  $white+                       ;
-  <0>  "--" $white .*                ;
+  <0,a>  $white+                       ;
+  <0,a>  "--" $white .*                ;
 
-  <0>  interface | visit |
-       static | tail |
-       inputs | outputs |
-       sem | production |
-       clause | external |
-       child | match | eval          { tokenAct reserved }
+  <0>    "{"                           { tokenAct reserved }
+  <a>    "{" | "}}"                    { tokenAct reserved }
+  <h>    "{" | "}"  | "{{"             { tokenAct reserved }
 
-  <0>  "=" | "::" | ":"              { tokenAct reserved }
+  <0>    interface | visit |
+         inputs | outputs              { tokenAct reserved }
 
-  <0>  @lcIdent                      { tokenAct (valueToken TkVarid) }
-  <0>  @ucIdent                      { tokenAct (valueToken TkConid) }
+  <a>    sem | production |
+         static | visit |
+         clause | external |
+         child | match | eval          { tokenAct reserved }
+  
+  <0,a>  "::" | ":"                    { tokenAct reserved }
 
-  <0>  "{" | "}"                     { tokenAct reserved `andBegin` h }
+  <a>    "="                           { tokenAct reserved }
 
-  <h>  "{" | "}"                     { tokenAct reserved `andBegin` 0 }
-  <h>  [^@\n\}\{]+                   { tokenAct (valueToken TkString) }
-  <h>  "@" @lcIdent "." @lcIdent     { tokenAct (valueToken TkVarid)  }
-  <h>  "@" @lcIdent ":" @lcIdent     { tokenAct (valueToken TkConid)  }
-  <h>  \n                            { tokenAct (valueToken TkString) }
+  <0,a>  @lcIdent                      { tokenAct (valueToken TkVarid)  }
+  <0,a>  @ucIdent                      { tokenAct (valueToken TkConid)  }  
+
+  -- poor Haskell lexing
+  <h>    \" ([^\"]|\\\")* \"           { tokenAct (valueToken TkString) }
+  <h>    [^@\}\{\"]+                   { tokenAct (valueToken TkString) }
+  <h>    "@" @lcIdent "." @lcIdent     { tokenAct (valueToken TkVarid)  }
+  <h>    "@" @lcIdent ":" @lcIdent     { tokenAct (valueToken TkConid)  }
+  <h>    \r\n | \n                     { tokenAct (valueToken TkString) }
 
 
 {
@@ -47,18 +53,37 @@ alexEOF = return $ reserved "eof" (Pos 0 0 somefile)
 somefile :: String
 somefile = "<some file>"
 
+data Ctx
+  = InH
+  | InA
+  deriving Show
+
+getStartCode []      = 0
+getStartCode (InH:_) = h
+getStartCode (InA:_) = a
+
 tokenize :: FilePath -> String -> Either String [Token]
 tokenize filename contents
-  = case runAlex contents (combine id) of
+  = case runAlex contents (combine [] id) of
       Left err -> Left err
       Right f  -> Right (f [])
   where
-    combine acc
-      = do tk  <- errorWrap alexMonadScan
-           c   <- alexGetStartCode
+    combine stack acc
+      | seq (seq stack acc) True
+      = do alexSetStartCode (getStartCode stack)
+           tk   <- errorWrap alexMonadScan
+           let acc' = acc . (mapName tk :)
            case tk of
              Reserved s _ | s == "eof" -> return acc
-             _                         -> combine (acc . (mapName tk :))
+                          | s == "{"   -> combine (push InH stack) acc'
+                          | s == "}"   -> combine (pop stack)      acc'
+                          | s == "{{"  -> combine (push InA stack) acc'
+                          | s == "}}"  -> combine (pop stack)      acc'
+             _                         -> combine stack            acc'
+
+    push       = (:)
+    pop []     = []
+    pop (_:xs) = xs
 
     mapName (Reserved k (Pos l c _))      = Reserved k (Pos l c filename)
     mapName (ValToken tp val (Pos l c _)) = ValToken tp val (Pos l c filename)
