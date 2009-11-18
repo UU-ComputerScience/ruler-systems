@@ -21,7 +21,7 @@ interface Eval
 
 {
 eval_expr =
-  { sem :: Eval
+ {{ sem :: Eval
       production
         visit select
           clause
@@ -63,11 +63,11 @@ eval_expr =
           external { Just (Eval_funny (Just 'c'), 2) }
         
         visit funny
-  }
+ }}
 
 
 main = let e   = Plus (Plus (Const 1) (Const 2)) (Const 3)
-           inh = Inh_Eval_select e
+           inh = Inh_Eval_select { e_Inh_Eval_select = e }
            syn = wrap_Eval_select eval_expr inh
            v   = v_Syn_Eval_select syn
            z   = z_Syn_Eval_select syn
