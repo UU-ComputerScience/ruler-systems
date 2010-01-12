@@ -1,0 +1,627 @@
+--
+-- Flattening phase
+--
+-- Errors caught:
+--   duplicate data types, sems, interfaces, constructor fields, attributes
+--   missing   data types, sems, contexts, interfaces
+--
+
+MODULE {Flatten} {} {}
+
+PRAGMA genlinepragmas
+
+INCLUDE "FrontAst.ag"
+
+imports
+{
+import Common
+import Type
+import UU.Scanner.Position
+import Front
+import qualified Flat as F
+import Data.Sequence(Seq)
+import qualified Data.Sequence as Seq
+import Error
+import qualified Data.Map as Map
+import Data.Map(Map)
+import qualified Data.Set as Set
+import Data.Set(Set)
+import qualified Merger as M
+import Data.Monoid
+import Data.Foldable(toList)
+import Data.Graph
+}
+
+WRAPPER Vag
+
+{
+flatten :: Vag -> Either Errs F.Fag
+flatten ast = if Seq.null $ errs_Syn_Vag syn
+              then Right $ fag_Syn_Vag syn
+              else Left $ errs_Syn_Vag syn
+  where
+    inh = Inh_Vag {}
+    sem = sem_Vag ast
+    syn = wrap_Vag sem inh
+}
+
+
+ATTR Vag [ | | fag : {F.Fag} ]
+
+SEM Vag
+  | Ag
+      (loc.dataMp, loc.resolveDatas) = M.resolve @decls.gathDatas
+      loc.datas    = toDatas @loc.dataMp
+      loc.dataErrs = toErrors @loc.resolveDatas 
+      
+      (loc.itfMp, loc.resolveItfs) = M.resolve @decls.gathItfs
+      loc.itfs     = toItfs @loc.itfMp
+      loc.itfErrs  = toErrors @loc.resolveItfs
+      
+      (loc.semMp, loc.resolveSems) = M.resolve @decls.gathSems
+      loc.semErrs  = toErrors @loc.resolveSems
+      loc.blocks   = toList @decls.trans
+
+      lhs.fag      = F.Fag_Ag @loc.datas @loc.itfs @loc.blocks
+
+
+--
+-- Conversions
+--
+
+{
+toDatas :: DataMap -> F.Datas
+toDatas mp
+  = [ F.Data_Data k (toVars varMp) (toCons conMp) | (k, M.ChnSub varMp (M.ChnSub conMp M.ChnEnd)) <- M.assocs mp unknownIdent ]
+
+toVars :: VarMap -> Idents
+toVars mp
+  = map fst $ M.assocs mp unknownIdent
+
+toCons :: ConMap -> F.Cons
+toCons mp
+  = [ F.Con_Con k (toSigs sigMp) | (k, M.ChnSub sigMp M.ChnEnd) <- M.assocs mp unknownIdent ]
+
+toSigs :: SigMap -> F.Sigs
+toSigs mp
+  = [ F.Sig_Sig k (M.extract tp tpUnknown) | (k, M.ChnItem tp M.ChnEnd) <- M.assocs mp unknownIdent ]
+
+toItfs :: ItfMap -> F.Itfs
+toItfs mp
+  = [ F.Itf_Itf k (toVars varMp) (toSigs inhMp) (toCtxs k ctxMp) | (k, M.ChnSub varMp (M.ChnSub inhMp (M.ChnSub ctxMp M.ChnEnd))) <- M.assocs mp unknownIdent ]
+
+toCtxs :: Ident -> CtxMap -> F.Ctxs
+toCtxs defk mp
+  = [ F.Ctx_Ctx k (toSigs synMp) (M.extract tl Nothing) | (k, M.ChnItem tl (M.ChnSub synMp M.ChnEnd)) <- M.assocs mp defk ]
+
+toErrors :: [M.MergeInfo Item] -> [Error]
+toErrors = map toError
+  where
+    toError (M.Dup es)    = Error_Dup es
+    toError (M.Missing e) = Error_Missing e
+}
+
+
+--
+-- Ident sets
+--
+
+ATTR Decls Decl [ | gathSets : {Map Ident IdentSet} | ]
+
+SEM Vag
+  | Ag
+      decls.gathSets = Map.empty
+      loc.sets       = expand @decls.gathSets
+
+SEM Decl
+  | Set
+      lhs.gathSets = Map.insertWith IdentSet_Union @name @val.self @lhs.gathSets
+
+ATTR IdentSet [ | | self : SELF ]
+
+{
+expand :: Map Ident IdentSet -> Map Ident (Set Ident)
+expand gath
+  = fixp init
+  where
+    init = Map.map (const Set.empty) gath
+    fixp a = let a' = eval a
+             in if a' == a
+                then a'
+                else fixp a'
+    eval a = Map.foldWithKey (\k s m -> Map.insert k (evalSet m s) m) a gath
+
+evalSet :: Map Ident (Set Ident) -> IdentSet -> Set Ident
+evalSet mp s
+  = case s of
+      IdentSet_Ident nm  -> if Map.member nm mp
+                            then Map.findWithDefault (error "evalSet") nm mp
+                            else Set.singleton $ nm
+      IdentSet_Union l r -> evalSet mp l `Set.union` evalSet mp r
+      IdentSet_Inter l r -> evalSet mp l `Set.intersection` evalSet mp r
+      IdentSet_Excl l r  -> evalSet mp l `Set.difference` evalSet mp r
+}
+
+
+ATTR Decls Decl DataDecls DataDecl 
+     SemDefs SemDecls SemDecl MaybeBlock Block Codes Code ClauseDecls ClauseDecl
+       [ sets : {Map Ident (Set Ident)} | | ]
+
+SEM Decl
+  | Itf Ctx Forall Inh Syn Chn Tail Data Sem
+      loc.expNames : {Idents}
+      loc.expNames = Set.toList $ evalSet @lhs.sets @names.self
+
+SEM DataDecl
+  | Con
+      loc.expNames : {Idents}
+      loc.expNames = Set.toList $ evalSet @lhs.sets @names.self
+
+SEM ClauseDecl
+  | Clause
+      loc.expNames : {Idents}
+      loc.expNames = Set.toList $ evalSet @lhs.sets @names.self
+
+
+--
+-- Gather data types
+--
+
+{
+type AbsMap v = M.AbsMap Item Ident v
+type DataMap = AbsMap (M.ChnS M.ChnT, (M.ChnS (M.ChnS ((M.ChnI Type), M.ChnT), M.ChnT), M.ChnT))
+type VarMap  = AbsMap M.ChnT
+type ConMap  = AbsMap (M.ChnS (M.ChnI Type, M.ChnT), M.ChnT)
+type SigMap  = AbsMap (M.ChnI Type, M.ChnT)
+
+requireCtx :: Pos -> Maybe Ident -> M.Occurrence Item
+requireCtx _ Nothing    = M.MultDef []
+requireCtx pos (Just x) = M.OccRequire (Item_Ctx pos x)
+}
+
+ATTR Decls Decl [ | | gathDatas USE {`mappend`} {mempty} : DataMap ]
+
+SEM Decl
+  | Data
+      lhs.gathDatas = M.many1 @loc.expNames (const $ M.Val (M.ChnSub @decls.gathVars $ M.ChnSub @decls.gathCons $ M.ChnEnd) (M.MultDef []))
+
+
+--
+-- Gather data variables in the VarMap
+--
+
+ATTR DataDecls DataDecl [ | | gathVars USE {`mappend`} {mempty} : VarMap ]
+
+SEM DataDecl
+  | Forall
+      lhs.gathVars = M.many1 @vars (\ident -> M.Val M.ChnEnd (M.SingleDef $ return $ Item_TypeVar @pos ident))
+
+
+--
+-- Gather constructors in the ConMap
+--
+
+ATTR DataDecls DataDecl [ | | gathCons USE {`mappend`} {mempty} : ConMap ]
+
+SEM DataDecl
+  | Con
+      lhs.gathCons = M.many1 @loc.expNames (const $ M.Val (M.ChnSub @sigs.gathSigs $ M.ChnEnd) (M.MultDef []))
+
+
+--
+-- Gather signatures in the SigMap
+--
+
+ATTR Sigs Sig [ pos : Pos | | gathSigs USE {`mappend`} {mempty} : SigMap ]
+
+SEM Decl
+  | Inh Syn Chn  sigs.pos = @pos
+
+SEM DataDecl
+  | Con  sigs.pos = @pos
+
+SEM ItfDecl
+  | Inh Syn Chn  sigs.pos = @pos
+
+SEM CtxDecl
+  | Syn  sigs.pos = @pos
+
+SEM Sig
+  | Sig  lhs.gathSigs = M.many1 @names (\ident -> M.Val (M.ChnItem (M.Replaceable @tp) $ M.ChnEnd)
+                                                        (M.MultDef $ return $ Item_Field @lhs.pos ident))
+
+--
+-- Gather interfaces
+--
+
+{
+type CtxMap = AbsMap (M.ChnI (Maybe Internal), (M.ChnS (M.ChnI Type, M.ChnT), M.ChnT))
+
+type ItfMap = AbsMap ( M.ChnS M.ChnT                   -- vars
+                     , ( M.ChnS (M.ChnI Type, M.ChnT)  -- inh
+                     , ( M.ChnS (M.ChnI (Maybe Internal), (M.ChnS (M.ChnI Type, M.ChnT), M.ChnT)) -- contexts
+                     , M.ChnT)))
+}
+
+
+--
+-- Interfaces at Decls
+--
+
+ATTR Decls Decl [ | | gathItfs USE {`mappend`} {mempty} : ItfMap ]
+
+SEM Decl
+  | Itf
+      lhs.gathItfs = M.many1 @loc.expNames
+                       (\ident -> M.Val (M.ChnSub mempty $ M.ChnSub mempty $ M.ChnSub mempty $ M.ChnEnd )
+                                        (M.MultDef $ return $ Item_Itf @pos ident))
+                     `mappend` @decls.gathItfs
+  | Ctx
+      lhs.gathItfs = M.many1 @loc.expNames
+                       (\ident -> M.Val (M.ChnSub mempty $ M.ChnSub mempty $ M.ChnSub @loc.gathCtxs $ M.ChnEnd)
+                                        (M.OccRequire $ Item_Itf @pos ident))
+      loc.gathCtxs = M.many @ctxs
+                       (\mbIdent -> M.Val (M.ChnItem (M.Replaceable Nothing) $ M.ChnSub mempty $ M.ChnEnd)
+                                          (requireCtx @pos mbIdent))
+                     `mappend` @decls.gathCtxs
+  | Forall
+      lhs.gathItfs = M.many1 @loc.expNames (\ident -> M.Val (M.ChnSub @loc.varmap $ M.ChnSub mempty $ M.ChnSub mempty $ M.ChnEnd)
+                                                            (M.OccRequire $ Item_Itf @pos ident))
+      loc.varmap   = M.many1 @vars (\ident -> M.Val M.ChnEnd (M.SingleDef $ return $ Item_TypeVar @pos ident))
+  | Inh
+      lhs.gathItfs = M.many1 @loc.expNames (\ident -> M.Val (M.ChnSub mempty $ M.ChnSub @sigs.gathSigs $ M.ChnSub mempty $ M.ChnEnd)
+                                                            (M.OccRequire $ Item_Itf @pos ident))
+  | Chn Syn Tail
+      lhs.gathItfs = M.many1 @loc.expNames (\ident -> M.Val (M.ChnSub mempty $ M.ChnSub @loc.inhs $ M.ChnSub @loc.gathCtxs $ M.ChnEnd)
+                                                            (M.OccRequire $ Item_Itf @pos ident))
+      loc.gathCtxs = M.many @ctxs (\mbIdent -> M.Val (M.ChnItem (@loc.tailf mbIdent) $ M.ChnSub @loc.syns $ M.ChnEnd)
+                                                     (requireCtx @pos mbIdent))
+  | Syn Tail
+      loc.inhs     = mempty
+  | Chn
+      loc.inhs     = @sigs.gathSigs
+  | Syn Chn
+      loc.tailf    = \_ -> M.Replaceable Nothing
+      loc.syns     = @sigs.gathSigs
+  | Tail
+      loc.tailf    = \mbIdent -> M.Fixed (Just @tp) [Item_Tail @pos (contextName @pos mbIdent)]
+      loc.syns     = mempty
+
+{
+contextName :: Pos -> Maybe Ident -> Ident
+contextName pos Nothing  = Ident "default context" pos
+contextName _   (Just x) = x
+}
+
+
+--
+-- Interfaces of ItfDecls
+--
+
+ATTR ItfDecls ItfDecl [ itfNames : Idents | | ]
+
+SEM Decl
+  | Itf
+      decls.itfNames = @expNames
+
+
+ATTR ItfDecls ItfDecl [ | | gathItfs USE {`mappend`} {mempty} : ItfMap ]
+
+SEM ItfDecl
+  | Ctx
+      lhs.gathItfs = M.many1 @lhs.itfNames
+                       (\ident -> M.Val (M.ChnSub mempty $ M.ChnSub mempty $ M.ChnSub @loc.gathCtxs $ M.ChnEnd)
+                                        (M.OccRequire $ Item_Itf @pos ident))
+      loc.gathCtxs =  M.many1 @ctxs
+                        (\ident -> M.Val (M.ChnItem (M.Replaceable Nothing) $ M.ChnSub mempty $ M.ChnEnd)
+                                         (M.MultDef $ return $ Item_Ctx @pos ident))
+                      `mappend` @decls.gathCtxs
+  | Forall
+      lhs.gathItfs = M.many1 @lhs.itfNames
+                       (\ident -> M.Val (M.ChnSub @loc.gathVars $ M.ChnSub mempty $ M.ChnSub mempty $ M.ChnEnd)
+                                        (M.OccRequire $ Item_Itf @pos ident))
+      loc.gathVars = M.many1 @vars (\ident -> M.Val M.ChnEnd (M.SingleDef $ return $ Item_TypeVar @pos ident))
+  | Inh
+      lhs.gathItfs = M.many1 @lhs.itfNames
+                       (\ident -> M.Val (M.ChnSub mempty $ M.ChnSub @sigs.gathSigs $ M.ChnSub mempty $ M.ChnEnd)
+                                        (M.OccRequire $ Item_Itf @pos ident))
+  | Syn
+      lhs.gathItfs = M.many1 @lhs.itfNames
+                       (\ident -> M.Val (M.ChnSub mempty $ mempty $ M.ChnSub @loc.gathCtxs $ M.ChnEnd)
+                                        (M.OccRequire $ Item_Itf @pos ident))
+      loc.gathCtxs = M.many @ctxs
+                       (\mbIdent -> M.Val (M.ChnItem (M.Replaceable Nothing) $ M.ChnSub @sigs.gathSigs $ M.ChnEnd)
+                                          (requireCtx @pos mbIdent))
+  | Chn
+      lhs.gathItfs = M.many1 @lhs.itfNames
+                       (\ident -> M.Val (M.ChnSub mempty $ M.ChnSub @sigs.gathSigs $ M.ChnSub @loc.gathCtxs $ M.ChnEnd)
+                                        (M.OccRequire $ Item_Itf @pos ident))
+      loc.gathCtxs = M.many @ctxs
+                       (\mbIdent -> M.Val (M.ChnItem (M.Replaceable Nothing) $ M.ChnSub @sigs.gathSigs $ M.ChnEnd)
+                                          (requireCtx @pos mbIdent))
+  | Tail
+      lhs.gathItfs = M.many1 @lhs.itfNames
+                       (\ident -> M.Val (M.ChnSub mempty $ M.ChnSub mempty $ M.ChnSub @loc.gathCtxs $ M.ChnEnd)
+                                        (M.OccRequire $ Item_Itf @pos ident))
+      loc.gathCtxs = M.many @ctxs
+                       (\mbIdent -> M.Val (M.ChnItem (M.Fixed (Just @tp) [Item_Tail @pos (contextName @pos mbIdent)]) $ M.ChnSub mempty $ M.ChnEnd)
+                                          (requireCtx @pos mbIdent))
+
+--
+-- Gather contexts of CtxDecls
+--
+
+ATTR CtxDecls CtxDecl [ ctxNames : Idents | | ]
+
+SEM Decl    | Ctx  decls.ctxNames = @ctxs
+SEM ItfDecl | Ctx  decls.ctxNames = @ctxs
+
+ATTR CtxDecls CtxDecl [ | | gathCtxs USE {`mappend`} {mempty} : CtxMap ]
+
+SEM CtxDecl
+  | Syn
+      lhs.gathCtxs = M.many @lhs.ctxNames
+                       (\mbIdent -> M.Val (M.ChnItem (M.Replaceable Nothing) $ M.ChnSub @sigs.gathSigs $ M.ChnEnd)
+                                          (requireCtx @pos mbIdent))
+  | Tail
+      lhs.gathCtxs = M.many @lhs.ctxNames
+                       (\mbIdent -> M.Val (M.ChnItem (M.Fixed (Just @tp) [Item_Tail @pos (contextName @pos mbIdent)]) $ M.ChnSub mempty $ M.ChnEnd)
+                                          (requireCtx @pos mbIdent))
+
+
+--
+-- Gather semantics
+--
+
+{
+type SemMap = AbsMap ( M.ChnI Pos                      -- defining position
+                     , ( M.ChnI Scheme                 -- itf instance
+                     , ( M.ChnS ( M.ChnI (Maybe Ident) -- context
+                                , ( M.ChnI F.Defs      -- defs
+                                , M.ChnT))             -- clauses
+                     , M.ChnT)))
+
+type ClauseMap = AbsMap ( M.ChnI (Maybe Ident) -- context
+                        , ( M.ChnI F.Defs      -- defs
+                        , M.ChnT))
+}
+
+ATTR Decls Decl MaybeBlock Block Codes Code
+     SemDefs ClauseDecls ClauseDecl SemDecls SemDecl
+       [ | semCounter : Int | gathSems USE {`mappend`} {mempty} : SemMap ]
+
+SEM Vag
+  | Ag
+      decls.semCounter = 1
+
+SEM Decl
+  | Sem
+      loc.sems = M.many1 @loc.expNames
+                   (\ident -> M.Val ( M.ChnItem (M.Absent $ Item_SemPos @pos)
+                                    $ M.ChnItem (M.Absent $ Item_SemScheme @pos)
+                                    $ M.ChnSub @defs.gathClauses
+                                    $ M.ChnEnd )
+                                    (M.OccRequire $ Item_SemName @pos ident False))
+      lhs.gathSems    = @loc.sems `mappend` @defs.gathSems
+      defs.semCounter = @lhs.semCounter + 1
+      loc.semId       = @lhs.semCounter
+
+SEM Code
+  | Sem
+      lhs.gathSems = M.singleton @loc.semName
+                       (M.Val ( M.ChnItem (M.Fixed @pos [Item_SemPos @pos])
+                              $ M.ChnItem (M.Fixed @tp [Item_SemScheme @pos])
+                              $ M.ChnSub @defs.gathClauses
+                              $ M.ChnEnd
+                              )
+                              (M.SingleDef [Item_SemName @pos @loc.semName @loc.isAnonymous] ))
+      loc.semName     = maybe (Ident (show @loc.semId) @pos) id @mbName
+      loc.isAnonymous = maybe True (const False) @mbName
+      defs.semCounter = @lhs.semCounter + 1
+      loc.semId       = @lhs.semCounter
+
+{
+posToName :: Pos -> String
+posToName (Pos l k n) = show l ++ "-" ++ show k ++ "-" ++ n
+}
+
+ATTR SemDefs ClauseDecls ClauseDecl [ | | gathClauses USE {`mappend`} {mempty} : ClauseMap ]
+
+SEM SemDefs
+  | Default
+      lhs.gathClauses = M.dflt $ M.Val @loc.chn @loc.occ
+      loc.chn = M.ChnItem (storeCtx @mbCtx) $ M.ChnItem (storeDefs @decls.gathDefs) $ M.ChnEnd
+      loc.occ = M.MultDef []
+
+SEM ClauseDecl
+  | Clause
+      lhs.gathClauses = M.many1 @loc.expNames
+                          (\ident -> M.Val ( M.ChnItem (storeCtx @mbCtx) $ M.ChnItem (storeDefs @decls.gathDefs) $ M.ChnEnd)
+                                           (M.MultDef [ Item_Clause @pos ident ]))
+
+{
+storeCtx :: Maybe Ident -> M.Overridable Item (Maybe Ident)
+storeCtx Nothing    = M.Replaceable Nothing
+storeCtx (Just x) = M.Fixed (Just x) [Item_ClauseCtx x]
+
+storeDefs :: Seq F.Def -> M.Overridable Item F.Defs
+storeDefs = M.Appendable . toList
+}
+
+ATTR SemDecls SemDecl [ | | gathDefs USE {Seq.><} {Seq.empty} : {Seq F.Def} ]
+
+SEM SemDecl
+  | Child Visit Bind Tail
+      lhs.gathDefs = Seq.singleton @loc.trans
+  | Child
+      loc.trans = F.Def_Child @name @tp @def.trans
+  | Visit
+      loc.trans = F.Def_Visit @child @visit @mbCtx @mbDef.trans
+  | Bind
+      loc.trans = F.Def_Bind @kind @pat.trans @def.trans
+  | Tail
+      loc.trans = F.Def_Tail @def.trans
+
+
+--
+-- Transform patterns
+--
+
+ATTR Pats [ | | trans : {F.Pats} ]
+
+SEM Pats
+  | Cons  lhs.trans = @hd.trans : @tl.trans
+  | Nil   lhs.trans = []
+
+ATTR Pat [ | | trans : {F.Pat} ]
+
+SEM Pat
+  | Attr        pat.child = @child
+                lhs.trans = @pat.trans
+  | ConAttr     lhs.trans = F.Pat_ConAttr @child @con
+  | Tup         lhs.trans = F.Pat_Tup @pats.trans
+  | Con         lhs.trans = F.Pat_Con @name @pats.trans
+  | Underscore  lhs.trans = F.Pat_Underscore
+
+ATTR AttrPat AttrPats [ child : Ident | | ]
+
+ATTR AttrPats [ | | trans : {F.Pats} ]
+
+SEM AttrPats
+  | Cons  lhs.trans = @hd.trans : @tl.trans
+  | Nil   lhs.trans = []
+
+ATTR AttrPat [ | | trans : {F.Pat} ]
+
+SEM AttrPat
+  | Field       lhs.trans = F.Pat_Attr @lhs.child @name
+  | Tup         lhs.trans = F.Pat_Tup @pats.trans
+  | Con         lhs.trans = F.Pat_Con @name @pats.trans
+  | Underscore  lhs.trans = F.Pat_Underscore
+
+--
+-- Transform blocks
+--
+
+ATTR MaybeBlock [ | | trans : {F.MaybeBlock} ]
+
+SEM MaybeBlock
+  | Just     lhs.trans = Just @just.trans
+  | Nothing  lhs.trans = Nothing
+
+ATTR Decls Decl [ | | trans USE {Seq.><} {Seq.empty} : {Seq F.Block} ]
+SEM Decl
+  | Code  lhs.trans  = Seq.singleton @block.trans
+          block.kind = @kind
+
+ATTR MaybeBlock Block [ kind : BlockKind | | ]
+
+SEM SemDecl
+  | Child Visit Bind Tail
+      loc.kind = BlockKind_Code
+
+ATTR Block [ | | trans : {F.Block} ]
+
+SEM Block
+  | Code
+      lhs.trans = F.Block_Code @lhs.kind @items.trans
+
+ATTR Codes [ | | trans : {F.Codes} ]
+SEM Codes
+  | Cons  lhs.trans = @hd.trans : @tl.trans
+  | Nil   lhs.trans = []
+
+ATTR Code [ | | trans : {F.Code} ]
+SEM Code
+  | Plain
+      lhs.trans = F.Code_Plain @pos @txt
+  | Attr
+      lhs.trans = F.Code_Attr @pos @name @field
+  | Sem
+      lhs.trans = semFromMap @lhs.semMp @lhs.cyclicSems @loc.semIdent @loc.semName
+
+{
+semFromMap :: SemMap -> Set SemId -> SemId -> Ident -> F.Code
+semFromMap (M.AbsMap (mp,Nothing)) cyclics ident name
+  | ident `Set.member` cyclics  = F.Code_Plain noPos "(error \"cyclic sem definition\")"
+  | otherwise                   = case Map.lookup name mp of
+                                    Just (M.Val (M.ChnItem ovPos (M.ChnItem ovScheme (M.ChnSub clauseMp M.ChnEnd))) _) ->
+                                      let pos     = M.extract ovPos noPos
+                                          scheme  = M.extract ovScheme schemeUnknown
+                                          clauses = toClauses pos clauseMp
+                                      in F.Code_Sem pos scheme clauses
+                                    Nothing -> F.Code_Plain noPos "(error \"sem not defined\")"
+
+toClauses :: Pos -> ClauseMap -> F.Clauses
+toClauses pos mp
+  = [ F.Clause_Clause k (M.extract ovMbCtx Nothing) (M.extract ovDefs [])
+    | (k, M.ChnItem ovMbCtx (M.ChnItem ovDefs M.ChnEnd)) <- M.assocs mp (Ident "Default" pos) ]
+}
+
+
+-- Final combined sems
+ATTR Decls Decl Block MaybeBlock Codes Code SemDefs ClauseDecls ClauseDecl SemDecls SemDecl
+  [ semMp : SemMap | | ]
+
+
+--
+-- Gather nesting-relations and use-relations between SEMs
+--
+-- Cyclics in the graph spanned by these relations identifies the SEMs that are defined in a cyclic.
+--
+
+ATTR Decls Decl Block MaybeBlock Codes Code SemDefs ClauseDecls ClauseDecl SemDecls SemDecl
+  [ mbParent : {Maybe SemId} cyclicSems : {Set SemId} | | gathSemRels USE {`mappend`} {mempty} : {Set SemRel} ]
+
+SEM Vag
+  | Ag   decls.mbParent = Nothing
+         loc.semComps   = stronglyConnComp [ (src,src,[dst]) | rel <- Set.toList @decls.gathSemRels, let (src,dst) = unpackRel rel ]
+         loc.cyclicSems = Set.unions (map (Set.fromList . cyclicSccToList) @loc.semComps)
+         loc.cyclicErrs = concatMap cyclicSccToError @loc.semComps
+
+SEM Code
+  | Sem  loc.semIdent    = SemName @loc.semName
+         defs.mbParent   = Just @loc.semIdent
+         lhs.gathSemRels = maybe Set.empty (\parent -> Set.singleton $ SemNest @loc.semIdent parent) @lhs.mbParent
+                           `Set.union` @defs.gathSemRels
+
+SEM Decl
+  | Sem  loc.semIdent    = SemCode @loc.semId
+         defs.mbParent   = Just @loc.semIdent
+         lhs.gathSemRels = maybe Set.empty (\parent -> Set.singleton $ SemNest @loc.semIdent parent) @lhs.mbParent
+                           `Set.union` Set.fromList [ SemRef @loc.semIdent $ SemName target | target <- @loc.expNames ]
+                           `Set.union` @defs.gathSemRels
+
+{
+data SemRel = SemNest !SemId !SemId | SemRef !SemId !SemId
+  deriving (Eq,Ord,Show)
+
+data SemId = SemCode !Int | SemName !Ident
+  deriving (Eq,Ord,Show)
+
+unpackRel :: SemRel -> (SemId, SemId)
+unpackRel (SemNest s d) = (s, d)
+unpackRel (SemRef s d)  = (s, d)
+
+cyclicSccToList :: SCC a -> [a]
+cyclicSccToList (AcyclicSCC _) = []
+cyclicSccToList (CyclicSCC xs) = xs
+
+cyclicSccToError :: SCC SemId -> [Error]
+cyclicSccToError (AcyclicSCC _) = []
+cyclicSccToError (CyclicSCC xs)
+  | null items = []
+  | otherwise  = [Error_Cycle $ map (\i -> Item_SemName (identPos i) i False) items ]
+  where items = [ x | (SemName x) <- xs ]
+}
+
+
+--
+-- Collecting of errors
+--
+
+ATTR Vag [ | | errs USE {Seq.><} {Seq.empty} : Errs ]
+
+SEM Vag
+  | Ag
+      lhs.errs = Seq.fromList @loc.dataErrs Seq.>< Seq.fromList @loc.itfErrs Seq.>< Seq.fromList @loc.semErrs Seq.>< Seq.fromList @loc.cyclicErrs

@@ -1,0 +1,15 @@
+MODULE {Front} {} {}
+
+PRAGMA genlinepragmas
+
+DERIVING * : Show
+
+INCLUDE "FrontAst.ag"
+
+imports
+{
+import Common
+import UU.Scanner.Position
+import Type
+}
+

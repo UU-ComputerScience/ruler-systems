@@ -1,0 +1,22 @@
+cabal-version: >=1.2
+build-type: Simple
+name: visits-ag
+version: 0.1
+license: LGPL
+maintainer: Arie Middelkoop <ariem@cs.uu.nl>
+homepage: http://www.cs.uu.nl/wiki/HUT/WebHome
+description: Visits Attribute Grammar System
+category: Development
+stability: Experimental
+copyright: Arie Middelkoop
+
+data-files: README, uuagc_options
+
+executable vag
+  build-depends: base >= 4, base < 5
+  build-depends: containers, pretty, array, mtl, haskell-src, filepath, bytestring
+  build-depends: uulib, uuagc>=0.9.12
+  build-depends: haskell98
+  main-is: Main.hs
+  hs-source-dirs: src
+  other-modules: Scanner, Front, Common, Parser, Type, Flat, Flatten, Error, Merger, Opts, PrettyFront

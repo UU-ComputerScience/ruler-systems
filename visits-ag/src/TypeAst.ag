@@ -1,0 +1,24 @@
+DATA Type
+  | Var
+      name : Ident
+  | Internal
+      name : Ident
+      args : Types
+  | External
+      pos  : Pos
+      txt  : String
+
+DATA Internal
+  | Type
+      name : Ident
+      args : Types
+
+DATA Scheme
+  | Quant
+      vars : Idents
+      name : Ident
+      args : Types
+
+TYPE Types = [Type]
+
+TYPE MaybeInternal = MAYBE Internal

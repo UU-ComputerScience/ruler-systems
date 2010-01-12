@@ -1,0 +1,200 @@
+-- Abstract Syntax of a Visit AG file
+
+
+-- An VAG-file is a list of blocks, where each block is a declaration or code
+
+DATA Vag
+  | Ag
+      decls : Decls
+
+TYPE Decls = [Decl]
+
+DATA Decl
+  | Itf     pos    : Pos
+            names  : IdentSet
+            decls  : ItfDecls
+  
+  | Ctx     pos    : Pos
+            names  : IdentSet
+            ctxs   : Idents
+            decls  : CtxDecls
+  
+  | Forall  pos    : Pos
+            vars   : Idents
+            names  : IdentSet
+
+  | Inh     pos    : Pos
+            names  : IdentSet
+            sigs   : Sigs
+  
+  | Syn     pos    : Pos
+            names  : IdentSet
+            ctxs   : Idents
+            sigs   : Sigs
+  
+  | Chn     pos    : Pos
+            names  : IdentSet
+            ctxs   : Idents
+            sigs   : Sigs
+  
+  | Tail    pos    : Pos
+            names  : IdentSet
+            ctxs   : Idents
+            tp     : Internal
+
+  | Set     pos    : Pos
+            name   : Ident
+            val    : IdentSet
+  
+  | Data    pos    : Pos
+            names  : IdentSet
+            decls  : DataDecls
+  
+  | Code    pos    : Pos
+            kind   : BlockKind
+            block  : Block
+  
+  | Sem     pos     : Pos
+            names   : IdentSet
+            defs    : SemDefs
+
+TYPE ItfDecls = [ItfDecl]
+
+DATA ItfDecl
+  | Ctx     pos   : Pos
+            ctxs  : Idents
+            decls : CtxDecls
+  | Forall  pos   : Pos
+            vars  : Idents
+  | Inh     pos   : Pos
+            sigs  : Sigs
+  | Syn     pos   : Pos
+            ctxs  : Idents
+            sigs  : Sigs
+  | Chn     pos   : Pos
+            ctxs  : Idents
+            sigs  : Sigs
+  | Tail    pos   : Pos
+            ctxs  : Idents
+            tp    : Internal
+
+TYPE CtxDecls = [CtxDecl]
+DATA CtxDecl
+  | Syn   pos  : Pos
+          sigs : Sigs
+  | Tail  pos  : Pos
+          tp   : Internal
+
+TYPE DataDecls = [DataDecl]
+
+DATA DataDecl
+  | Forall  pos  : Pos
+            vars : Idents
+  | Con     pos   : Pos
+            names : IdentSet
+            sigs  : Sigs
+
+TYPE Sigs = [Sig]
+
+DATA Sig
+  | Sig
+      names : Idents
+      tp    : Type
+
+DATA IdentSet
+  | Ident  name  : Ident
+  | Union  left  : IdentSet
+           right : IdentSet
+  | Inter  left  : IdentSet
+           right : IdentSet
+  | Excl   left  : IdentSet
+           right : IdentSet
+
+TYPE MaybeBlock = MAYBE Block
+
+DATA Block
+  | Code
+      items : Codes
+
+TYPE Codes = [Code]
+
+DATA Code
+  | Plain
+      pos   : Pos
+      txt   : String
+  | Attr
+      pos   : Pos
+      name  : Ident
+      field : Ident
+  | Sem
+      pos     : Pos
+      mbName  : {Maybe Ident}
+      tp      : Scheme
+      defs    : SemDefs
+
+DATA SemDefs
+  | Default
+      pos   : Pos
+      mbCtx : {Maybe Ident}
+      decls : SemDecls
+  | Clauses
+      decls : ClauseDecls
+
+TYPE ClauseDecls = [ClauseDecl]
+
+DATA ClauseDecl
+  | Clause
+      pos   : Pos
+      names : IdentSet
+      mbCtx : {Maybe Ident}
+      decls : SemDecls
+
+TYPE SemDecls = [SemDecl]
+
+DATA SemDecl
+  | Child
+      pos    : Pos
+      name   : Ident
+      tp     : Internal
+      def    : Block
+  | Visit
+      pos    : Pos
+      child  : Ident
+      visit  : Ident
+      mbCtx  : {Maybe Ident}
+      mbDef  : MaybeBlock
+  | Bind
+      kind   : BindKind
+      pat    : Pat
+      def    : Block
+  | Tail
+      pos    : Pos
+      def    : Block
+
+TYPE Pats = [Pat]
+
+DATA Pat
+  | Attr
+      child  : Ident
+      pat    : AttrPat
+  | ConAttr
+      child  : Ident
+      con    : Ident
+  | Tup
+      pats   : Pats
+  | Con
+      name   : Ident
+      pats   : Pats
+  | Underscore
+
+TYPE AttrPats = [AttrPat]
+
+DATA AttrPat
+  | Field
+      name   : Ident
+  | Tup
+      pats   : AttrPats
+  | Con
+      name   : Ident
+      pats   : AttrPats
+  | Underscore

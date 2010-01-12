@@ -1,0 +1,40 @@
+MODULE {Type} {} {}
+
+PRAGMA genlinepragmas
+
+DERIVING * : Show
+
+DERIVING Internal Type Scheme : Eq
+
+INCLUDE "TypeAst.ag"
+
+imports
+{
+import Common
+import UU.Scanner.Position
+import UU.Pretty
+}
+
+
+{
+tpUnknown :: Type
+tpUnknown = Type_External noPos "<unknown>"
+
+schemeUnknown :: Scheme
+schemeUnknown = Scheme_Quant [] (Ident "<unknown>" noPos) []
+}
+
+{
+instance PP Internal where
+  pp (Internal_Type name args) | null args = pp name
+                               | otherwise = pp name >|< " " >|< hlist_sp args
+
+instance PP Scheme where
+  pp (Scheme_Quant vars name args) | null vars = pp (Internal_Type name args)
+                                   | otherwise = "forall " >|< hlist_sp vars >|< " . " >|< pp (Internal_Type name args)
+
+instance PP Type where
+  pp (Type_Var name)           = pp name
+  pp (Type_Internal name args) = pp (Internal_Type name args)
+  pp (Type_External _   str)   = "{" >|< str >|< "}"
+}

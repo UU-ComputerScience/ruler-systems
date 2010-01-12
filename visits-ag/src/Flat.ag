@@ -1,0 +1,14 @@
+MODULE {Flat} {} {}
+
+PRAGMA genlinepragmas
+
+DERIVING * : Show
+
+INCLUDE "FlatAst.ag"
+
+imports
+{
+import Common
+import Type
+import UU.Scanner.Position
+}

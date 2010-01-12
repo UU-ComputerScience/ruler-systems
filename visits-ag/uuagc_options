@@ -1,0 +1,17 @@
+file    : "src/Type.ag"
+options : data, rename, strictdata
+
+file    : "src/Error.ag"
+options : data, rename, signatures, strictdata, strictwrap, catas, semfuns, optimize
+
+file    : "src/Front.ag"
+options : data, rename, strictdata
+
+file    : "src/PrettyFront.ag"
+options : rename, signatures, strictwrap, catas, semfuns, optimize
+
+file    : "src/Flat.ag"
+options : data, rename, strictdata
+
+file    : "src/Flatten.ag"
+options : rename, signatures, strictwrap, catas, semfuns
