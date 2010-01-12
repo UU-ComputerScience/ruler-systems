@@ -1,0 +1,129 @@
+--
+-- Flattened attribute grammar representation
+--
+
+DATA Fag
+  | Ag
+      datas  : Datas
+      itfs   : Itfs
+      blocks : Blocks
+
+
+--
+-- Data declarations
+--
+
+TYPE Datas = [Data]
+
+DATA Data
+  | Data
+      name : Ident
+      vars : Idents
+      cons : Cons
+
+TYPE Cons = [Con]
+
+DATA Con
+  | Con
+      name : Ident
+      sigs : Sigs
+
+TYPE Sigs = [Sig]
+
+DATA Sig
+  | Sig
+      name : Ident
+      tp   : Type
+
+
+--
+-- Interface declarations
+--
+
+TYPE Itfs = [Itf]
+
+DATA Itf
+  | Itf
+      name : Ident
+      vars : Idents
+      inhs : Sigs
+      ctxs : Ctxs
+
+TYPE Ctxs = [Ctx]
+
+DATA Ctx
+  | Ctx
+      name : Ident
+      syns : Sigs
+      tail : MaybeInternal
+
+--
+-- Blocks
+--
+
+TYPE Blocks = [Block]
+
+TYPE MaybeBlock = MAYBE Block
+
+DATA Block
+  | Code
+      kind  : BlockKind
+      items : Codes
+
+TYPE Codes = [Code]
+
+DATA Code
+  | Plain
+      pos   : Pos
+      txt   : String
+  | Attr
+      pos   : Pos
+      name  : Ident
+      field : Ident
+  | Sem
+      pos     : Pos
+      tp      : Scheme
+      clauses : Clauses
+
+TYPE Clauses = [Clause]
+
+DATA Clause
+  | Clause
+      name : Ident
+      ctx  : {Maybe Ident}
+      defs : Defs
+
+TYPE Defs = [Def]
+
+DATA Def
+  | Child
+      name  : Ident
+      tp    : Internal
+      def   : Block
+  | Visit
+      child : Ident
+      visit : Ident
+      mbCtx : {Maybe Ident}
+      mbDef : MaybeBlock
+  | Bind
+      kind : BindKind
+      pat  : Pat
+      def  : Block
+  | Tail
+      def : Block
+
+TYPE Pats = [Pat]
+
+DATA Pat
+  | Attr
+      child : Ident
+      field : Ident
+  | Con
+      name  : Ident
+      pats  : Pats
+  | ConAttr
+      child  : Ident
+      con    : Ident
+  | Tup
+      pats  : Pats
+  | Underscore

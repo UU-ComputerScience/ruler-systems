@@ -1,0 +1,113 @@
+MODULE {Error} {} {}
+
+PRAGMA genlinepragmas
+
+DERIVING Item : Eq
+
+INCLUDE "ErrorAst.ag"
+
+imports
+{
+import Common
+import UU.Scanner.Position
+import qualified Data.Sequence as Seq
+import Data.Sequence(Seq)
+import qualified Control.Monad.Error as E
+import UU.Pretty
+import Data.Foldable
+}
+
+WRAPPER ErrorsItf
+WRAPPER Item
+
+{
+ppErrs :: Errs -> PP_Doc
+ppErrs = ppErrors . toList
+
+ppErrors :: Errors -> PP_Doc
+ppErrors es
+  = pp_Syn_ErrorsItf syn
+  where
+    inh = Inh_ErrorsItf {}
+    sem = sem_ErrorsItf (ErrorsItf_Itf es)
+    syn = wrap_ErrorsItf sem inh
+}
+
+ATTR ErrorsItf Error Item [ | | pp : PP_Doc ]
+ATTR Errors Items [ | | pps : {[PP_Doc]}]
+
+SEM ErrorsItf
+  | Itf      lhs.pp = vlist @errs.pps
+
+SEM Errors
+  | Cons     lhs.pps = @hd.pp : @tl.pps
+  | Nil      lhs.pps = []
+
+SEM Error
+  | Some     lhs.pp  = pp "an error has occurred"
+  | General  lhs.pp  = pp @msg
+  | Cmdline  lhs.pp  = vlist ((pp @usage) : pp "" : map pp @msgs)
+  | Parse    lhs.pp  = locLine @pos @loc.msg
+             loc.msg = "parse error" >|< maybe empty (\t -> " near " >|< pp t) @mbErrToken >|< ". Expecting: " >|< @expecting
+  | Dup      lhs.pp  = if null @items.pps
+                       then pp "error: an element is duplicated"
+                       else let its = zip @items.poss @items.pps
+                                (pos,headpp) = head its
+                                rest = tail its
+                            in locLine pos ("duplicate " >|< headpp)
+                                 >-< vlist (map (\(p,_) -> indent 2 ("conflicting with " >#< ppLoc p)) rest)
+  | Missing  lhs.pp  = locLine @item.pos ("missing " >|< @item.pp)
+  | Cycle    lhs.pp  = if null @items.pps
+                       then pp "error: there is a cyclic definition"
+                       else let its = zip @items.poss @items.pps
+                                (pos,headpp) = head its
+                                rest = tail its
+                             in locLine pos ("cyclic definition of " >|< headpp)
+                                  >-< vlist (map (\(p,i) -> indent 2 ("on a cycle with " >#< i >#< "(" >|< ppLoc p >|< ")")) rest)
+
+{
+locLine :: PP a => Pos -> a -> PP_Doc
+locLine (Pos l c f) d
+  = pp f >|< ":" >|< pp l >|< "," >|< pp c >|< ": " >|< pp d
+
+ppLoc :: Pos -> PP_Doc
+ppLoc (Pos l c f) = f >|< ":" >|< pp l >|< "," >|< pp c
+}
+
+SEM Items
+  | Cons     lhs.pps = @hd.pp : @tl.pps
+  | Nil      lhs.pps = []
+
+SEM Item
+  | Field      lhs.pp = "field " >|< pp @name
+  | TypeVar    lhs.pp = "type variable " >|< pp @name
+  | Itf        lhs.pp = "interface " >|< pp @name
+  | Ctx        lhs.pp = "context " >|< pp @name
+  | Tail       lhs.pp = "tail " >|< pp @name
+  | SemPos     lhs.pp = pp "position"
+  | SemName    lhs.pp = if @anonymous then pp "anonymous semantics" else pp @name >#< "(semantics)"
+  | SemScheme  lhs.pp = pp "scheme"
+  | ClauseCtx  lhs.pp = "clause context " >|< pp @name
+  | Clause     lhs.pp = "clause " >|< pp @name
+
+
+ATTR Items [ | | poss : {[Pos]} ]
+ATTR Item [ | | pos : {Pos} ]
+
+SEM Items
+  | Cons  lhs.poss = @hd.pos : @tl.poss
+  | Nil   lhs.poss = []
+
+SEM Item
+  | Field TypeVar Itf Ctx Tail SemPos SemName SemScheme Clause
+      lhs.pos = @pos
+  | ClauseCtx
+      lhs.pos = identPos @name
+
+{
+type Errs = Seq Error
+
+instance E.Error Error where
+  noMsg      = Error_Some
+  strMsg msg = Error_General msg
+}

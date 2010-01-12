@@ -1,0 +1,10 @@
+The Visits Attribute Grammar compiler
+
+This is a preprocessor for Haskell.
+
+Install it with:
+cabal configure  # to install dependencies
+ghc --make Setup.hs -o setup
+./setup configure --user
+./setup build
+./setup install

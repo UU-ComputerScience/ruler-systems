@@ -1,0 +1,183 @@
+MODULE {PrettyFront} {ppVag} {}
+
+PRAGMA genlinepragmas
+
+INCLUDE "FrontAst.ag"
+
+imports
+{
+import Common
+import UU.Scanner.Position
+import Type
+import UU.Pretty
+import Front
+}
+
+
+WRAPPER Vag
+
+{
+ppVag :: Vag -> PP_Doc
+ppVag vag = pp_Syn_Vag syn
+  where
+    inh = Inh_Vag {}
+    sem = sem_Vag vag
+    syn = wrap_Vag sem inh
+}
+
+ATTR Vag Decl ItfDecl CtxDecl DataDecl Sig IdentSet Block MaybeBlock Code SemDefs ClauseDecl SemDecl Pat AttrPat [ | | pp : PP_Doc ]
+ATTR Decls ItfDecls CtxDecls DataDecls Sigs Codes ClauseDecls SemDecls Pats AttrPats [ | | pps : {[PP_Doc]} ]
+
+
+SEM Vag
+  | Ag   lhs.pp = vlist @decls.pps
+
+SEM Decls
+  | Cons  lhs.pps = @hd.pp : @tl.pps
+  | Nil   lhs.pps = []
+
+SEM Decl
+  | Itf     lhs.pp  = pp "itf" >#< @names.pp >#< indent 4 (ppPos @pos)
+                      >-< indent 2 (vlist @decls.pps)
+  | Ctx     lhs.pp  = pp "ctx"  >#< @names.pp >#< ":" >#< hlist_sp @ctxs >#< indent 4 (ppPos @pos)
+                      >-< indent 2 (vlist @decls.pps)
+  | Forall  lhs.pp  = "forall" >#< hlist_sp @vars >#< indent 4 (ppPos @pos)
+  | Inh     lhs.pp  = pp "inh" >#< @names.pp >#< indent 4 (ppPos @pos)
+                      >-< indent 2 (vlist @sigs.pps)
+  | Syn     lhs.pp  = pp "syn" >#< @names.pp >#< indent 4 (ppPos @pos)
+                      >-< indent 2 (vlist @sigs.pps)
+  | Chn     lhs.pp  = pp "chn" >#< @names.pp >#< indent 4 (ppPos @pos)
+                      >-< indent 2 (vlist @sigs.pps)
+  | Tail    lhs.pp  = pp "tail" >#< @names.pp >#< "::" >#< pp @tp >#< indent 4 (ppPos @pos)
+  | Set     lhs.pp  = pp "set" >#< @name >#< @val.pp >#< indent 4 (ppPos @pos)
+  | Data    lhs.pp  = pp "data" >#< @names.pp >#< indent 4 (ppPos @pos)
+                      >-< indent 2 (vlist @decls.pps)
+  | Code    lhs.pp  = pp "code" >#< pp @kind >#< indent 4 (ppPos @pos)
+                      >-< @block.pp
+  | Sem     lhs.pp  = pp "sem" >#< @names.pp >#< indent 4 (ppPos @pos)
+                      >-< indent 2 @defs.pp
+
+SEM ItfDecls
+  | Cons    lhs.pps = @hd.pp : @tl.pps
+  | Nil     lhs.pps = []
+
+SEM ItfDecl
+  | Ctx     lhs.pp  = "ctx" >#< hlist_sp @ctxs
+                      >-< vlist @decls.pps
+  | Forall  lhs.pp  = "forall" >#< hlist_sp @vars
+  | Inh     lhs.pp  = "inh" >#< hlist_sp @sigs.pps
+  | Syn     lhs.pp  = "syn" >#< hlist_sp @sigs.pps
+  | Chn     lhs.pp  = "chn" >#< hlist_sp @sigs.pps
+  | Tail    lhs.pp  = "tail" >#< pp @tp
+
+SEM CtxDecls
+  | Cons    lhs.pps = @hd.pp : @tl.pps
+  | Nil     lhs.pps = []
+
+SEM CtxDecl
+  | Syn     lhs.pp  = "syn" >#< hlist_sp @sigs.pps
+  | Tail    lhs.pp  = "tail" >#< pp @tp
+
+SEM DataDecls
+  | Cons    lhs.pps = @hd.pp : @tl.pps
+  | Nil     lhs.pps = []
+
+SEM DataDecl
+  | Forall  lhs.pp = "forall" >#< hlist_sp @vars
+  | Con     lhs.pp = "|" >#< @names.pp >#< hlist_sp @sigs.pps
+
+SEM MaybeBlock
+  | Nothing  lhs.pp = pp "..."
+
+SEM Block
+  | Code    lhs.pp  = vlist @items.pps
+
+SEM Codes
+  | Cons    lhs.pps = @hd.pp : @tl.pps
+  | Nil     lhs.pps = []
+
+SEM Code
+  | Plain   lhs.pp = pp "..."
+  | Attr    lhs.pp = pp @name >|< "." >|< pp @field
+  | Sem     lhs.pp = ppPos @pos
+                     >-< pp "sem" >|< ppMbNm @mbName >|< " :: " >|< pp @tp
+                     >-< indent 2 @defs.pp
+
+{
+ppPos :: Pos -> PP_Doc
+ppPos (Pos l c f) = pp "--" >#< f >|< ":" >|< l >|< "," >|< c
+
+ppMbNm :: Maybe Ident -> PP_Doc
+ppMbNm Nothing = empty
+ppMbNm (Just x) = " " >|< x
+}
+
+SEM SemDefs
+  | Default  lhs.pp = "clause " >|< ppMbCtx @mbCtx
+                      >-< indent 2 (vlist @decls.pps)
+  | Clauses  lhs.pp = vlist @decls.pps
+
+SEM ClauseDecls
+  | Cons    lhs.pps = @hd.pp : @tl.pps
+  | Nil     lhs.pps = []
+
+SEM ClauseDecl
+  | Clause  lhs.pp = "clause " >|< @names.pp >|< " " >|< ppMbCtx @mbCtx
+                     >-< indent 2 (vlist @decls.pps)
+
+SEM SemDecls
+  | Cons    lhs.pps = @hd.pp : @tl.pps
+  | Nil     lhs.pps = []
+
+SEM SemDecl
+  | Child  lhs.pp = "child " >|< @name >|< " :: " >|< pp @tp >|< " = " >|< @def.pp
+  | Visit  lhs.pp = "visit " >|< @child >|< " : " >|< @visit >|< ppMbCtx @mbCtx >|< " = " >|< @mbDef.pp
+  | Bind   lhs.pp = pp @kind >|< " " >|< @pat.pp >|< " = " >|< @def.pp
+  | Tail   lhs.pp = "tail " >|< @def.pp
+
+{
+ppMbCtx :: Maybe Ident -> PP_Doc
+ppMbCtx Nothing  = empty
+ppMbCtx (Just x) = ":: " >|< x
+}
+
+SEM Sigs
+  | Cons    lhs.pps = @hd.pp : @tl.pps
+  | Nil     lhs.pps = []
+
+SEM Sig
+  | Sig     lhs.pp  = hlist_sep "," @names >|< " :: " >|< pp @tp
+
+SEM IdentSet
+  | Ident   lhs.pp  = pp @name
+  | Union   lhs.pp  = @left.pp >|< " " >|< @right.pp
+  | Inter   lhs.pp  = "(" >|< @left.pp >|< " \\/ " >|< @right.pp >|< ")"
+  | Excl    lhs.pp  = "(" >|< @left.pp >|< " - " >|< @right.pp >|< ")"
+
+SEM Pats
+  | Cons    lhs.pps = @hd.pp : @tl.pps
+  | Nil     lhs.pps = []
+
+SEM Pat
+  | Attr    lhs.pp  = @child >|< "." >|< @pat.pp
+  | ConAttr lhs.pp  = @child >|< "@" >|< @con
+  | Tup     lhs.pp  = "(" >|< hlist_sep "," @pats.pps >|< ")"
+  | Con     lhs.pp  = "(" >|< @name >|< " " >|< hlist_sep " " @pats.pps >|< ")"
+  | Underscore  lhs.pp = pp "_"
+
+SEM AttrPats
+  | Cons    lhs.pps = @hd.pp : @tl.pps
+  | Nil     lhs.pps = []
+
+SEM AttrPat
+  | Field  lhs.pp   = pp @name
+  | Tup    lhs.pp   = "(" >|< hlist_sep "," @pats.pps >|< ")"
+  | Con    lhs.pp   = "(" >|< @name >|< " " >|< hlist_sep " " @pats.pps >|< ")"
+  | Underscore  lhs.pp = pp "_"
+
+{
+hlist_sep :: (PP a, PP b) => a -> [b] -> PP_Doc
+hlist_sep s []     = empty
+hlist_sep s [x]    = pp x
+hlist_sep s (x:xs) = x >|< s >|< hlist_sep s xs
+}

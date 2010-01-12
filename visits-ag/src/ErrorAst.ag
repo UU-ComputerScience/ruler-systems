@@ -1,0 +1,47 @@
+--
+-- Error AST
+--
+
+DATA ErrorsItf
+  | Itf
+      errs : Errors
+
+TYPE Errors = [Error]
+
+DATA Error
+  | Some
+
+  | General
+      msg        : String
+
+  | Cmdline
+      msgs       : {[String]}
+      usage      : String
+
+  | Parse
+      pos        : Pos
+      mbErrToken : {Maybe String}
+      expecting  : String
+
+  | Dup
+      items      : Items
+  
+  | Missing
+      item       : Item
+  
+  | Cycle
+      items      : Items
+
+TYPE Items = [Item]
+
+DATA Item
+  | Field    pos : Pos  name : Ident
+  | TypeVar  pos : Pos  name : Ident
+  | Itf      pos : Pos  name : Ident
+  | Ctx      pos : Pos  name : Ident
+  | Tail     pos : Pos  name : Ident
+  | SemPos   pos : Pos
+  | SemName  pos : Pos  name : Ident  anonymous : Bool
+  | SemScheme pos : Pos
+  | ClauseCtx name : Ident   -- context of a clause decl
+  | Clause pos : Pos name : Ident
