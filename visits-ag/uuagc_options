@@ -15,3 +15,15 @@ options : data, rename, strictdata
 
 file    : "src/Flatten.ag"
 options : rename, signatures, strictwrap, catas, semfuns
+
+file    : "src/PrettyFlat.ag"
+options : rename, signatures, strictwrap, catas, semfuns, optimize
+
+file    : "src/Simple.ag"
+options : data, rename, strictdata
+
+file    : "src/PrettySimple.ag"
+options : rename, signatures, strictwrap, catas, semfuns, optimize
+
+file    : "src/Desugar.ag"
+options : rename, signatures, strictwrap, catas, semfuns, optimize

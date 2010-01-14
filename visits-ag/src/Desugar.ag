@@ -1,0 +1,43 @@
+MODULE {Desugar} {desugar} {}
+
+PRAGMA genlinepragmas
+
+INCLUDE "FlatAst.ag"
+
+imports
+{
+import Common
+import Type
+import UU.Scanner.Position
+import Flat
+import qualified Simple as S
+import Data.Sequence(Seq)
+import qualified Data.Sequence as Seq
+import Error
+import qualified Data.Map as Map
+import Data.Map(Map)
+import qualified Data.Set as Set
+import Data.Set(Set)
+}
+
+WRAPPER Fag
+
+{
+desugar :: Fag -> Either Errs S.Sag
+desugar ast = if Seq.null $ errs_Syn_Fag syn
+              then Right $ fag_Syn_Fag syn
+              else Left $ errs_Syn_Fag syn
+  where
+    inh = Inh_Fag {}
+    sem = sem_Fag ast
+    syn = wrap_Fag sem inh
+}
+
+
+ATTR Fag [ | | fag : {S.Sag} ]
+
+SEM Fag
+  | Ag
+      lhs.fag  = S.Sag_Ag [] [] []
+
+ATTR Fag [ | | errs USE {Seq.><} {Seq.empty} : Errs ]

@@ -41,7 +41,6 @@ SEM Decl
                       >-< indent 2 (vlist @decls.pps)
   | Ctx     lhs.pp  = pp "ctx"  >#< @names.pp >#< ":" >#< hlist_sp @ctxs >#< indent 4 (ppPos @pos)
                       >-< indent 2 (vlist @decls.pps)
-  | Forall  lhs.pp  = "forall" >#< hlist_sp @vars >#< indent 4 (ppPos @pos)
   | Inh     lhs.pp  = pp "inh" >#< @names.pp >#< indent 4 (ppPos @pos)
                       >-< indent 2 (vlist @sigs.pps)
   | Syn     lhs.pp  = pp "syn" >#< @names.pp >#< indent 4 (ppPos @pos)
@@ -102,15 +101,6 @@ SEM Code
   | Sem     lhs.pp = ppPos @pos
                      >-< pp "sem" >|< ppMbNm @mbName >|< " :: " >|< pp @tp
                      >-< indent 2 @defs.pp
-
-{
-ppPos :: Pos -> PP_Doc
-ppPos (Pos l c f) = pp "--" >#< f >|< ":" >|< l >|< "," >|< c
-
-ppMbNm :: Maybe Ident -> PP_Doc
-ppMbNm Nothing = empty
-ppMbNm (Just x) = " " >|< x
-}
 
 SEM SemDefs
   | Default  lhs.pp = "clause " >|< ppMbCtx @mbCtx
@@ -174,10 +164,3 @@ SEM AttrPat
   | Tup    lhs.pp   = "(" >|< hlist_sep "," @pats.pps >|< ")"
   | Con    lhs.pp   = "(" >|< @name >|< " " >|< hlist_sep " " @pats.pps >|< ")"
   | Underscore  lhs.pp = pp "_"
-
-{
-hlist_sep :: (PP a, PP b) => a -> [b] -> PP_Doc
-hlist_sep s []     = empty
-hlist_sep s [x]    = pp x
-hlist_sep s (x:xs) = x >|< s >|< hlist_sep s xs
-}

@@ -14,9 +14,12 @@ data-files: README, uuagc_options
 
 executable vag
   build-depends: base >= 4, base < 5
-  build-depends: containers, pretty, array, mtl, haskell-src, filepath, bytestring
+  build-depends: containers, array, mtl
   build-depends: uulib, uuagc>=0.9.12
   build-depends: haskell98
   main-is: Main.hs
   hs-source-dirs: src
-  other-modules: Scanner, Front, Common, Parser, Type, Flat, Flatten, Error, Merger, Opts, PrettyFront
+  other-modules: Common, Scanner, Parser, Merger, Opts
+  other-modules: Type, Error, Front, Flat, Simple
+  other-modules: PrettyFront, PrettyFlat, PrettySimple
+  other-modules: Flatten, Desugar

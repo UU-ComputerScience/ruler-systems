@@ -1,23 +1,31 @@
 DATA Type
   | Var
-      name : Ident
+      name  : Ident
   | Internal
-      name : Ident
-      args : Types
+      inter : Internal
+  | Tup
+      tps   : Types
+  | List
+      arg   : Type
   | External
-      pos  : Pos
-      txt  : String
+      pos   : Pos
+      txt   : String
 
 DATA Internal
   | Type
-      name : Ident
-      args : Types
+      name  : Ident
+      args  : TypeArgs
+
+DATA TypeArgs
+  | Subst  subst : Subst
+  | Types  tps : Types
+
+TYPE Subst = MAP {Ident} Type
 
 DATA Scheme
   | Quant
-      vars : Idents
-      name : Ident
-      args : Types
+      vars  : Idents
+      inter : Internal
 
 TYPE Types = [Type]
 

@@ -4,14 +4,22 @@ module Parser where
 import UU.Scanner
 import UU.Scanner.GenToken
 import UU.Parsing
+import Opts
 import Common
 import Front
 import Type
 import Error
 import qualified Data.Sequence as Seq
+import qualified Data.Map as Map
+import Data.Map(Map)
 
 
 type VagParser a = Parser Token a
+
+
+--
+-- Different parsers for identifiers
+--
 
 pVarIdent :: VagParser Ident
 pVarIdent = uncurry Ident <$> pVaridPos
@@ -19,22 +27,65 @@ pVarIdent = uncurry Ident <$> pVaridPos
 pConIdent :: VagParser Ident
 pConIdent = uncurry Ident <$> pConidPos
 
+pIdentClause, pIdentData, pIdentCon, pIdentItf, pIdentCtx, pIdentSem,
+ pIdentNameSet, pIdentTypeVar, pIdentVar, pIdentChild, pIdentVisit, pIdentType, pIdentField :: VagParser Ident
+pIdentClause  = pConIdent <?> "clause identifier"
+pIdentData    = pConIdent <?> "data identifier"
+pIdentCon     = pConIdent <?> "constructor identifier"
+pIdentItf     = pConIdent <?> "interface identifier"
+pIdentCtx     = pConIdent <?> "context identifier"
+pIdentSem     = pConIdent <?> "semantics name"
+pIdentNameSet = pConIdent <?> "ident set identifier"
+pIdentTypeVar = pVarIdent <?> "type variable identifier"
+pIdentVar     = pVarIdent <?> "variable identifier"
+pIdentChild   = pVarIdent <?> "child identifier"
+pIdentVisit   = pConIdent <?> "visit identifier"
+pIdentType    = pConIdent <?> "type identifier"
+pIdentField   = pVarIdent <?> "field identifier"
+
+
+--
+-- Sets of ConIdents
+--
+
+pIdentSet :: VagParser IdentSet
+pIdentSet = pChainr_gr (IdentSet_Excl <$ pKey "-") pIdentSetSeq <?> "ident set"
+
+pIdentSetSeq :: VagParser IdentSet
+pIdentSetSeq = foldl1 IdentSet_Union <$> pList1_gr pIdentSetBase
+
+pIdentSetBase :: VagParser IdentSet
+pIdentSetBase
+  =   IdentSet_Ident <$> pConIdent
+  <|> pParens pIdentSet
+
+pIdentSetCtx, pIdentSetItf, pIdentSetData, pIdentSetCon, pIdentSetSem, pIdentSetClause :: VagParser IdentSet
+pIdentSetCtx    = pIdentSet <?> "context ident set"
+pIdentSetItf    = pIdentSet <?> "itf ident set"
+pIdentSetData   = pIdentSet <?> "data ident set"
+pIdentSetCon    = pIdentSet <?> "con ident set"
+pIdentSetSem    = pIdentSet <?> "sem ident set"
+pIdentSetClause = pIdentSet <?> "clause ident set"
+
+
+--
+-- AST parsers
+--
 
 pVag :: VagParser Vag
 pVag = Vag_Ag <$> pList_gr pDecl
 
 pDecl :: VagParser Decl
 pDecl
-  =   Decl_Itf <$> pKeyPos "itf" <*> pIdentSet <*> pList_gr pItfDecl <* pEnd
-  <|> Decl_Set <$> pKeyPos "set" <*> pConIdent <* pKey ":" <*> pIdentSet <* pEnd
-  <|> Decl_Ctx <$> pKeyPos "ctx" <*> pIdentSet <*> opt (pKey ":" *> pList1_gr pConIdent) [] <*> pList_gr pCtxDecl <* pEnd
-  <|> Decl_Forall <$> pKeyPos "forall" <*> pList_gr pVarIdent <* pKey "." <*> pIdentSet
-  <|> Decl_Inh <$> pKeyPos "inh" <*> pIdentSet <*> pList_gr pSig <* pEnd
-  <|> Decl_Syn <$> pKeyPos "syn" <*> pIdentSet <*> opt (pKey ":" *> pList1_gr pConIdent) [] <*> pList_gr pSig <* pEnd
-  <|> Decl_Chn <$> pKeyPos "chn" <*> pIdentSet <*> opt (pKey ":" *> pList1_gr pConIdent) [] <*> pList_gr pSig <* pEnd
-  <|> Decl_Tail <$> pKeyPos "tail" <*> pIdentSet <*> opt (pKey ":" *> pList1_gr pConIdent) [] <* pKey "::" <*> pInternal <* pEnd
-  <|> Decl_Data <$> pKeyPos "data" <*> pIdentSet <*> pList_gr pDataDecl <* pEnd
-  <|> Decl_Sem <$> pKeyPos "sem" <*> pIdentSet <*> pSemDefs <* pEnd
+  =   Decl_Itf <$> pKeyPos "itf" <*> pIdentSetItf <*> pList_gr pItfDecl <* pEnd
+  <|> Decl_Set <$> pKeyPos "set" <*> pIdentNameSet <* pKey ":" <*> pIdentSet <* pEnd
+  <|> Decl_Ctx <$> pKeyPos "ctx" <*> pIdentSetItf <*> opt (pKey ":" *> pList1_gr pIdentCtx) [] <*> pList_gr pCtxDecl <* pEnd
+  <|> Decl_Inh <$> pKeyPos "inh" <*> pIdentSetItf <*> pList_ng pSig <* pEnd
+  <|> Decl_Syn <$> pKeyPos "syn" <*> pIdentSetItf <*> opt (pKey ":" *> pList1_gr pIdentCtx) [] <*> pList_ng pSig <* pEnd
+  <|> Decl_Chn <$> pKeyPos "chn" <*> pIdentSetItf <*> opt (pKey ":" *> pList1_gr pIdentCtx) [] <*> pList_ng pSig <* pEnd
+  <|> Decl_Tail <$> pKeyPos "tail" <*> pIdentSetItf <*> opt (pKey ":" *> pList1_gr pIdentCtx) [] <* pKey "::" <*> pInternal <* pEnd
+  <|> Decl_Data <$> pKeyPos "data" <*> pIdentSetData <*> pList_gr pDataDecl <* pEnd
+  <|> Decl_Sem <$> pKeyPos "sem" <*> pIdentSetSem <*> pSemDefs <* pEnd
   <|> pCodeHead <*> pBlock <* pCCurly
   <?> "toplevel declaration"
 
@@ -44,17 +95,17 @@ pCodeHead =   ((\(p,k) -> Decl_Code p k) <$> pBlockKind <* pOCurlyPos)
 
 pItfDecl :: VagParser ItfDecl
 pItfDecl
-  =   ItfDecl_Ctx    <$> pKeyPos "ctx"    <*> pList_gr pConIdent <*> pList_gr pCtxDecl <* pEnd
-  <|> ItfDecl_Forall <$> pKeyPos "forall" <*> pList_gr pVarIdent
+  =   ItfDecl_Ctx    <$> pKeyPos "ctx"    <*> pList_gr pIdentCtx <*> pList_gr pCtxDecl <* pEnd
+  <|> ItfDecl_Forall <$> pKeyPos "forall" <*> pList_gr pIdentTypeVar
   <|> ItfDecl_Inh    <$> pKeyPos "inh"    <*> pList_gr pSig <* pEnd
-  <|> ItfDecl_Syn    <$> pKeyPos "syn"    <*> opt (pKey ":" *> pList1_gr pConIdent) [] <*> pList_gr pSig <* pEnd
-  <|> ItfDecl_Chn    <$> pKeyPos "chn"    <*> opt (pKey ":" *> pList1_gr pConIdent) [] <*> pList_gr pSig <* pEnd
-  <|> ItfDecl_Tail   <$> pKeyPos "tail"   <*> opt (pKey ":" *> pList1_gr pConIdent) [] <*> pInternal     <* pEnd
+  <|> ItfDecl_Syn    <$> pKeyPos "syn"    <*> opt (pKey ":" *> pList_ng pIdentCtx) [] <*> pList_gr pSig <* pEnd
+  <|> ItfDecl_Chn    <$> pKeyPos "chn"    <*> opt (pKey ":" *> pList_ng pIdentCtx) [] <*> pList_gr pSig <* pEnd
+  <|> ItfDecl_Tail   <$> pKeyPos "tail"   <*> opt (pKey ":" *> pList_ng pIdentCtx) [] <*> pInternal     <* pEnd
   <?> "interface declaration"
 
 pCtxDecl :: VagParser CtxDecl
 pCtxDecl
-  =   CtxDecl_Syn    <$> pKeyPos "syn"    <*> pList_gr pSig <* pEnd
+  =   CtxDecl_Syn    <$> pKeyPos "syn"    <*> pList_ng pSig <* pEnd
   <|> CtxDecl_Tail   <$> pKeyPos "tail"   <*> pInternal     <* pEnd
   <?> "context declaration"
 
@@ -63,30 +114,63 @@ pEnd = pKeyPos "end" <?> "end of layout"
 
 
 pSig :: VagParser Sig
-pSig = Sig_Sig <$> pList1Sep_gr pComma pVarIdent <* pKey "::" <*> pType <?> "signature"
+pSig = Sig_Sig <$> pList1Sep_gr pComma pIdentField <* pKey "::" <*> pType <?> "signature"
 
 
 pType :: VagParser Type
 pType
-  =   Type_Internal <$> pConIdent <*> pList_gr pParamType
-  <|> pParamType
+  =   Type_Internal <$> pInternal
+  <|> pParamTypeBase
   <?> "type"
 
-pParamType :: VagParser Type
-pParamType
-  =   Type_Var      <$> pVarIdent
-  <|> uncurry (flip Type_External) <$> pExternalType
-  <|> pParens pType
+pParamTypeWithInternal :: VagParser Type
+pParamTypeWithInternal
+  =    Type_Internal <$> pInternalSingle
+  <|>  pParamTypeBase
+  <?> "param type"
+
+pParamTypeWithArgsInternal :: VagParser Type
+pParamTypeWithArgsInternal
+  =   Type_Internal <$> pInternalMany
+  <|> pParamTypeBase
+  <?> "param type"
+
+pParamTypeBase :: VagParser Type
+pParamTypeBase
+  =   uncurry (flip Type_External) <$> pExternalType
+  <|> Type_Var <$> pIdentTypeVar
+  <|> (\xs -> if length xs == 1 then head xs else Type_Tup xs) <$> pParens_pCommas pType
+  <|> Type_List <$> pBracks pType
   <?> "param type"
 
 pScheme :: VagParser Scheme
 pScheme
-  = Scheme_Quant <$> opt (pKey "forall" *> pList_gr pVarIdent <* pKey ".") [] <*> pConIdent <*> pList_gr pType <?> "type scheme"
+  = Scheme_Quant <$> opt (pKey "forall" *> pList_gr pIdentVar <* pKey ".") [] <*> pInternal <?> "itf scheme"
 
 pInternal :: VagParser Internal
 pInternal
-  = Internal_Type <$> pConIdent <*> pList_gr pType <?> "internal type"
+  = Internal_Type <$> pIdentType <*> pTypeArgs <?> "internal type"
 
+pInternalSingle :: VagParser Internal
+pInternalSingle
+  = flip Internal_Type (TypeArgs_Types []) <$> pIdentType <?> "internal type"
+
+pInternalMany :: VagParser Internal
+pInternalMany
+  = Internal_Type <$> pIdentType <*> pTypeArgsWithoutSubst <?> "internal type"
+
+pTypeArgs :: VagParser TypeArgs
+pTypeArgs
+  =   pTypeArgsWithoutSubst
+  <|> (TypeArgs_Subst . Map.fromList <$> pList1_ng pSubst <?> "type substitution")
+
+pTypeArgsWithoutSubst :: VagParser TypeArgs
+pTypeArgsWithoutSubst
+  = TypeArgs_Types <$> pList_ng pParamTypeWithInternal <?> "type argument list"
+
+
+pSubst :: VagParser (Ident, Type)
+pSubst = (,) <$> pIdentTypeVar <* pKey ":=" <*> pParamTypeWithArgsInternal
 
 pExternalType :: VagParser (String,Pos)
 pExternalType
@@ -95,8 +179,8 @@ pExternalType
 
 pDataDecl :: VagParser DataDecl
 pDataDecl
-  =   (DataDecl_Con    <$> pKeyPos "|" <*> pIdentSet <*> pList_gr pSig  <?> "constructor declaration")
-  <|> (DataDecl_Forall <$> pKeyPos "forall" <*> pList_gr pVarIdent      <?> "type variable declaration")
+  =   (DataDecl_Con    <$> pKeyPos "|" <*> pIdentSetCon <*> pList_ng pSig <?> "constructor declaration")
+  <|> (DataDecl_Forall <$> pKeyPos "forall" <*> pList_gr pIdentTypeVar    <?> "type variable declaration")
   <?> "data declaration"
 
 
@@ -114,8 +198,8 @@ pBlockKind
 pCode :: VagParser Code
 pCode
   =   uncurry (flip Code_Plain) <$> pTextlnPos
-  <|> uncurry mkAttr <$> pVaridPos
-  <|> Code_Sem <$> pKeyPos "sem" <*> opt (Just <$> pConIdent) Nothing <* pKey "::" <*> pScheme <*> pSemDefs <* pEnd
+  <|> uncurry mkAttr <$> (pVaridPos <?> "attribute occurrence")
+  <|> Code_Sem <$> pKeyPos "sem" <*> opt (Just <$> pIdentSem) Nothing <* pKey "::" <*> pScheme <*> pSemDefs <* pEnd
   <?> "code item"
   where
     mkAttr s p = let (i,t) = break (== '.') s
@@ -123,18 +207,17 @@ pCode
 
 pSemDefs :: VagParser SemDefs
 pSemDefs
-  =   SemDefs_Default <$> pKeyPos ":" <*> opt (Just <$> pConIdent) Nothing <*> pList1_gr pSemDecl
+  =   SemDefs_Default <$> pKeyPos ":" <*> opt (Just <$> pIdentCtx) Nothing <*> pList1_gr pSemDecl
   <|> SemDefs_Clauses <$> pList_gr pClauseDecl
   <?> "semantic defs"
 
 pSemDecl :: VagParser SemDecl
 pSemDecl
-  =   SemDecl_Child <$> pKeyPos "child" <*> pVarIdent <* pKey "::" <*> pInternal <* pKey "=" <*> pBlock <* pEnd
-  <|> SemDecl_Visit <$> pKeyPos "visit" <*> pVarIdent <* pKey ":" <*> pConIdent <*> opt (Just <$ pKey "::" <*> pConIdent) Nothing <*> opt (Just <$ pKey "=" <*> pBlock <* pEnd) Nothing
+  =   SemDecl_Child <$> pKeyPos "child" <*> pIdentChild <* pKey "::" <*> pInternal <* pKey "=" <*> pBlock <* pEnd
+  <|> SemDecl_Visit <$> pKeyPos "visit" <*> pIdentChild <* pKey "::" <*> pIdentVisit <*> opt (Just <$ pKey ":" <*> pIdentCtx) Nothing <*> opt (Just <$ pKey "=" <*> pBlock <* pEnd) Nothing
   <|> SemDecl_Bind  <$> (BindKind_Assert <$ pKey "assert") <*> pPat <* pKey "=" <*> pBlock <* pEnd
-  <|> pVarIdent <**> (   (\p b c-> SemDecl_Bind BindKind_Def (Pat_Attr c p) b) <$ pKey "." <*> pAttrPat <* pKey "=" <*> pBlock <* pEnd
-                     <|> (\n b a -> SemDecl_Bind BindKind_Def (Pat_ConAttr a n) b) <$ pKey "@" <*> pConIdent <* pKey "=" <*> pBlock <* pEnd
---                     <|> (\xs t x -> SemDecl_Sig (x:xs) t) <$> pList_gr (pKey "," *> pVarIdent) <* pKey "::" <*> pType
+  <|> pIdentChild <**> (   ( (\p b c-> SemDecl_Bind BindKind_Def (Pat_Attr c p) b) <$ pKey "." <*> pAttrPat <* pKey "=" <*> pBlock <* pEnd <?> ".attr-pattern")
+                       <|> ( (\t n b a -> SemDecl_Bind BindKind_Def (Pat_ConAttr a t n) b) <$ pKey "@" <*> pIdentData <* pKey "." <*> pIdentCon <* pKey "=" <*> pBlock <* pEnd <?> "@con-decompose pattern")
                      )
   <|> SemDecl_Bind BindKind_Def <$> pPatRoot <* pKey "=" <*> pBlock <* pEnd
   <|> SemDecl_Tail  <$> pKeyPos "tail" <*> pBlock <* pEnd
@@ -142,7 +225,7 @@ pSemDecl
 
 pClauseDecl :: VagParser ClauseDecl
 pClauseDecl
-  = ClauseDecl_Clause <$> pKeyPos "clause" <*> pIdentSet <*> opt (Just <$ pKey ":" <*> pConIdent) Nothing <*> pList_gr pSemDecl <* pEnd <?> "clause decl"
+  = ClauseDecl_Clause <$> pKeyPos "clause" <*> pIdentSetClause <*> opt (Just <$ pKey ":" <*> pIdentCtx) Nothing <*> pList_gr pSemDecl <* pEnd <?> "clause decl"
 
 pPat :: VagParser Pat
 pPat =   pPatIdent
@@ -156,13 +239,13 @@ pPatRoot
   <?> "toplevel pattern"
 
 pPatIdent :: VagParser Pat
-pPatIdent =   pVarIdent <**> (   flip Pat_Attr    <$ pKey "." <*> pAttrPat
-                          <|> flip Pat_ConAttr <$ pKey "@" <*> pConIdent
-                          )
+pPatIdent =   pVarIdent <**> (   ( flip Pat_Attr                 <$ pKey "." <*> pAttrPat  <?> ".attr-pattern")
+                             <|> ( (\t n a -> Pat_ConAttr a t n) <$ pKey "@" <*> pIdentData <* pKey "." <*> pIdentCon <?> "@con-decompose pattern")
+                             )
 
 pPatComplex :: VagParser Pat
 pPatComplex
-  =   Pat_Con <$> pConIdent <*> pList_gr pPatBase
+  =   Pat_Con <$> pIdentCon <*> pList_gr pPatBase
   <|> Pat_Tup <$> pParens_pCommas pPat
   <|> pPatBase
   <?> "complex pattern"
@@ -171,51 +254,37 @@ pPatBase :: VagParser Pat
 pPatBase
   =   Pat_Underscore <$ pKey "_"
   <|> pParens pPat
+  <?> "base pattern"
 
 pAttrPat :: VagParser AttrPat
 pAttrPat
-  =   AttrPat_Con <$> pConIdent <*> pList_gr pAttrPatBase
+  =   AttrPat_Con <$> pIdentCon <*> pList_gr pAttrPatBase
   <|> AttrPat_Tup <$> pParens_pCommas pAttrPat
   <|> pAttrPatBase
   <?> "attr pattern"
 
 pAttrPatBase :: VagParser AttrPat
 pAttrPatBase
-  =   AttrPat_Field <$> pVarIdent
+  =   AttrPat_Field <$> pIdentField
   <|> AttrPat_Underscore <$ pKey "_"
-
---
--- Sets of ConIdents
---
-
-pIdentSet :: VagParser IdentSet
-pIdentSet = pChainr_gr (IdentSet_Excl <$ pKey "-") pIdentSetSeq <?> "ident set"
-
-pIdentSetSeq :: VagParser IdentSet
-pIdentSetSeq = foldl1 IdentSet_Union <$> pList1_gr pIdentSetBase
-
-pIdentSetBase :: VagParser IdentSet
-pIdentSetBase
-  =   IdentSet_Ident <$> pConIdent
-  <|> pParens pIdentSet
 
 
 --
 -- Run parser
 --
 
-parseTokens :: Pos -> VagParser a -> [Token] -> Either Errs a
-parseTokens pos p tks
+parseTokens :: Opts -> Pos -> VagParser a -> [Token] -> Either Errs a
+parseTokens opts pos p tks
   = if null msgs
     then final `seq` Right v
-    else Left (Seq.singleton $ toError pos $ head msgs)
+    else Left (Seq.singleton $ toError opts pos $ head msgs)
   where
     steps = UU.Parsing.parse p tks
     msgs  = getMsgs steps
     (Pair v final) = evalSteps steps
 
-toError :: Pos -> Message Token (Maybe Token) -> Error
-toError pos (Msg exp mtok _)
+toError :: Opts -> Pos -> Message Token (Maybe Token) -> Error
+toError opts pos (Msg exp mtok _)
   = Error_Parse p m (show exp)
   where
     p = case mtok of
@@ -224,5 +293,7 @@ toError pos (Msg exp mtok _)
     m = case mtok of
           Nothing -> Nothing
           Just tok -> case tok of
-                        Reserved str _   -> Just ("symbol " ++ show str)
-                        ValToken _ val _ -> Just (show val)
+                        Reserved str _         -> Just ("symbol " ++ show str)
+                        ValToken TkError val _ -> Just ("unrecognized token " ++ show val)
+                        ValToken tp val _      -> let descr = if optVerbose opts then show tp ++ " " else ""
+                                                  in Just (descr ++ show val)

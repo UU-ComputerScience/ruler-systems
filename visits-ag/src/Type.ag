@@ -4,7 +4,7 @@ PRAGMA genlinepragmas
 
 DERIVING * : Show
 
-DERIVING Internal Type Scheme : Eq
+DERIVING Internal Type Scheme Subst TypeArgs : Eq
 
 INCLUDE "TypeAst.ag"
 
@@ -13,6 +13,8 @@ imports
 import Common
 import UU.Scanner.Position
 import UU.Pretty
+import qualified Data.Map as Map
+import Data.Map(Map)
 }
 
 
@@ -21,20 +23,41 @@ tpUnknown :: Type
 tpUnknown = Type_External noPos "<unknown>"
 
 schemeUnknown :: Scheme
-schemeUnknown = Scheme_Quant [] (Ident "<unknown>" noPos) []
+schemeUnknown = Scheme_Quant [] (Internal_Type (Ident "<unknown>" noPos) (TypeArgs_Types []))
+
+schemeIdent :: Scheme -> Ident
+schemeIdent (Scheme_Quant _ (Internal_Type nm _)) = nm
+
+internalIdent :: Internal -> Ident
+internalIdent (Internal_Type nm _) = nm
 }
 
 {
 instance PP Internal where
-  pp (Internal_Type name args) | null args = pp name
-                               | otherwise = pp name >|< " " >|< hlist_sp args
+  pp (Internal_Type name args) = name >|< suf
+    where suf | argsIsNull args = empty
+              | otherwise       = " " >|< args
+
+argsIsNull :: TypeArgs -> Bool
+argsIsNull (TypeArgs_Types tps)   = null tps
+argsIsNull (TypeArgs_Subst subst) = Map.null subst
+
+instance PP TypeArgs where
+  pp (TypeArgs_Types tps)   = hlist_sp (map addparens tps)
+  pp (TypeArgs_Subst subst) = "[" >|< hlist_sep ", " [ k >#< ":=" >#< v | (k,v) <- Map.assocs subst ] >|< "]"
+
+addparens :: Type -> PP_Doc
+addparens t@(Type_Internal (Internal_Type _ args)) | not (argsIsNull args) = "(" >|< t >|< ")"
+addparens t                                                                = pp t
 
 instance PP Scheme where
-  pp (Scheme_Quant vars name args) | null vars = pp (Internal_Type name args)
-                                   | otherwise = "forall " >|< hlist_sp vars >|< " . " >|< pp (Internal_Type name args)
+  pp (Scheme_Quant vars inter) | null vars = pp inter
+                               | otherwise = "forall " >|< hlist_sp vars >|< " . " >|< pp inter
 
 instance PP Type where
-  pp (Type_Var name)           = pp name
-  pp (Type_Internal name args) = pp (Internal_Type name args)
-  pp (Type_External _   str)   = "{" >|< str >|< "}"
+  pp (Type_Var name)         = pp name
+  pp (Type_Internal inter)   = pp inter
+  pp (Type_Tup tps)          = "(" >|< hlist_sep ", " tps >|< ")"
+  pp (Type_List tp)          = "[" >|< tp >|< "]"
+  pp (Type_External _   str) = "{" >|< str >|< "}"
 }

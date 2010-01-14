@@ -64,12 +64,18 @@ data BlockKind
   = BlockKind_Code
   | BlockKind_Import
   | BlockKind_Preamble
+  | BlockKind_Inline
   deriving (Eq, Ord, Show)
 
 instance PP BlockKind where
   pp BlockKind_Code     = pp "code"
   pp BlockKind_Import   = pp "import"
   pp BlockKind_Preamble = pp "preamble"
+  pp BlockKind_Inline   = pp "inline"
+
+isInline :: BlockKind -> Bool
+isInline BlockKind_Inline = True
+isInline _                = False
 
 
 --
@@ -84,3 +90,25 @@ data BindKind
 instance PP BindKind where
   pp BindKind_Assert = pp "assert"
   pp BindKind_Def    = pp "bind"
+
+
+--
+-- Pretty print common helper functions
+--
+
+hlist_sep :: (PP a, PP b) => a -> [b] -> PP_Doc
+hlist_sep s []     = empty
+hlist_sep s [x]    = pp x
+hlist_sep s (x:xs) = x >|< s >|< hlist_sep s xs
+
+vlist_sep :: (PP a, PP b) => a -> [b] -> PP_Doc
+vlist_sep s []     = empty
+vlist_sep s [x]    = pp x
+vlist_sep s (x:xs) = x >-< s >-< vlist_sep s xs
+
+ppPos :: Pos -> PP_Doc
+ppPos (Pos l c f) = pp "--" >#< f >|< ":" >|< l >|< "," >|< c
+
+ppMbNm :: Maybe Ident -> PP_Doc
+ppMbNm Nothing = empty
+ppMbNm (Just x) = " " >|< x

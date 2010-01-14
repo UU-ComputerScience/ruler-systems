@@ -1,0 +1,7 @@
+data D
+  | C  x :: Q Bool a Z
+       y :: Q Int b D
+       z :: Q a := z b := Int c := C (D a := C) q
+       a :: ()
+       b :: (A, B c)
+       c :: [String]

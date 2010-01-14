@@ -1,10 +1,10 @@
-MODULE {Front} {} {}
+MODULE {Simple} {} {}
 
 PRAGMA genlinepragmas
 
 DERIVING * : Show
 
-INCLUDE "FrontAst.ag"
+INCLUDE "SimpleAst.ag"
 
 imports
 {

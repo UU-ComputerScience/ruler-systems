@@ -79,6 +79,8 @@ SEM Items
   | Nil      lhs.pps = []
 
 SEM Item
+  | Data       lhs.pp = "data" >#< @name
+  | Con        lhs.pp = "constructor " >#< @name
   | Field      lhs.pp = "field " >|< pp @name
   | TypeVar    lhs.pp = "type variable " >|< pp @name
   | Itf        lhs.pp = "interface " >|< pp @name
