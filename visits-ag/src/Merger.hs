@@ -88,7 +88,7 @@ instance Show (Occurrence e) where
 
 instance Ord k => Monoid (AbsMap e k a) where
   mempty = AbsMap (Map.empty, Nothing)
-  mappend (AbsMap (mpl, defl)) (AbsMap (mpr, defr)) = AbsMap (Map.unionWith mappend mpl mpr, defl `mappend` defr)
+  mappend (AbsMap (mpl, defl)) (AbsMap (mpr, defr)) = AbsMap (Map.unionWith xappend mpl mpr, defl `xappend` defr)
 
 singleton :: Ord k => k -> Val e k a -> AbsMap e k a
 singleton k v = AbsMap (Map.singleton k v, Nothing)
@@ -103,35 +103,41 @@ many ks f = many1 ks (\x -> f (Just x))
 many1 :: Ord k => [k] -> (k -> Val e k a) -> AbsMap e k a
 many1 ks f = AbsMap (Map.fromList (map (\k -> (k,f k)) ks), Nothing)
 
-instance Ord k => Monoid (Val e k a) where
-  mempty = Val mempty mempty
-  mappend (Val chnl el) (Val chnr er) = Val (chnl `mappend` chnr) (el `mappend` er)
 
-instance Ord k => Monoid (Chain e k a) where
-  mempty = error "mempty on chains is not supported"
-  mappend (ChnItem ovl chnl) (ChnItem ovr chnr) = ChnItem (ovl `mappend` ovr) (chnl `mappend` chnr)
-  mappend (ChnSub mpl chnl) (ChnSub mpr chnr)   = ChnSub  (mpl `mappend` mpr) (chnl `mappend` chnr)
-  mappend ChnEnd ChnEnd                         = ChnEnd
+class SemiGroup a where
+  xappend :: a -> a -> a
 
-instance Monoid (Overridable e a) where
-  mempty = error "mempty on overridables is not supported"
-  mappend (Absent _) o = o
-  mappend o (Absent _) = o
-  mappend (Replaceable _) o = o
-  mappend o (Replaceable _) = o
-  mappend (Appendable a1) (Appendable a2) = Appendable (a1 `mappend` a2)
-  mappend (Fixed al el) (Fixed ar er)
+instance Ord k => SemiGroup (Val e k a) where
+  xappend (Val chnl el) (Val chnr er) = Val (chnl `xappend` chnr) (el `xappend` er)
+
+instance Ord k => SemiGroup (Chain e k a) where
+  xappend (ChnItem ovl chnl) (ChnItem ovr chnr) = ChnItem (ovl `xappend` ovr) (chnl `xappend` chnr)
+  xappend (ChnSub mpl chnl) (ChnSub mpr chnr)   = ChnSub  (mpl `mappend` mpr) (chnl `xappend` chnr)
+  xappend ChnEnd ChnEnd                         = ChnEnd
+
+instance SemiGroup (Overridable e a) where
+  xappend (Absent _) o = o
+  xappend o (Absent _) = o
+  xappend (Replaceable _) o = o
+  xappend o (Replaceable _) = o
+  xappend (Appendable a1) (Appendable a2) = Appendable (a1 `mappend` a2)
+  xappend (Fixed al el) (Fixed ar er)
     | length el + length er <= 2 && al == ar = Fixed al el
     | otherwise                              = Fixed al (el ++ er)
 
-instance Monoid (Occurrence e) where
-  mempty = error "mempty on occurrences is not supported"
-  mappend (OccRequire _) o = o
-  mappend o (OccRequire _) = o
-  mappend (SingleDef esl) (SingleDef esr) = SingleDef (esl ++ esr)
-  mappend (SingleDef esl) (MultDef esr)   = SingleDef (esl ++ esr)
-  mappend (MultDef esl) (SingleDef esr)   = SingleDef (esl ++ esr)
-  mappend (MultDef esl) (MultDef esr)     = MultDef (esl ++ esr)
+instance SemiGroup (Occurrence e) where
+  xappend (OccRequire _) o = o
+  xappend o (OccRequire _) = o
+  xappend (SingleDef esl) (SingleDef esr) = SingleDef (esl ++ esr)
+  xappend (SingleDef esl) (MultDef esr)   = SingleDef (esl ++ esr)
+  xappend (MultDef esl) (SingleDef esr)   = SingleDef (esl ++ esr)
+  xappend (MultDef esl) (MultDef esr)     = MultDef (esl ++ esr)
+
+instance SemiGroup a => SemiGroup (Maybe a) where
+  xappend Nothing Nothing     = Nothing
+  xappend Nothing xs          = xs
+  xappend xs Nothing          = xs
+  xappend (Just xs) (Just ys) = Just (xs `xappend` ys)
 
 
 --

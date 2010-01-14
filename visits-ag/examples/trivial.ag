@@ -1,0 +1,13 @@
+itf Z
+  inh x :: Int
+  ctx Z
+    syn z :: Int
+
+{
+x = sem :: Z
+      clause Main : Z
+        lhs.z = lhs.x
+
+main :: IO ()
+main = return ()
+}

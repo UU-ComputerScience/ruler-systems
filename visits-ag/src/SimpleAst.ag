@@ -1,8 +1,8 @@
 --
--- Flattened attribute grammar representation
+-- Simplified attribute grammar representation
 --
 
-DATA Fag
+DATA Sag
   | Ag
       datas  : Datas
       itfs   : Itfs
@@ -63,8 +63,6 @@ DATA Ctx
 
 TYPE Blocks = [Block]
 
-TYPE MaybeBlock = MAYBE Block
-
 DATA Block
   | Code
       kind  : BlockKind
@@ -89,9 +87,9 @@ TYPE Clauses = [Clause]
 
 DATA Clause
   | Clause
-      name  : Ident
-      mbCtx : {Maybe Ident}
-      defs  : Defs
+      name : Ident
+      ctx  : Ident
+      defs : Defs
 
 TYPE Defs = [Def]
 
@@ -103,8 +101,8 @@ DATA Def
   | Visit
       child : Ident
       visit : Ident
-      mbCtx : {Maybe Ident}
-      mbDef : MaybeBlock
+      ctx   : Ident
+      def   : Block
   | Bind
       kind : BindKind
       pat  : Pat
@@ -121,10 +119,6 @@ DATA Pat
   | Con
       name  : Ident
       pats  : Pats
-  | ConAttr
-      child  : Ident
-      tp     : Ident
-      con    : Ident
   | Tup
       pats  : Pats
   | Underscore

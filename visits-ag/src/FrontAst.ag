@@ -18,10 +18,6 @@ DATA Decl
             names  : IdentSet
             ctxs   : Idents
             decls  : CtxDecls
-  
-  | Forall  pos    : Pos
-            vars   : Idents
-            names  : IdentSet
 
   | Inh     pos    : Pos
             names  : IdentSet
@@ -179,6 +175,7 @@ DATA Pat
       pat    : AttrPat
   | ConAttr
       child  : Ident
+      tp     : Ident
       con    : Ident
   | Tup
       pats   : Pats

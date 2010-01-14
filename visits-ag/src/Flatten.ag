@@ -1,12 +1,15 @@
 --
 -- Flattening phase
 --
--- Errors caught:
+-- Some static errors that do not depend on the outcome of the flattening, are checked in this phase:
+--
 --   duplicate data types, sems, interfaces, constructor fields, attributes
 --   missing   data types, sems, contexts, interfaces
+--   missing data type or constructor in an "@" pattern
+--   itf name of child-definitions
 --
 
-MODULE {Flatten} {} {}
+MODULE {Flatten} {flatten} {}
 
 PRAGMA genlinepragmas
 
@@ -148,7 +151,7 @@ ATTR Decls Decl DataDecls DataDecl
        [ sets : {Map Ident (Set Ident)} | | ]
 
 SEM Decl
-  | Itf Ctx Forall Inh Syn Chn Tail Data Sem
+  | Itf Ctx Inh Syn Chn Tail Data Sem
       loc.expNames : {Idents}
       loc.expNames = Set.toList $ evalSet @lhs.sets @names.self
 
@@ -179,11 +182,17 @@ requireCtx _ Nothing    = M.MultDef []
 requireCtx pos (Just x) = M.OccRequire (Item_Ctx pos x)
 }
 
-ATTR Decls Decl [ | | gathDatas USE {`mappend`} {mempty} : DataMap ]
+ATTR Decls Decl Block MaybeBlock Codes Code SemDefs ClauseDecls ClauseDecl SemDecls SemDecl Pat
+  [ | | gathDatas USE {`mappend`} {mempty} : DataMap ]
 
 SEM Decl
   | Data
       lhs.gathDatas = M.many1 @loc.expNames (const $ M.Val (M.ChnSub @decls.gathVars $ M.ChnSub @decls.gathCons $ M.ChnEnd) (M.MultDef []))
+
+SEM Pat
+  | ConAttr
+      lhs.gathDatas = M.singleton @tp (M.Val (M.ChnSub mempty $ M.ChnSub @loc.gathCons $ M.ChnEnd) (M.OccRequire $ Item_Data (identPos @tp) @tp))
+      loc.gathCons  = M.singleton @con (M.Val (M.ChnSub mempty $ M.ChnEnd) (M.OccRequire $ Item_Con (identPos @con) @con))
 
 
 --
@@ -253,7 +262,7 @@ ATTR Decls Decl [ | | gathItfs USE {`mappend`} {mempty} : ItfMap ]
 SEM Decl
   | Itf
       lhs.gathItfs = M.many1 @loc.expNames
-                       (\ident -> M.Val (M.ChnSub mempty $ M.ChnSub mempty $ M.ChnSub mempty $ M.ChnEnd )
+                       (\ident -> M.Val (M.ChnSub mempty $ M.ChnSub mempty $ M.ChnSub mempty $ M.ChnEnd)
                                         (M.MultDef $ return $ Item_Itf @pos ident))
                      `mappend` @decls.gathItfs
   | Ctx
@@ -264,10 +273,6 @@ SEM Decl
                        (\mbIdent -> M.Val (M.ChnItem (M.Replaceable Nothing) $ M.ChnSub mempty $ M.ChnEnd)
                                           (requireCtx @pos mbIdent))
                      `mappend` @decls.gathCtxs
-  | Forall
-      lhs.gathItfs = M.many1 @loc.expNames (\ident -> M.Val (M.ChnSub @loc.varmap $ M.ChnSub mempty $ M.ChnSub mempty $ M.ChnEnd)
-                                                            (M.OccRequire $ Item_Itf @pos ident))
-      loc.varmap   = M.many1 @vars (\ident -> M.Val M.ChnEnd (M.SingleDef $ return $ Item_TypeVar @pos ident))
   | Inh
       lhs.gathItfs = M.many1 @loc.expNames (\ident -> M.Val (M.ChnSub mempty $ M.ChnSub @sigs.gathSigs $ M.ChnSub mempty $ M.ChnEnd)
                                                             (M.OccRequire $ Item_Itf @pos ident))
@@ -327,7 +332,7 @@ SEM ItfDecl
                                         (M.OccRequire $ Item_Itf @pos ident))
   | Syn
       lhs.gathItfs = M.many1 @lhs.itfNames
-                       (\ident -> M.Val (M.ChnSub mempty $ mempty $ M.ChnSub @loc.gathCtxs $ M.ChnEnd)
+                       (\ident -> M.Val (M.ChnSub mempty $ M.ChnSub mempty $ M.ChnSub @loc.gathCtxs $ M.ChnEnd)
                                         (M.OccRequire $ Item_Itf @pos ident))
       loc.gathCtxs = M.many @ctxs
                        (\mbIdent -> M.Val (M.ChnItem (M.Replaceable Nothing) $ M.ChnSub @sigs.gathSigs $ M.ChnEnd)
@@ -346,6 +351,28 @@ SEM ItfDecl
       loc.gathCtxs = M.many @ctxs
                        (\mbIdent -> M.Val (M.ChnItem (M.Fixed (Just @tp) [Item_Tail @pos (contextName @pos mbIdent)]) $ M.ChnSub mempty $ M.ChnEnd)
                                           (requireCtx @pos mbIdent))
+
+--
+-- Interface usage at a diversity of places
+--
+
+ATTR SemDefs ClauseDecls ClauseDecl SemDecls SemDecl Block MaybeBlock Codes Code
+  [ | | gathItfs USE {`mappend`} {mempty} : ItfMap ]
+
+SEM Code
+  | Sem
+      lhs.gathItfs = M.singleton @loc.itfName (M.Val (M.ChnSub mempty $ M.ChnSub mempty $ M.ChnSub mempty $ M.ChnEnd)
+                                              (M.OccRequire $ Item_Itf @pos @loc.itfName))
+                     `mappend` @defs.gathItfs
+      loc.itfName  = schemeIdent @tp
+
+SEM SemDecl
+  | Child
+      lhs.gathItfs = M.singleton @loc.itfName (M.Val (M.ChnSub mempty $ M.ChnSub mempty $ M.ChnSub mempty $ M.ChnEnd)
+                                              (M.OccRequire $ Item_Itf @pos @loc.itfName))
+                     `mappend` @def.gathItfs
+      loc.itfName  = internalIdent @tp
+
 
 --
 -- Gather contexts of CtxDecls
@@ -478,7 +505,7 @@ ATTR Pat [ | | trans : {F.Pat} ]
 SEM Pat
   | Attr        pat.child = @child
                 lhs.trans = @pat.trans
-  | ConAttr     lhs.trans = F.Pat_ConAttr @child @con
+  | ConAttr     lhs.trans = F.Pat_ConAttr @child @tp @con
   | Tup         lhs.trans = F.Pat_Tup @pats.trans
   | Con         lhs.trans = F.Pat_Con @name @pats.trans
   | Underscore  lhs.trans = F.Pat_Underscore
@@ -518,7 +545,7 @@ ATTR MaybeBlock Block [ kind : BlockKind | | ]
 
 SEM SemDecl
   | Child Visit Bind Tail
-      loc.kind = BlockKind_Code
+      loc.kind = BlockKind_Inline
 
 ATTR Block [ | | trans : {F.Block} ]
 

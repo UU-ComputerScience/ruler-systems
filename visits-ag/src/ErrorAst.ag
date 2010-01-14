@@ -35,6 +35,8 @@ DATA Error
 TYPE Items = [Item]
 
 DATA Item
+  | Data     pos : Pos  name : Ident
+  | Con      pos : Pos  name : Ident
   | Field    pos : Pos  name : Ident
   | TypeVar  pos : Pos  name : Ident
   | Itf      pos : Pos  name : Ident

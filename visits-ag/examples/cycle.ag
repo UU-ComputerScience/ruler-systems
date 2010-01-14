@@ -1,0 +1,21 @@
+itf S
+  syn z :: Int
+
+
+{
+x = sem C :: S :
+      lhs.z = 4
+}
+
+
+sem A :
+    tail sem B :: S :
+           lhs.z = 3
+
+sem B :
+    tail sem C :: S :
+           lhs.z = 3
+
+sem C :
+    tail sem A :: S :
+           lhs.z = 3

@@ -30,9 +30,9 @@ tokens :-
 
   <0>    header | import | code                       { reserved }
 
-  <0,a>  "." | "," | "(" | ")"                        { reserved }
-  <0>    "|"                                          { reserved }
-  <0,a>  "::" | ":"                                   { reserved }
+  <0,a>  "." | "," | "(" | ")" | "@"                  { reserved }
+  <0>    "|" | "[" | "]"                              { reserved }
+  <0,a>  "::" | ":" | ":="                            { reserved }
 
   <0,a>    "="                                        { reserved }
   <h>    sem                                          { reserved }

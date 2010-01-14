@@ -7,17 +7,23 @@ import qualified Data.Sequence as Seq
 
 
 data Opts
-  = Opts { optDumpTks   :: Maybe (Maybe FilePath)
-         , optDumpFront :: Maybe (Maybe FilePath)
-         , optOutput    :: Maybe FilePath
-         , optSource    :: FilePath
+  = Opts { optDumpTks       :: Maybe (Maybe FilePath)
+         , optDumpFront     :: Maybe (Maybe FilePath)
+         , optDumpFlat      :: Maybe (Maybe FilePath)
+         , optDumpDesugared :: Maybe (Maybe FilePath)
+         , optOutput        :: Maybe FilePath
+         , optSource        :: FilePath
+         , optVerbose       :: Bool
          }
 
 defaultOpts
-  = Opts { optDumpTks   = Nothing
-         , optDumpFront = Nothing
-         , optOutput    = Nothing
-         , optSource    = "undefined file"
+  = Opts { optDumpTks       = Nothing
+         , optDumpFront     = Nothing
+         , optDumpFlat      = Nothing
+         , optDumpDesugared = Nothing
+         , optOutput        = Nothing
+         , optSource        = "undefined file"
+         , optVerbose       = False
          }
 
 options :: [OptDescr (Opts -> Either Error Opts)]
@@ -27,7 +33,16 @@ options
         "Dump tokens of source to stdout or FILE"
     , Option [] ["dump-front"]
         (OptArg (\mbPath opts -> return $ opts { optDumpFront = Just mbPath } ) "FILE")
-        "Dump tokens of the Front AST to stdout or FILE"
+        "Dump Front AST to stdout or FILE"
+    , Option [] ["dump-flat"]
+        (OptArg (\mbPath opts -> return $ opts { optDumpFlat = Just mbPath } ) "FILE")
+        "Dump Flat AST to stdout or FILE"
+    , Option [] ["dump-desugared"]
+        (OptArg (\mbPath opts -> return $ opts { optDumpDesugared = Just mbPath } ) "FILE")
+        "Dump Desugared AST to stdout or FILE"
+    , Option ['v'] ["verbose"]
+        (NoArg (\opts -> return $ opts { optVerbose = True } ))
+        "Verbose error reporting"
     , Option ['o'] ["output"]
         (ReqArg (\f opts -> return $ opts { optOutput = Just f })
                 "FILE"

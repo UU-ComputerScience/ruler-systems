@@ -1,0 +1,12 @@
+data D
+  | C
+
+itf Z
+
+{
+x = sem :: Z :
+      x@D.C = 3
+
+main :: IO ()
+main = return ()
+}
