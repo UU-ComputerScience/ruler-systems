@@ -95,7 +95,11 @@ toItfs mp
 
 toCtxs :: Ident -> CtxMap -> F.Ctxs
 toCtxs defk mp
-  = [ F.Ctx_Ctx k (toSigs synMp) (M.extract tl Nothing) | (k, M.ChnItem tl (M.ChnSub synMp M.ChnEnd)) <- M.assocs mp defk ]
+  = [ F.Ctx_Ctx k (toSigs synMp) (toTail $ M.extract tl Nothing) | (k, M.ChnItem tl (M.ChnSub synMp M.ChnEnd)) <- M.assocs mp defk ]
+
+toTail :: Maybe (Maybe Ident, Internal) -> F.MaybeTail
+toTail Nothing = Nothing
+toTail (Just (mbNm, tp)) = Just (F.Tail_Tail mbNm tp)
 
 toErrors :: [M.MergeInfo Item] -> [Error]
 toErrors = map toError
@@ -244,11 +248,11 @@ SEM Sig
 --
 
 {
-type CtxMap = AbsMap (M.ChnI (Maybe Internal), (M.ChnS (M.ChnI Type, M.ChnT), M.ChnT))
+type CtxMap = AbsMap (M.ChnI (Maybe (Maybe Ident, Internal)), (M.ChnS (M.ChnI Type, M.ChnT), M.ChnT))
 
 type ItfMap = AbsMap ( M.ChnS M.ChnT                   -- vars
                      , ( M.ChnS (M.ChnI Type, M.ChnT)  -- inh
-                     , ( M.ChnS (M.ChnI (Maybe Internal), (M.ChnS (M.ChnI Type, M.ChnT), M.ChnT)) -- contexts
+                     , ( M.ChnS (M.ChnI (Maybe (Maybe Ident, Internal)), (M.ChnS (M.ChnI Type, M.ChnT), M.ChnT)) -- contexts
                      , M.ChnT)))
 }
 
@@ -289,7 +293,7 @@ SEM Decl
       loc.tailf    = \_ -> M.Replaceable Nothing
       loc.syns     = @sigs.gathSigs
   | Tail
-      loc.tailf    = \mbIdent -> M.Fixed (Just @tp) [Item_Tail @pos (contextName @pos mbIdent)]
+      loc.tailf    = \mbIdent -> M.Fixed (Just (@mbNm, @tp)) [Item_Tail @pos (contextName @pos mbIdent) @mbNm]
       loc.syns     = mempty
 
 {
@@ -349,7 +353,7 @@ SEM ItfDecl
                        (\ident -> M.Val (M.ChnSub mempty $ M.ChnSub mempty $ M.ChnSub @loc.gathCtxs $ M.ChnEnd)
                                         (M.OccRequire $ Item_Itf @pos ident))
       loc.gathCtxs = M.many @ctxs
-                       (\mbIdent -> M.Val (M.ChnItem (M.Fixed (Just @tp) [Item_Tail @pos (contextName @pos mbIdent)]) $ M.ChnSub mempty $ M.ChnEnd)
+                       (\mbIdent -> M.Val (M.ChnItem (M.Fixed (Just (@mbNm,@tp)) [Item_Tail @pos (contextName @pos mbIdent) @mbNm]) $ M.ChnSub mempty $ M.ChnEnd)
                                           (requireCtx @pos mbIdent))
 
 --
@@ -392,7 +396,7 @@ SEM CtxDecl
                                           (requireCtx @pos mbIdent))
   | Tail
       lhs.gathCtxs = M.many @lhs.ctxNames
-                       (\mbIdent -> M.Val (M.ChnItem (M.Fixed (Just @tp) [Item_Tail @pos (contextName @pos mbIdent)]) $ M.ChnSub mempty $ M.ChnEnd)
+                       (\mbIdent -> M.Val (M.ChnItem (M.Fixed (Just (@mbNm,@tp)) [Item_Tail @pos (contextName @pos mbIdent) @mbNm]) $ M.ChnSub mempty $ M.ChnEnd)
                                           (requireCtx @pos mbIdent))
 
 
@@ -442,6 +446,7 @@ SEM Code
                               $ M.ChnEnd
                               )
                               (M.SingleDef [Item_SemName @pos @loc.semName @loc.isAnonymous] ))
+                        `mappend` @defs.gathSems
       loc.semName     = maybe (Ident (show @loc.semId) @pos) id @mbName
       loc.isAnonymous = maybe True (const False) @mbName
       defs.semCounter = @lhs.semCounter + 1
@@ -483,7 +488,7 @@ SEM SemDecl
   | Child
       loc.trans = F.Def_Child @name @tp @def.trans
   | Visit
-      loc.trans = F.Def_Visit @child @visit @mbCtx @mbDef.trans
+      loc.trans = F.Def_Visit @child @mbTail @mbCtx @mbDef.trans
   | Bind
       loc.trans = F.Def_Bind @kind @pat.trans @def.trans
   | Tail

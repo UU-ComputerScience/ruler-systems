@@ -82,7 +82,7 @@ scanTks st inp@(pos,str)
                                    in tk : scanTks (push sc tk st') inp'
 
 triggers :: [String]
-triggers = ["itf", "inh", "syn", "chn", "set", "ctx", "data"]
+triggers = ["itf", "inh", "syn", "chn", "tail", "set", "ctx", "data"]
 
 push :: Int -> Token -> CtxStack -> CtxStack
 push sc (Reserved k pos)

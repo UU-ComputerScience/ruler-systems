@@ -1,0 +1,52 @@
+
+data Ast
+  | Const   i   :: Int
+  | Plus    l,r :: Ast
+  | Def     x   :: String  e :: Ast
+  | Use     x   :: String
+
+
+itf Analyze
+  inh ast :: Ast
+  tail nxt :: Sum
+
+itf Sum
+  syn v   :: Int
+
+
+{
+sast = sem :: Analyze
+         clause Const
+           loc@Ast.Const = lhs.ast
+           tail sem :: Sum :
+                  lhs.v = loc.i
+
+         clause Plus
+           loc@Ast.Plus = lhs.ast
+           child l :: Sum = loc.l
+           child r :: Sum = loc.r
+           visit l
+           visit r
+           l.ast = loc.l
+           r.ast = loc.r
+           
+           tail sem :: Sum :
+                  visit l.nxt
+                  visit r.nxt
+                  lhs.v = l.v + r.v
+
+         clause Def
+           loc@Ast.Def = lhs.ast
+           child e :: Sum = loc.e
+           visit e
+           e.ast = loc.e
+           
+           tail sem :: Sum :
+                  visit e.nxt
+                  lhs.v = e.v
+
+         clause Use
+           loc@Ast.Use = lhs.ast
+           tail sem :: Sum :
+                  lhs.v = ...?
+}
