@@ -85,7 +85,7 @@ SEM Item
   | TypeVar    lhs.pp = "type variable " >|< pp @name
   | Itf        lhs.pp = "interface " >|< pp @name
   | Ctx        lhs.pp = "context " >|< pp @name
-  | Tail       lhs.pp = "tail " >|< pp @name
+  | Tail       lhs.pp = "tail" >|< maybe empty (\i -> " " >|< i) @mbNm >#< "of" >#< pp @name
   | SemPos     lhs.pp = pp "position"
   | SemName    lhs.pp = if @anonymous then pp "anonymous semantics" else pp @name >#< "(semantics)"
   | SemScheme  lhs.pp = pp "scheme"
@@ -101,7 +101,7 @@ SEM Items
   | Nil   lhs.poss = []
 
 SEM Item
-  | Field TypeVar Itf Ctx Tail SemPos SemName SemScheme Clause
+  | Field TypeVar Itf Ctx Tail SemPos SemName SemScheme Clause Con Data
       lhs.pos = @pos
   | ClauseCtx
       lhs.pos = identPos @name

@@ -47,7 +47,7 @@ SEM Decl
                       >-< indent 2 (vlist @sigs.pps)
   | Chn     lhs.pp  = pp "chn" >#< @names.pp >#< indent 4 (ppPos @pos)
                       >-< indent 2 (vlist @sigs.pps)
-  | Tail    lhs.pp  = pp "tail" >#< @names.pp >#< "::" >#< pp @tp >#< indent 4 (ppPos @pos)
+  | Tail    lhs.pp  = pp "tail" >#< @names.pp >|< ppMbNm @mbNm >#< "::" >#< pp @tp >#< indent 4 (ppPos @pos)
   | Set     lhs.pp  = pp "set" >#< @name >#< @val.pp >#< indent 4 (ppPos @pos)
   | Data    lhs.pp  = pp "data" >#< @names.pp >#< indent 4 (ppPos @pos)
                       >-< indent 2 (vlist @decls.pps)
@@ -67,7 +67,9 @@ SEM ItfDecl
   | Inh     lhs.pp  = "inh" >#< hlist_sp @sigs.pps
   | Syn     lhs.pp  = "syn" >#< hlist_sp @sigs.pps
   | Chn     lhs.pp  = "chn" >#< hlist_sp @sigs.pps
-  | Tail    lhs.pp  = "tail" >#< pp @tp
+  | Tail    lhs.pp  = "tail" >#< case @mbNm of
+                                   Just nm -> nm >#< "::" >#< @tp
+                                   Nothing -> pp @tp
 
 SEM CtxDecls
   | Cons    lhs.pps = @hd.pp : @tl.pps
@@ -75,7 +77,9 @@ SEM CtxDecls
 
 SEM CtxDecl
   | Syn     lhs.pp  = "syn" >#< hlist_sp @sigs.pps
-  | Tail    lhs.pp  = "tail" >#< pp @tp
+  | Tail    lhs.pp  = "tail" >#< case @mbNm of
+                                   Just nm -> nm >#< "::" >#< @tp
+                                   Nothing -> pp @tp
 
 SEM DataDecls
   | Cons    lhs.pps = @hd.pp : @tl.pps
@@ -121,7 +125,7 @@ SEM SemDecls
 
 SEM SemDecl
   | Child  lhs.pp = "child " >|< @name >|< " :: " >|< pp @tp >|< " = " >|< @def.pp
-  | Visit  lhs.pp = "visit " >|< @child >|< " : " >|< @visit >|< ppMbCtx @mbCtx >|< " = " >|< @mbDef.pp
+  | Visit  lhs.pp = "visit " >|< @child >|< maybe empty (\i -> "." >|< i) @mbTail >#< ":" >#< ppMbCtx @mbCtx >#< "=" >#< @mbDef.pp
   | Bind   lhs.pp = pp @kind >|< " " >|< @pat.pp >|< " = " >|< @def.pp
   | Tail   lhs.pp = "tail " >|< @def.pp
 
@@ -150,7 +154,7 @@ SEM Pats
 
 SEM Pat
   | Attr    lhs.pp  = @child >|< "." >|< @pat.pp
-  | ConAttr lhs.pp  = @child >|< "@" >|< @con
+  | ConAttr lhs.pp  = @child >|< "@" >|< @tp >|< "." >|< @con
   | Tup     lhs.pp  = "(" >|< hlist_sep "," @pats.pps >|< ")"
   | Con     lhs.pp  = "(" >|< @name >|< " " >|< hlist_sep " " @pats.pps >|< ")"
   | Underscore  lhs.pp = pp "_"

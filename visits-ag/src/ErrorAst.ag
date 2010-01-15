@@ -41,7 +41,7 @@ DATA Item
   | TypeVar  pos : Pos  name : Ident
   | Itf      pos : Pos  name : Ident
   | Ctx      pos : Pos  name : Ident
-  | Tail     pos : Pos  name : Ident
+  | Tail     pos : Pos  name : Ident  mbNm : {Maybe Ident}
   | SemPos   pos : Pos
   | SemName  pos : Pos  name : Ident  anonymous : Bool
   | SemScheme pos : Pos

@@ -27,7 +27,7 @@ main = do args <- getArgs
           case optDumpTks opts of
             Just mbPath -> dump ppTokens mbPath tks
             _           -> return ()
-          vast <- step (mbPretty ppVag (optDumpFront opts)) (parseTokens opts (Pos 1 1 filename) pVag) tks
+          vast <- step (mbPretty ppVag (optDumpFront opts)) (parseVag opts (Pos 1 1 filename)) tks
           fast <- step (mbPretty ppFag (optDumpFlat opts)) flatten vast
           dast <- step (mbPretty ppSag (optDumpDesugared opts)) desugar fast
           return ()

@@ -1,4 +1,4 @@
-module Parser where
+module Parser(VagParser, parseVag) where
 
 
 import UU.Scanner
@@ -42,6 +42,7 @@ pIdentChild   = pVarIdent <?> "child identifier"
 pIdentVisit   = pConIdent <?> "visit identifier"
 pIdentType    = pConIdent <?> "type identifier"
 pIdentField   = pVarIdent <?> "field identifier"
+pIdentTail    = pVarIdent <?> "tail identifier"
 
 
 --
@@ -83,7 +84,7 @@ pDecl
   <|> Decl_Inh <$> pKeyPos "inh" <*> pIdentSetItf <*> pList_ng pSig <* pEnd
   <|> Decl_Syn <$> pKeyPos "syn" <*> pIdentSetItf <*> opt (pKey ":" *> pList1_gr pIdentCtx) [] <*> pList_ng pSig <* pEnd
   <|> Decl_Chn <$> pKeyPos "chn" <*> pIdentSetItf <*> opt (pKey ":" *> pList1_gr pIdentCtx) [] <*> pList_ng pSig <* pEnd
-  <|> Decl_Tail <$> pKeyPos "tail" <*> pIdentSetItf <*> opt (pKey ":" *> pList1_gr pIdentCtx) [] <* pKey "::" <*> pInternal <* pEnd
+  <|> Decl_Tail <$> pKeyPos "tail" <*> pIdentSetItf <*> opt (pKey ":" *> pList1_gr pIdentCtx) [] <*> opt (Just <$> pIdentTail <* pKey "::") Nothing <*> pInternal <* pEnd
   <|> Decl_Data <$> pKeyPos "data" <*> pIdentSetData <*> pList_gr pDataDecl <* pEnd
   <|> Decl_Sem <$> pKeyPos "sem" <*> pIdentSetSem <*> pSemDefs <* pEnd
   <|> pCodeHead <*> pBlock <* pCCurly
@@ -100,13 +101,13 @@ pItfDecl
   <|> ItfDecl_Inh    <$> pKeyPos "inh"    <*> pList_gr pSig <* pEnd
   <|> ItfDecl_Syn    <$> pKeyPos "syn"    <*> opt (pKey ":" *> pList_ng pIdentCtx) [] <*> pList_gr pSig <* pEnd
   <|> ItfDecl_Chn    <$> pKeyPos "chn"    <*> opt (pKey ":" *> pList_ng pIdentCtx) [] <*> pList_gr pSig <* pEnd
-  <|> ItfDecl_Tail   <$> pKeyPos "tail"   <*> opt (pKey ":" *> pList_ng pIdentCtx) [] <*> pInternal     <* pEnd
+  <|> ItfDecl_Tail   <$> pKeyPos "tail"   <*> opt (pKey ":" *> pList_ng pIdentCtx) [] <*> opt (Just <$> pIdentTail <* pKey "::") Nothing <*> pInternal <* pEnd
   <?> "interface declaration"
 
 pCtxDecl :: VagParser CtxDecl
 pCtxDecl
-  =   CtxDecl_Syn    <$> pKeyPos "syn"    <*> pList_ng pSig <* pEnd
-  <|> CtxDecl_Tail   <$> pKeyPos "tail"   <*> pInternal     <* pEnd
+  =   CtxDecl_Syn    <$> pKeyPos "syn" <*> pList_ng pSig <* pEnd
+  <|> CtxDecl_Tail   <$> pKeyPos "tail" <*> opt (Just <$> pIdentTail <* pKey "::") Nothing <*> pInternal     <* pEnd
   <?> "context declaration"
 
 pEnd :: VagParser Pos
@@ -214,7 +215,7 @@ pSemDefs
 pSemDecl :: VagParser SemDecl
 pSemDecl
   =   SemDecl_Child <$> pKeyPos "child" <*> pIdentChild <* pKey "::" <*> pInternal <* pKey "=" <*> pBlock <* pEnd
-  <|> SemDecl_Visit <$> pKeyPos "visit" <*> pIdentChild <* pKey "::" <*> pIdentVisit <*> opt (Just <$ pKey ":" <*> pIdentCtx) Nothing <*> opt (Just <$ pKey "=" <*> pBlock <* pEnd) Nothing
+  <|> SemDecl_Visit <$> pKeyPos "visit" <*> pIdentChild <*> opt (Just <$ pKey "." <*> pIdentTail) Nothing <*> opt (Just <$ pKey ":" <*> pIdentCtx) Nothing <*> opt (Just <$ pKey "=" <*> pBlock <* pEnd) Nothing
   <|> SemDecl_Bind  <$> (BindKind_Assert <$ pKey "assert") <*> pPat <* pKey "=" <*> pBlock <* pEnd
   <|> pIdentChild <**> (   ( (\p b c-> SemDecl_Bind BindKind_Def (Pat_Attr c p) b) <$ pKey "." <*> pAttrPat <* pKey "=" <*> pBlock <* pEnd <?> ".attr-pattern")
                        <|> ( (\t n b a -> SemDecl_Bind BindKind_Def (Pat_ConAttr a t n) b) <$ pKey "@" <*> pIdentData <* pKey "." <*> pIdentCon <* pKey "=" <*> pBlock <* pEnd <?> "@con-decompose pattern")
@@ -272,6 +273,10 @@ pAttrPatBase
 --
 -- Run parser
 --
+
+parseVag :: Opts -> Pos -> [Token] -> Either Errs Vag
+parseVag opts pos tks
+  = parseTokens opts pos pVag tks
 
 parseTokens :: Opts -> Pos -> VagParser a -> [Token] -> Either Errs a
 parseTokens opts pos p tks

@@ -36,6 +36,7 @@ DATA Decl
   | Tail    pos    : Pos
             names  : IdentSet
             ctxs   : Idents
+            mbNm   : {Maybe Ident}
             tp     : Internal
 
   | Set     pos    : Pos
@@ -72,6 +73,7 @@ DATA ItfDecl
             sigs  : Sigs
   | Tail    pos   : Pos
             ctxs  : Idents
+            mbNm  : {Maybe Ident}
             tp    : Internal
 
 TYPE CtxDecls = [CtxDecl]
@@ -79,6 +81,7 @@ DATA CtxDecl
   | Syn   pos  : Pos
           sigs : Sigs
   | Tail  pos  : Pos
+          mbNm : {Maybe Ident}
           tp   : Internal
 
 TYPE DataDecls = [DataDecl]
@@ -156,7 +159,7 @@ DATA SemDecl
   | Visit
       pos    : Pos
       child  : Ident
-      visit  : Ident
+      mbTail : {Maybe Ident}
       mbCtx  : {Maybe Ident}
       mbDef  : MaybeBlock
   | Bind

@@ -55,7 +55,14 @@ DATA Ctx
   | Ctx
       name   : Ident
       syns   : Sigs
-      mbTail : MaybeInternal
+      mbTail : MaybeTail
+
+TYPE MaybeTail = MAYBE Tail
+
+DATA Tail
+  | Tail
+      mbNm : {Maybe Ident}
+      tp   : Internal
 
 --
 -- Blocks
@@ -99,10 +106,10 @@ DATA Def
       tp    : Internal
       def   : Block
   | Visit
-      child : Ident
-      visit : Ident
-      ctx   : Ident
-      def   : Block
+      child  : Ident
+      mbTail : {Maybe Ident}
+      ctx    : Ident
+      def    : Block
   | Bind
       kind : BindKind
       pat  : Pat

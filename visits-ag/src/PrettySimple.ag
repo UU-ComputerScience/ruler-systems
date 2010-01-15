@@ -27,7 +27,7 @@ ppSag vag = pp_Syn_Sag syn
 }
 
 
-ATTR Sag Data Con Sig Itf Ctx Block Code Clause Def Pat [ | | pp : PP_Doc ]
+ATTR Sag Data Con Sig Itf Ctx MaybeTail Tail Block Code Clause Def Pat [ | | pp : PP_Doc ]
 
 SEM Sag
   | Ag  lhs.pp = "-- data types"
@@ -61,10 +61,16 @@ SEM Ctx
   | Ctx   lhs.pp = "ctx" >#< @name >#< (   ( if null @syns.pps
                                              then empty
                                              else "syn" >#< vlist @syns.pps )
-                                       >-< case @mbTail of
-                                             Nothing -> empty
-                                             Just tp -> "tail" >#< tp
-                                       )
+                                       >-< @mbTail.pp )
+
+SEM MaybeTail
+ | Just     lhs.pp = @just.pp
+ | Nothing  lhs.pp = empty
+
+SEM Tail
+ | Tail     lhs.pp = "tail" >#< case @mbNm of
+                                  Nothing -> pp @tp
+                                  Just nm -> nm >#< "::" >#< @tp
 
 SEM Block
   | Code  lhs.pp = if isInline @kind
@@ -91,8 +97,8 @@ SEM Clause
                      >-< indent 2 (vlist @defs.pps)
 
 SEM Def
-  | Child   lhs.pp  = "child" >#< @name >#< "::" >#< @tp >#< @def.pp
-  | Visit   lhs.pp  = "visit" >#< @child >#< "::" >#< @visit >#< ":" >#< @ctx >#< "=" >#< @def.pp
+  | Child   lhs.pp  = "child" >#< @name >#< "::" >#< @tp >#< "=" >#< @def.pp
+  | Visit   lhs.pp  = "visit" >#< @child >|< maybe empty (\tl -> "." >|< tl) @mbTail >#< @ctx >#< "=" >#< @def.pp
   | Bind    lhs.pp  = @kind >#< @pat.pp >#< "=" >#< @def.pp
   | Tail    lhs.pp  = "tail" >#< @def.pp
 
