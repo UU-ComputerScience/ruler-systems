@@ -25,7 +25,8 @@ ppVag vag = pp_Syn_Vag syn
     syn = wrap_Vag sem inh
 }
 
-ATTR Vag Decl ItfDecl CtxDecl DataDecl Sig IdentSet Block MaybeBlock Code SemDefs ClauseDecl SemDecl Pat AttrPat [ | | pp : PP_Doc ]
+ATTR Vag Decl ItfDecl CtxDecl DataDecl Sig IdentSet Block MaybeBlock Code
+     SemDefs ClauseDecl SemDecl MergeInfo Stmt Pat AttrPat [ | | pp : PP_Doc ]
 ATTR Decls ItfDecls CtxDecls DataDecls Sigs Codes ClauseDecls SemDecls Pats AttrPats [ | | pps : {[PP_Doc]} ]
 
 
@@ -124,6 +125,23 @@ SEM SemDecls
   | Nil     lhs.pps = []
 
 SEM SemDecl
+  | Stmt  lhs.pp = if @merge.empty then @stmt.pp else @merge.pp >|< ":" >#< @stmt.pp
+
+ATTR MergeInfo [ | | empty : Bool ]
+
+SEM MergeInfo
+  | Auto                lhs.empty = True
+  | Label Before After  lhs.empty = False
+
+SEM MergeInfo
+  | Label Before After
+            loc.nxt = if @info.empty then empty else " " >|< @info.pp
+  | Auto    lhs.pp = empty
+  | Label   lhs.pp = hlist_sp @names
+  | Before  lhs.pp = "before" >#< hlist_sp @names >|< @loc.nxt
+  | After   lhs.pp = "after" >#< hlist_sp @names >|< @loc.nxt
+
+SEM Stmt
   | Child  lhs.pp = "child " >|< @name >|< " :: " >|< pp @tp >|< " = " >|< @def.pp
   | Visit  lhs.pp = "visit " >|< @child >|< maybe empty (\i -> "." >|< i) @mbTail >#< ":" >#< ppMbCtx @mbCtx >#< "=" >#< @mbDef.pp
   | Bind   lhs.pp = pp @kind >|< " " >|< @pat.pp >|< " = " >|< @def.pp

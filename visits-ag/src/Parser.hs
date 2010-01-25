@@ -43,6 +43,7 @@ pIdentVisit   = pConIdent <?> "visit identifier"
 pIdentType    = pConIdent <?> "type identifier"
 pIdentField   = pVarIdent <?> "field identifier"
 pIdentTail    = pVarIdent <?> "tail identifier"
+pIdentLabel   = pVarIdent <?> "label identifier"
 
 
 --
@@ -208,21 +209,40 @@ pCode
 
 pSemDefs :: VagParser SemDefs
 pSemDefs
-  =   SemDefs_Default <$> pKeyPos ":" <*> opt (Just <$> pIdentCtx) Nothing <*> pList1_gr pSemDecl
+  =   SemDefs_Default <$> pKeyPos "of" <*> opt (Just <$> pIdentCtx) Nothing <*> pList1_gr pSemDecl
   <|> SemDefs_Clauses <$> pList_gr pClauseDecl
   <?> "semantic defs"
 
 pSemDecl :: VagParser SemDecl
-pSemDecl
-  =   SemDecl_Child <$> pKeyPos "child" <*> pIdentChild <* pKey "::" <*> pInternal <* pKey "=" <*> pBlock <* pEnd
-  <|> SemDecl_Visit <$> pKeyPos "visit" <*> pIdentChild <*> opt (Just <$ pKey "." <*> pIdentTail) Nothing <*> opt (Just <$ pKey ":" <*> pIdentCtx) Nothing <*> opt (Just <$ pKey "=" <*> pBlock <* pEnd) Nothing
-  <|> SemDecl_Bind  <$> (BindKind_Assert <$ pKey "assert") <*> pPat <* pKey "=" <*> pBlock <* pEnd
-  <|> pIdentChild <**> (   ( (\p b c-> SemDecl_Bind BindKind_Def (Pat_Attr c p) b) <$ pKey "." <*> pAttrPat <* pKey "=" <*> pBlock <* pEnd <?> ".attr-pattern")
-                       <|> ( (\t n b a -> SemDecl_Bind BindKind_Def (Pat_ConAttr a t n) b) <$ pKey "@" <*> pIdentData <* pKey "." <*> pIdentCon <* pKey "=" <*> pBlock <* pEnd <?> "@con-decompose pattern")
+pSemDecl = SemDecl_Stmt <$> pMergeInfoLabel <*> pStmt <?> "semantic definition"
+
+pMergeInfoLabel :: VagParser MergeInfo
+pMergeInfoLabel
+  = MergeInfo_Label <$> pList1_gr pIdentLabel <*> pMergeInfo <* pKey ":"
+  <|> pMergeInfoNonEmpty <* pKey ":"
+  <|> pSucceed MergeInfo_Auto
+  <?> "merge info"
+
+pMergeInfoNonEmpty :: VagParser MergeInfo
+pMergeInfoNonEmpty
+  = MergeInfo_Before <$ pKey "before" <*> pList1_gr pIdentLabel <*> pMergeInfo
+  <|> MergeInfo_After <$ pKey "after" <*> pList1_gr pIdentLabel <*> pMergeInfo
+  <?> "merge info"
+
+pMergeInfo :: VagParser MergeInfo
+pMergeInfo = pMergeInfoNonEmpty <|> pSucceed MergeInfo_Auto <?> "merge info"
+
+pStmt :: VagParser Stmt
+pStmt
+  =   Stmt_Child <$> pKeyPos "child" <*> pIdentChild <* pKey "::" <*> pInternal <* pKey "=" <*> pBlock <* pEnd
+  <|> Stmt_Visit <$> pKeyPos "visit" <*> pIdentChild <*> opt (Just <$ pKey "." <*> pIdentTail) Nothing <*> opt (Just <$ pKey ":" <*> pIdentCtx) Nothing <*> opt (Just <$ pKey "=" <*> pBlock <* pEnd) Nothing
+  <|> Stmt_Bind  <$> (BindKind_Assert <$ pKey "assert") <*> pPat <* pKey "=" <*> pBlock <* pEnd
+  <|> pIdentChild <**> (   ( (\p b c-> Stmt_Bind BindKind_Def (Pat_Attr c p) b) <$ pKey "." <*> pAttrPat <* pKey "=" <*> pBlock <* pEnd <?> ".attr-pattern")
+                       <|> ( (\t n b a -> Stmt_Bind BindKind_Def (Pat_ConAttr a t n) b) <$ pKey "@" <*> pIdentData <* pKey "." <*> pIdentCon <* pKey "=" <*> pBlock <* pEnd <?> "@con-decompose pattern")
                      )
-  <|> SemDecl_Bind BindKind_Def <$> pPatRoot <* pKey "=" <*> pBlock <* pEnd
-  <|> SemDecl_Tail  <$> pKeyPos "tail" <*> pBlock <* pEnd
-  <?> "sem decl"
+  <|> Stmt_Bind BindKind_Def <$> pPatRoot <* pKey "=" <*> pBlock <* pEnd
+  <|> Stmt_Tail  <$> pKeyPos "tail" <*> pBlock <* pEnd
+  <?> "statement"
 
 pClauseDecl :: VagParser ClauseDecl
 pClauseDecl

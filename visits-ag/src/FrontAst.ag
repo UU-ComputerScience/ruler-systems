@@ -151,6 +151,23 @@ DATA ClauseDecl
 TYPE SemDecls = [SemDecl]
 
 DATA SemDecl
+  | Stmt
+      merge : MergeInfo
+      stmt  : Stmt
+
+DATA MergeInfo
+  | Auto
+  | Label
+      names : Idents
+      info  : MergeInfo
+  | Before
+      names : Idents
+      info  : MergeInfo
+  | After
+      names : Idents
+      info  : MergeInfo
+
+DATA Stmt
   | Child
       pos    : Pos
       name   : Ident

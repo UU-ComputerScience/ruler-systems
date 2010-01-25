@@ -26,6 +26,7 @@ tokens :-
          inh | syn | chn                              { reserved }
 
   <a>    forall | clause                              { reserved }
+  <0,a>  of | before | after                          { reserved }
   <0,a>  assert | child | visit | tail                { reserved }
 
   <0>    header | import | code                       { reserved }
@@ -34,7 +35,7 @@ tokens :-
   <0>    "|" | "[" | "]"                              { reserved }
   <0,a>  "::" | ":" | ":="                            { reserved }
 
-  <0,a>    "="                                        { reserved }
+  <0,a>  "="                                          { reserved }
   <h>    sem                                          { reserved }
 
   <0,a>  @lcIdent                                     { valueToken TkVarid  }
