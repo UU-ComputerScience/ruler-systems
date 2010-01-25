@@ -104,20 +104,36 @@ TYPE Defs = [Def]
 
 DATA Def
   | Child
-      name  : Ident
-      tp    : Internal
-      def   : Block
+      name   : Ident
+      tp     : Internal
+      def    : Block
+      merge  : MergeInfo
   | Visit
       child  : Ident
       mbTail : {Maybe Ident}
       mbCtx  : {Maybe Ident}
       mbDef  : MaybeBlock
+      merge  : MergeInfo
   | Bind
-      kind : BindKind
-      pat  : Pat
-      def  : Block
+      kind   : BindKind
+      pat    : Pat
+      def    : Block
+      merge  : MergeInfo
   | Tail
-      def : Block
+      def    : Block
+      merge  : MergeInfo
+
+DATA MergeInfo
+  | Auto
+  | Label
+      name : Ident
+      info : MergeInfo
+  | Before
+      name : Ident
+      info : MergeInfo
+  | After
+      name : Ident
+      info : MergeInfo
 
 TYPE Pats = [Pat]
 

@@ -4,7 +4,7 @@ data D
 itf Z
 
 {
-x = sem :: Z :
+x = sem :: Z of
       x@D.C = 3
 
 main :: IO ()

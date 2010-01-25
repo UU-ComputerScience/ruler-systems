@@ -3,19 +3,19 @@ itf S
 
 
 {
-x = sem C :: S :
+x = sem C :: S of
       lhs.z = 4
 }
 
 
-sem A :
-    tail sem B :: S :
+sem A of
+    tail sem B :: S of
            lhs.z = 3
 
-sem B :
-    tail sem C :: S :
+sem B of
+    tail sem C :: S of
            lhs.z = 3
 
-sem C :
-    tail sem A :: S :
+sem C of
+    tail sem A :: S of
            lhs.z = 3

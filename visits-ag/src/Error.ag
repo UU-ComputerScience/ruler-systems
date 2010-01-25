@@ -31,6 +31,17 @@ ppErrors es
     inh = Inh_ErrorsItf {}
     sem = sem_ErrorsItf (ErrorsItf_Itf es)
     syn = wrap_ErrorsItf sem inh
+
+ppItem :: Item -> PP_Doc
+ppItem i
+  = pp_Syn_Item syn
+  where
+    inh = Inh_Item {}
+    sem = sem_Item i
+    syn = wrap_Item sem inh
+
+instance Show Item where
+  show i = disp (ppItem i) 9999 ""
 }
 
 ATTR ErrorsItf Error Item [ | | pp : PP_Doc ]

@@ -8,6 +8,9 @@ data Ast
 
 itf Analyze
   inh ast :: Ast
+  tail dfr :: Defer
+
+itf Defer
   tail nxt :: Sum
 
 itf Sum
@@ -18,19 +21,18 @@ itf Sum
 sast = sem :: Analyze
          clause Const
            loc@Ast.Const = lhs.ast
-           tail sem :: Sum :
+           tail sem :: Sum of
                   lhs.v = loc.i
 
          clause Plus
            loc@Ast.Plus = lhs.ast
            child l :: Sum = loc.l
            child r :: Sum = loc.r
-           visit l
            visit r
            l.ast = loc.l
            r.ast = loc.r
            
-           tail sem :: Sum :
+           tail sem :: Sum of
                   visit l.nxt
                   visit r.nxt
                   lhs.v = l.v + r.v
@@ -41,12 +43,12 @@ sast = sem :: Analyze
            visit e
            e.ast = loc.e
            
-           tail sem :: Sum :
+           tail sem :: Sum of
                   visit e.nxt
                   lhs.v = e.v
 
          clause Use
            loc@Ast.Use = lhs.ast
-           tail sem :: Sum :
+           tail sem :: Sum of
                   lhs.v = ...?
 }

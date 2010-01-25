@@ -1,8 +1,15 @@
+--
+-- Desugars and checks occurrences of identifiers
+--
+
 MODULE {Desugar} {desugar} {}
 
 PRAGMA genlinepragmas
 
 INCLUDE "FlatAst.ag"
+
+optpragmas
+{ {-# OPTIONS -XTypeOperators -XEmptyDataDecls #-} }
 
 imports
 {
@@ -18,6 +25,8 @@ import qualified Data.Map as Map
 import Data.Map(Map)
 import qualified Data.Set as Set
 import Data.Set(Set)
+import SymbolTable
+import Data.Monoid
 }
 
 WRAPPER Fag
@@ -39,5 +48,80 @@ ATTR Fag [ | | fag : {S.Sag} ]
 SEM Fag
   | Ag
       lhs.fag  = S.Sag_Ag [] [] []
+
+
+--
+-- Distribute namespaces
+--
+
+{
+data SpDatas
+data SpCons
+
+type NmSpaces = Spaces (SpDatas :+ SpCons :+ End) Key
+
+data Key
+  = KeyData Ident
+  | KeyCon Ident
+  deriving (Eq, Ord, Show)
+
+spDatas :: SpaceId SpDatas
+spDatas = SpaceId
+
+spCons :: SpaceId SpCons
+spCons = SpaceId
+}
+
+ATTR Datas Data Cons Con [ spaces : NmSpaces | | ]
+
+SEM Fag | Ag  datas.spaces = initialSpaces
+SEM Data | Data  loc.spaces = scope (KeyData @name) spDatas @lhs.spaces
+SEM Con | Con    loc.spaces = scope (KeyCon @name) spCons @lhs.spaces
+
+
+--
+-- Check data types
+--
+
+{
+data CatData = CatData
+data CatCon  = CatCon
+
+type SubTbl t a = InfoMap Item Ident t a
+type TblType = CatData :@ SubTbl  -- data types
+                  TblTypeDatas ()
+               :+ End
+type TblTypeDatas = CatCon :@ SubTbl  -- constructors
+                      ( TblTypeCons
+                      ) ()
+                    :+ End
+type TblTypeCons = End
+type TblGath = TableGath Item Key TblType
+type TblFin  = TableFin Item Key TblType
+}
+
+ATTR Datas Data Cons Con [ tblFin : TblFin | tblGath : TblGath | ]
+ATTR Datas Data [ rootPath : {Path Item TblType TblType} | | ]
+
+SEM Fag
+  | Ag
+      loc.rootPath = Path None
+      datas.tblGath = tblGathEmpty
+      (loc.tblFin, loc.finInfos) = finalize @datas.tblGath
+
+
+
+SEM Data
+  | Data
+      loc.dataRef : {ItemRef Item TblTypeDatas () TblType}
+      loc.dataRef = @lhs.rootPath .@ CatData .! @name
+      
+      (cons.tblGath, _) = apply (defValue @loc.dataRef (@lhs.spaces <! spDatas) () (Item_Data (identPos @name) @name))
+                                @lhs.tblGath
+
+
+--
+-- Collect errors
+--
 
 ATTR Fag [ | | errs USE {Seq.><} {Seq.empty} : Errs ]

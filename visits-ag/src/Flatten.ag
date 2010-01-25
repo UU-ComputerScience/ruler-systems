@@ -151,7 +151,7 @@ evalSet mp s
 
 
 ATTR Decls Decl DataDecls DataDecl 
-     SemDefs SemDecls SemDecl MaybeBlock Block Codes Code ClauseDecls ClauseDecl
+     SemDefs SemDecls SemDecl Stmt MaybeBlock Block Codes Code ClauseDecls ClauseDecl
        [ sets : {Map Ident (Set Ident)} | | ]
 
 SEM Decl
@@ -186,7 +186,7 @@ requireCtx _ Nothing    = M.MultDef []
 requireCtx pos (Just x) = M.OccRequire (Item_Ctx pos x)
 }
 
-ATTR Decls Decl Block MaybeBlock Codes Code SemDefs ClauseDecls ClauseDecl SemDecls SemDecl Pat
+ATTR Decls Decl Block MaybeBlock Codes Code SemDefs ClauseDecls ClauseDecl SemDecls SemDecl Stmt Pat
   [ | | gathDatas USE {`mappend`} {mempty} : DataMap ]
 
 SEM Decl
@@ -360,7 +360,7 @@ SEM ItfDecl
 -- Interface usage at a diversity of places
 --
 
-ATTR SemDefs ClauseDecls ClauseDecl SemDecls SemDecl Block MaybeBlock Codes Code
+ATTR SemDefs ClauseDecls ClauseDecl SemDecls SemDecl Stmt Block MaybeBlock Codes Code
   [ | | gathItfs USE {`mappend`} {mempty} : ItfMap ]
 
 SEM Code
@@ -370,7 +370,7 @@ SEM Code
                      `mappend` @defs.gathItfs
       loc.itfName  = schemeIdent @tp
 
-SEM SemDecl
+SEM Stmt
   | Child
       lhs.gathItfs = M.singleton @loc.itfName (M.Val (M.ChnSub mempty $ M.ChnSub mempty $ M.ChnSub mempty $ M.ChnEnd)
                                               (M.OccRequire $ Item_Itf @pos @loc.itfName))
@@ -418,7 +418,7 @@ type ClauseMap = AbsMap ( M.ChnI (Maybe Ident) -- context
 }
 
 ATTR Decls Decl MaybeBlock Block Codes Code
-     SemDefs ClauseDecls ClauseDecl SemDecls SemDecl
+     SemDefs ClauseDecls ClauseDecl SemDecls SemDecl Stmt
        [ | semCounter : Int | gathSems USE {`mappend`} {mempty} : SemMap ]
 
 SEM Vag
@@ -480,19 +480,30 @@ storeDefs :: Seq F.Def -> M.Overridable Item F.Defs
 storeDefs = M.Appendable . toList
 }
 
-ATTR SemDecls SemDecl [ | | gathDefs USE {Seq.><} {Seq.empty} : {Seq F.Def} ]
+ATTR SemDecls SemDecl Stmt [ | | gathDefs USE {Seq.><} {Seq.empty} : {Seq F.Def} ]
 
-SEM SemDecl
+SEM Stmt
   | Child Visit Bind Tail
       lhs.gathDefs = Seq.singleton @loc.trans
   | Child
-      loc.trans = F.Def_Child @name @tp @def.trans
+      loc.trans = F.Def_Child @name @tp @def.trans @lhs.mergeInfo 
   | Visit
-      loc.trans = F.Def_Visit @child @mbTail @mbCtx @mbDef.trans
+      loc.trans = F.Def_Visit @child @mbTail @mbCtx @mbDef.trans @lhs.mergeInfo
   | Bind
-      loc.trans = F.Def_Bind @kind @pat.trans @def.trans
+      loc.trans = F.Def_Bind @kind @pat.trans @def.trans @lhs.mergeInfo
   | Tail
-      loc.trans = F.Def_Tail @def.trans
+      loc.trans = F.Def_Tail @def.trans @lhs.mergeInfo
+
+ATTR Stmt [ mergeInfo : {F.MergeInfo} | | ]
+SEM SemDecl | Stmt  stmt.mergeInfo = @merge.info
+
+ATTR MergeInfo [ | | info : {F.MergeInfo} ]
+
+SEM MergeInfo
+  | Auto    lhs.info = F.MergeInfo_Auto
+  | Label   lhs.info = foldr F.MergeInfo_Label  @info.info @names
+  | Before  lhs.info = foldr F.MergeInfo_Before @info.info @names
+  | After   lhs.info = foldr F.MergeInfo_After  @info.info @names
 
 
 --
@@ -548,7 +559,7 @@ SEM Decl
 
 ATTR MaybeBlock Block [ kind : BlockKind | | ]
 
-SEM SemDecl
+SEM Stmt
   | Child Visit Bind Tail
       loc.kind = BlockKind_Inline
 
@@ -592,7 +603,7 @@ toClauses pos mp
 
 
 -- Final combined sems
-ATTR Decls Decl Block MaybeBlock Codes Code SemDefs ClauseDecls ClauseDecl SemDecls SemDecl
+ATTR Decls Decl Block MaybeBlock Codes Code SemDefs ClauseDecls ClauseDecl SemDecls SemDecl Stmt
   [ semMp : SemMap | | ]
 
 
@@ -602,7 +613,7 @@ ATTR Decls Decl Block MaybeBlock Codes Code SemDefs ClauseDecls ClauseDecl SemDe
 -- Cyclics in the graph spanned by these relations identifies the SEMs that are defined in a cyclic.
 --
 
-ATTR Decls Decl Block MaybeBlock Codes Code SemDefs ClauseDecls ClauseDecl SemDecls SemDecl
+ATTR Decls Decl Block MaybeBlock Codes Code SemDefs ClauseDecls ClauseDecl SemDecls SemDecl Stmt
   [ mbParent : {Maybe SemId} cyclicSems : {Set SemId} | | gathSemRels USE {`mappend`} {mempty} : {Set SemRel} ]
 
 SEM Vag

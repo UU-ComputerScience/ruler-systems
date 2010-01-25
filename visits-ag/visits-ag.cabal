@@ -19,7 +19,7 @@ executable vag
   build-depends: haskell98
   main-is: Main.hs
   hs-source-dirs: src
-  other-modules: Common, Scanner, Parser, Merger, Opts
+  other-modules: Common, Scanner, Parser, Merger, Opts, SymbolTable
   other-modules: Type, Error, Front, Flat, Simple
   other-modules: PrettyFront, PrettyFlat, PrettySimple
   other-modules: Flatten, Desugar
