@@ -26,11 +26,23 @@ TYPE Cons = [Con]
 DATA Con
   | Con
       name : Ident
-      sigs : Sigs
+      sigs : FieldSigs
 
-TYPE Sigs = [Sig]
+TYPE FieldSigs = [FieldSig]
+TYPE InhSigs   = [InhSig]
+TYPE SynSigs   = [SynSig]
 
-DATA Sig
+DATA FieldSig
+  | Sig
+      name : Ident
+      tp   : Type
+
+DATA InhSig
+  | Sig
+      name : Ident
+      tp   : Type
+
+DATA SynSig
   | Sig
       name : Ident
       tp   : Type
@@ -46,7 +58,7 @@ DATA Itf
   | Itf
       name : Ident
       vars : Idents
-      inhs : Sigs
+      inhs : InhSigs
       ctxs : Ctxs
 
 TYPE Ctxs = [Ctx]
@@ -54,7 +66,7 @@ TYPE Ctxs = [Ctx]
 DATA Ctx
   | Ctx
       name   : Ident
-      syns   : Sigs
+      syns   : SynSigs
       mbTail : MaybeTail
 
 TYPE MaybeTail = MAYBE Tail

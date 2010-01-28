@@ -26,4 +26,4 @@ file    : "src/PrettySimple.ag"
 options : rename, signatures, strictwrap, catas, semfuns, optimize
 
 file    : "src/Desugar.ag"
-options : rename, signatures, strictwrap, catas, semfuns, optimize
+options : rename, signatures, strictwrap, catas, semfuns
