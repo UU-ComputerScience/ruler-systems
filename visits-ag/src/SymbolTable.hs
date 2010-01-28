@@ -1,7 +1,9 @@
-{-# OPTIONS -XTypeFamilies  -XMultiParamTypeClasses -XFunctionalDependencies
-            -XOverlappingInstances -XUndecidableInstances -XFlexibleInstances -XIncoherentInstances -XFlexibleContexts
+{-# OPTIONS -XTypeFamilies -XMultiParamTypeClasses -XFlexibleInstances -XOverlappingInstances
             -XEmptyDataDecls -XTypeOperators -XGADTs #-}
-module SymbolTable where
+module SymbolTable( stmt,expr,defValue,value,assocs,tblGathEmpty,TblMsg(..),TblMsgs,End,TableGath,TableFin
+                  , (:+),(:@),Tbl,(<!),scope,finalize,Path(..),ItemRef(..),InfoMap
+                  , initialSpaces,Spaces,SpaceId(..),(.!),(.@),emptyPath,CatSelSteps(..)
+                  ) where
 
 import Data.IntSet(IntSet)
 import qualified Data.IntSet as IntSet
@@ -16,14 +18,18 @@ import qualified Data.Sequence as Seq
 import Data.Monoid
 import Control.Monad.State.Strict
 import Data.Typeable
+import Data.Graph
 
 
 --
 -- API
 --
 
-apply :: Typeable a => Tabular e s t a -> TableGath e s t -> (TableGath e s t, TableFin e s t -> a)
-apply m (TableGath s)
+stmt :: Tabular e s t () -> TableGath e s t -> TableGath e s t
+stmt m = fst . expr m
+
+expr :: Typeable a => Tabular e s t a -> TableGath e s t -> (TableGath e s t, TableFin e s t -> a)
+expr m (TableGath s)
   = (TableGath s', f)
   where
     n  = IntMap.size s
@@ -31,13 +37,13 @@ apply m (TableGath s)
     s' = IntMap.insert n w s
     f fin = lookupFin n fin
 
-defValue :: (Categorical e z, Ord s) => ItemRef e t' a z -> SpaceRef s z -> a -> e -> Tabular e s z ()
+defValue :: (Categorical e s z, Ord s) => ItemRef e s t' a z -> SpaceRef s -> a -> e -> Tabular e s z ()
 defValue = TabDefValue
 
-value :: (Categorical e z, Ord s) => ItemRef e t' a z -> SpaceRef s z -> a -> e -> Tabular e s z a
+value :: (Categorical e s z, Ord s) => ItemRef e s t' a z -> SpaceRef s -> a -> e -> Tabular e s z a
 value = TabValue
 
-assocs :: (Categorical e z, Ord s) => Path e (c :@ InfoMap e k z a :+ r) z -> SpaceRef s z -> Tabular e s z (Map k a)
+assocs :: (Categorical e s z, Ord s) => Path e s (c :@ InfoMap e s k z a :+ r) z -> SpaceRef s -> Tabular e s z (Map k a)
 assocs = TabAssocs
 
 tblGathEmpty :: TableGath e s t
@@ -66,195 +72,206 @@ data (:@) a b
 infixr 4 :+
 infix 6 :@
 
-class Categorical e t where
-  data Tbl t :: * -> *
-  emptyTbl :: Tbl t e
+class Categorical e s t where
+  data Tbl t :: * -> * -> *
+  emptyTbl :: Tbl t s e
 
-instance Categorical e End where
-  data Tbl End e = TblEnd
+instance Categorical e s End where
+  data Tbl End s e = TblEnd
   emptyTbl = TblEnd
 
-instance (Ord k, Categorical e r, Categorical e t) => Categorical e (c :@ InfoMap e k t a :+ r) where
-  data Tbl (c :@ InfoMap e k t a :+ r) e = (Categorical e t, Ord k) => TblCons (InfoMap e k t a) (Tbl r e)
+instance (Ord k, Categorical e s r, Categorical e s t) => Categorical e s (c :@ InfoMap e s k t a :+ r) where
+  data Tbl (c :@ InfoMap e s k t a :+ r) s e = (Categorical e s t, Ord k) => TblCons (InfoMap e s k t a) (Tbl r s e)
   emptyTbl = TblCons (InfoMap Map.empty) emptyTbl
 
-newtype InfoMap e k t a = InfoMap (Map k (Descr e t a))
+newtype InfoMap e s k t a = InfoMap (Map k (Descr e s t a))
 
-data Descr e t a = Descr !(Tbl t e) !(Status e a) !IntSet
+data Descr e s t a = Descr !(Tbl t s e) !(SymTrie s (SymDef e a))
 
-data Status e a
-  = Missing
-  | Defined !a !Int !Int !(IntMap e)
+data SymDef e a
+  = Undefined
+  | Defined !a !Int !Int !(IntMap e) !IntSet
 
-chaseSteps :: CatSelSteps e m z -> Tbl z e -> (Tbl m e, Tbl m e -> Tbl z e)
-chaseSteps None         tbl = (tbl, id)
-chaseSteps (Ref ref)    tbl = let (Descr tbl2 val origins, f) = chaseRef ref tbl
-                              in (tbl2, \tbl3 -> f (Descr tbl3 val origins))
-chaseSteps (Skip steps) tbl = let (tbl1, f) = chaseSteps steps tbl
+chaseSteps :: CatSelSteps e s m z -> Tbl z s e -> (Tbl m s e, Tbl m s e -> Tbl z s e, TblMsgs e)
+chaseSteps None         tbl = (tbl, id, Seq.empty)
+chaseSteps (Ref ref)    tbl = let (Descr tbl2 trie, f, msgs) = chaseRef ref tbl
+                              in (tbl2, \tbl3 -> f (Descr tbl3 trie), msgs)
+chaseSteps (Skip steps) tbl = let (tbl1, f, msgs) = chaseSteps steps tbl
                               in case tbl1 of
-                                   TblCons mp tbl2 -> (tbl2, \tbl3 -> f (TblCons mp tbl3))
+                                   TblCons mp tbl2 -> (tbl2, \tbl3 -> f (TblCons mp tbl3), msgs)
 
-chaseRef :: ItemRef e m a z -> Tbl z e -> (Descr e m a, Descr e m a -> Tbl z e)
-chaseRef (Deref steps key) tbl
-  = let (tbl1, f) = chaseSteps steps tbl
+chaseRef :: ItemRef e s m a z -> Tbl z s e -> (Descr e s m a, Descr e s m a -> Tbl z s e, TblMsgs e)
+chaseRef (Deref steps key info) tbl
+  = let (tbl1, f, msgs) = chaseSteps steps tbl
     in case tbl1 of
-         TblCons (InfoMap mp) tbl2 -> ( maybe (Descr emptyTbl Missing IntSet.empty) id (Map.lookup key mp)
-                                      , \tbl3 -> f (TblCons (InfoMap (Map.insert key tbl3 mp)) tbl2)
-                                      )
+         TblCons (InfoMap mp) tbl2 ->
+           let descr = maybe (Descr emptyTbl emptyTrie) id (Map.lookup key mp)
+           in ( descr
+              , \tbl3 -> f (TblCons (InfoMap (Map.insert key tbl3 mp)) tbl2)
+              , if undefDescr descr
+                then msgs Seq.|> TblMsgMissing info
+                else msgs
+              )
 
-derefSteps :: CatSelSteps e m z -> Tbl z e -> Tbl m e
-derefSteps None tbl         = tbl
-derefSteps (Skip steps) tbl = case derefSteps steps tbl of
-                                TblCons _ tbl' -> tbl'
-derefSteps (Ref ref) tbl    = case derefRef ref tbl of
-                                Descr tbl' _ _ -> tbl'
+derefSteps :: CatSelSteps e s m z -> Tbl z s e -> (Tbl m s e, TblMsgs e)
+derefSteps None tbl         = (tbl, Seq.empty)
+derefSteps (Skip steps) tbl = let (tbl1, msgs) = derefSteps steps tbl
+                              in case tbl1 of
+                                   TblCons _ tbl' -> (tbl', msgs)
+derefSteps (Ref ref) tbl    = let (tbl1, msgs) = derefRef ref tbl
+                              in case tbl1 of
+                                   Descr tbl' _ -> (tbl', msgs)
 
-derefRef :: ItemRef e m a t -> Tbl t e -> Descr e m a
-derefRef (Deref steps key) tbl
-  = case derefSteps steps tbl of
-      TblCons (InfoMap mp) _ -> maybe (Descr emptyTbl Missing IntSet.empty) id (Map.lookup key mp)
+derefRef :: ItemRef e s m a t -> Tbl t s e -> (Descr e s m a, TblMsgs e)
+derefRef (Deref steps key info) tbl
+  = let (tbl', msgs) = derefSteps steps tbl
+    in case tbl' of
+         TblCons (InfoMap mp) _ -> case Map.lookup key mp of
+                                     Nothing -> (Descr emptyTbl emptyTrie, msgs Seq.|> TblMsgMissing info)
+                                     Just d  -> (d, if undefDescr d then msgs Seq.|> TblMsgMissing info else msgs)
+
+undefDescr :: Descr e s m a -> Bool
+undefDescr (Descr _ trie)
+  = not (any1 trie)
+  where
+    any1 (SymTrie mp)        = any any2 (IntMap.elems mp)
+    any2 (TrieRoot mp v)     = any3 v || any any2 (Map.elems mp)
+    any3 (Defined _ _ _ _ _) = True
+    any3 Undefined           = False
+
 
 --
 -- Trie structure
 --
+-- Used for views upon the symbol table
+--
 
-newtype SymTrie e s z
-  = SymTrie (IntMap (Trie s (Tbl z e)))
+newtype SymTrie s v
+  = SymTrie (IntMap (Trie s v))
 
 data Trie s v
   = TrieRoot (Map s (Trie s v)) v
 
-emptyTrie :: SymTrie e s z
+emptyTrie :: SymTrie s v
 emptyTrie = SymTrie IntMap.empty
 
-chaseTrie :: (Ord s, Categorical e z) => SpaceRef s z -> SymTrie e s z -> (Tbl z e, Tbl z e -> SymTrie e s z)
-chaseTrie (SpaceRef n ks) (SymTrie mp)
-  = (tbl, \tbl2 -> SymTrie (IntMap.insert n (f tbl2) mp))
+chaseTrie :: Ord s => v -> SpaceRef s -> SymTrie s v -> (v, v -> SymTrie s v)
+chaseTrie emptyv (SpaceRef n ks) (SymTrie mp)
+  = (v, \v2 -> SymTrie (IntMap.insert n (f v2) mp))
   where
-    root = IntMap.findWithDefault (TrieRoot Map.empty emptyTbl) n mp
-    (tbl, f) = chaseScopes (reverse ks) root
+    root = IntMap.findWithDefault (TrieRoot Map.empty emptyv) n mp
+    (v, f) = chaseScopes emptyv (reverse ks) root
 
-chaseScopes :: (Ord s, Categorical e z) => [s] -> Trie s (Tbl z e) -> (Tbl z e, Tbl z e -> Trie s (Tbl z e))
-chaseScopes [] (TrieRoot mp tbl) = (tbl, \tbl2 -> TrieRoot mp tbl2)
-chaseScopes (k:ks) (TrieRoot mp tbl)
-  = (tbl2, \tbl3 -> TrieRoot (Map.insert k (f tbl3) mp) tbl)
+chaseScopes :: Ord s => v -> [s] -> Trie s v -> (v, v -> Trie s v)
+chaseScopes _ [] (TrieRoot mp v) = (v, \v2 -> TrieRoot mp v2)
+chaseScopes emptyv (k:ks) (TrieRoot mp v)
+  = (v2, \v3 -> TrieRoot (Map.insert k (f v3) mp) v)
   where
-    root = Map.findWithDefault (TrieRoot Map.empty emptyTbl) k mp
-    (tbl2, f) = chaseScopes ks root
+    root = Map.findWithDefault (TrieRoot Map.empty emptyv) k mp
+    (v2, f) = chaseScopes emptyv ks root
 
-trieDeref :: (Ord s, Categorical e z) => SpaceRef s z -> SymTrie e s z -> [Tbl z e]
-trieDeref (SpaceRef n ks) (SymTrie mp)
-  = reverse $ chase (reverse ks) (IntMap.findWithDefault (TrieRoot Map.empty emptyTbl) n mp)
-  where chase []     (TrieRoot _ tbl)  = [tbl]
-        chase (k:ks) (TrieRoot mp tbl) = tbl : chase ks (Map.findWithDefault (TrieRoot Map.empty emptyTbl) k mp)
+trieDeref :: Ord s => v -> SpaceRef s -> SymTrie s v -> [v]
+trieDeref emptyv (SpaceRef n ks) (SymTrie mp)
+  = reverse $ chase (reverse ks) (IntMap.findWithDefault (TrieRoot Map.empty emptyv) n mp)
+  where chase []     (TrieRoot _ v)  = [v]
+        chase (k:ks) (TrieRoot mp v) = v : chase ks (Map.findWithDefault (TrieRoot Map.empty emptyv) k mp)
 
 
 --
 -- References
 --
 
-newtype Path e t z = Path (CatSelSteps e t z)
+newtype Path e s t z = Path (CatSelSteps e s t z)
 
-data CatSelSteps e m z where
-  None :: CatSelSteps e m m
-  Ref :: ItemRef e t a z -> CatSelSteps e t z
-  Skip :: CatSelSteps e (c :@ InfoMap e k t a :+ r) z -> CatSelSteps e r z
+emptyPath :: Path e s z z
+emptyPath = Path None
 
-data ItemRef e t a z where
-  Deref :: Ord k => CatSelSteps e (c :@ InfoMap e k t a :+ r) z -> k -> ItemRef e t a z
+data CatSelSteps e s m z where
+  None :: CatSelSteps e s m m
+  Ref :: ItemRef e s t a z -> CatSelSteps e s t z
+  Skip :: CatSelSteps e s (c :@ InfoMap e s k t a :+ r) z -> CatSelSteps e s r z
+
+data ItemRef e s t a z where
+  Deref :: Ord k => CatSelSteps e s (c :@ InfoMap e s k t a :+ r) z -> k -> e -> ItemRef e s t a z
 
 infixl 5 .!
-class Derefable e v t k a | v -> e k t a where
-  (.!) :: v z -> k -> ItemRef e t a z
+class Derefable v where
+  type De v
+  type Ds v
+  type Dt v
+  type Da v
+  type Dk v
+  type Dz v
+  (.!) :: v -> (Dk v, De v) -> ItemRef (De v) (Ds v) (Dt v) (Da v) (Dz v)
 
-instance Ord k => Derefable e (Path e (c :@ InfoMap e k t a :+ r)) t k a where
-  (.!) (Path steps) = Deref steps
+instance Ord k => Derefable (Path e s (c :@ InfoMap e s k t a :+ r) z) where
+  type De (Path e s (c :@ InfoMap e s k t a :+ r) z) = e
+  type Ds (Path e s (c :@ InfoMap e s k t a :+ r) z) = s
+  type Dt (Path e s (c :@ InfoMap e s k t a :+ r) z) = t
+  type Da (Path e s (c :@ InfoMap e s k t a :+ r) z) = a
+  type Dk (Path e s (c :@ InfoMap e s k t a :+ r) z) = k
+  type Dz (Path e s (c :@ InfoMap e s k t a :+ r) z) = z
+  (.!) (Path steps) (k, info) = Deref steps k info
 
-instance Ord k => Derefable e (ItemRef e (c :@ InfoMap e k t a :+ r) a') t k a where
-  (.!) ref = Deref (Ref ref)
+instance Ord k => Derefable (ItemRef e s (c :@ InfoMap e s k t a :+ r) a' z) where
+  type De (ItemRef e s (c :@ InfoMap e s k t a :+ r) a' z) = e
+  type Ds (ItemRef e s (c :@ InfoMap e s k t a :+ r) a' z) = s
+  type Dt (ItemRef e s (c :@ InfoMap e s k t a :+ r) a' z) = t
+  type Da (ItemRef e s (c :@ InfoMap e s k t a :+ r) a' z) = a
+  type Dk (ItemRef e s (c :@ InfoMap e s k t a :+ r) a' z) = k
+  type Dz (ItemRef e s (c :@ InfoMap e s k t a :+ r) a' z) = z
+  (.!) ref (k, info) = Deref (Ref ref) k info
 
 infix 6 .@
-class CatSelectable e v c t | v c -> t, v -> e where
-  (.@) :: v z -> c -> Path e t z
 
-instance CatSelectable e (Path e (c :@ InfoMap e k t a :+ r)) c (c :@ InfoMap e k t a :+ r) where
-  (.@) p _ = p
+class Selectable v where
+  type Se v
+  type Ss v
+  type St v
+  type Sz v
+  (.@) :: v -> (Path (Se v) (Ss v) (St v) (Sz v) -> Path (Se v) (Ss v) t' (Sz v)) -> Path (Se v) (Ss v) t' (Sz v)
 
-instance (CatSelectable e (Path e r) c t, m ~ InfoMap e k t a) => CatSelectable e (Path e (c' :@ m :+ r)) c t where
-  (.@) (Path steps) c = Path (Skip steps) .@ c
+instance Selectable (Path e s t z) where
+  type Se (Path e s t z) = e
+  type Ss (Path e s t z) = s
+  type St (Path e s t z) = t
+  type Sz (Path e s t z) = z
+  (.@) p f = f p
 
-instance CatSelectable e (Path e t) c z => CatSelectable e (ItemRef e t a) c z where
-  (.@) ref c = Path (Ref ref) .@ c
+instance Selectable (ItemRef e s t a z) where
+  type Se (ItemRef e s t a z) = e
+  type Ss (ItemRef e s t a z) = s
+  type St (ItemRef e s t a z) = t
+  type Sz (ItemRef e s t a z) = z
+  (.@) ref f = f (Path (Ref ref))
 
 {-
-data RefsComp t t' a a' where
-  RefsEq :: RefsComp t t a a
-  RefsLt :: RefsComp t t' a a'
-  RefsGt :: RefsComp t t' a a'
+infix 6 .@
+class Selectable v c t | v c -> t where
+  type Se v
+  type Ss v
+  type Sz v
+  (.@) :: v -> c -> Path (Se v) (Ss v) t (Sz v)
 
-data StepsComp t t' where
-  StepsEq :: StepsComp t t
-  StepsLt :: StepsComp t t'
-  StepsGt :: StepsComp t t'
+instance Selectable (Path e s (c :@ InfoMap e s k t a :+ r) z) c (c :@ InfoMap e s k t a :+ r) where
+  type Se (Path e s (c :@ InfoMap e s k t a :+ r) z)   = e
+  type Ss (Path e s (c :@ InfoMap e s k t a :+ r) z)   = s
+  type Sz (Path e s (c :@ InfoMap e s k t a :+ r) z)   = z
+  (.@) p _ = undefined -- p
 
-compareSteps :: CatSelSteps m z -> CatSelSteps m' z -> StepsComp m m'
-compareSteps None None = StepsEq
-compareSteps None _    = StepsLt
-compareSteps _ None    = StepsGt
-compareSteps (Ref ref1) (Ref ref2)
-  = case compareRefs ref1 ref2 of
-      RefsLt -> StepsLt
-      RefsEq -> StepsEq
-      RefsGt -> StepsGt
-compareSteps (Ref _) _ = StepsLt
-compareSteps _ (Ref _) = StepsGt
-compareSteps (Skip steps1) (Skip steps2)
-  = case compareSteps steps1 steps2 of
-      StepsLt -> StepsLt
-      StepsEq -> StepsEq
-      StepsGt -> StepsGt
+instance (Selectable (Path e s r z) c t) => Selectable (Path e s (c' :@ t' :+ r) z) c t where
+  type Se (Path e s (c' :@ t' :+ r) z) = e
+  type Ss (Path e s (c' :@ t' :+ r) z) = s
+  type Sz (Path e s (c' :@ t' :+ r) z) = z
+  (.@) (Path steps) c = undefined -- Path (Skip steps) .@ c
 
-compareRefs :: ItemRef t a z -> ItemRef t' a' z -> RefsComp t t' a a'
-compareRefs (Deref steps1 k1) (Deref steps2 k2)
-  = case compareSteps steps1 steps2 of
-      StepsLt -> RefsLt
-      StepsEq -> case compare k1 k2 of
-                   LT -> RefsLt
-                   EQ -> RefsEq
-                   GT -> RefsGt
-      StepsGt -> RefsGt
-
-type WaitSet z = Set.Set (WaitItem z)
-
-data WaitItem z where
-  WaitRef  :: ItemRef t a z -> WaitItem z
-  WaitPath :: Path t z -> WaitItem z
-
-instance Eq (WaitItem z) where
-  (WaitRef ref1) == (WaitRef ref2)
-     = case compareRefs ref1 ref2 of
-         RefsEq -> True
-         _      -> False
-  (WaitPath (Path path1)) == (WaitPath (Path path2))
-    = case compareSteps path1 path2 of
-        StepsEq -> True
-        _       -> False
-  _ == _ = False
-
-instance Ord (WaitItem z) where
-  compare (WaitRef ref1) (WaitRef ref2)
-    = case compareRefs ref1 ref2 of
-        RefsLt -> LT
-        RefsEq -> EQ
-        RefsGt -> GT
-  compare (WaitPath (Path path1)) (WaitPath (Path path2))
-    = case compareSteps path1 path2 of
-        StepsLt -> LT
-        StepsEq -> EQ
-        StepsGt -> GT
-  compare (WaitPath _) (WaitRef _) = LT
-  compare (WaitRef _) (WaitPath _) = GT
+instance Selectable (Path e s t z) c t => Selectable (ItemRef e s t a z) c t where
+  type Se (ItemRef e s t a z) = e
+  type Ss (ItemRef e s t a z) = s
+  type Sz (ItemRef e s t a z) = z
+  (.@) ref c = undefined -- Path (Ref ref) .@ c
 -}
+
 
 --
 -- Name spaces
@@ -273,8 +290,8 @@ instance Namespaces r => Namespaces (t :+ r) where
   initialSpaces = SpacesCons [] initialSpaces
 
 data SpaceId s = SpaceId
-data SpaceRef k t where
- SpaceRef :: Int -> [k] -> SpaceRef k t
+data SpaceRef k where
+ SpaceRef :: Int -> [k] -> SpaceRef k
 
 class Space s t where
   spInsert :: k -> SpaceId s -> Spaces t k -> Spaces t k
@@ -292,7 +309,7 @@ instance Space s r => Space s (s' :+ r) where
   spConses s (SpacesCons _ r)    = 1 + spConses s r
 
 infix 6 <!
-(<!) :: (Space s t') => Spaces t' k -> SpaceId s -> SpaceRef k t
+(<!) :: (Space s t') => Spaces t' k -> SpaceId s -> SpaceRef k
 sps <! sid = SpaceRef (spConses sid sps) (spLookup sid sps)
 
 scope :: Space s t => k -> SpaceId s -> Spaces t k -> Spaces t k
@@ -306,10 +323,10 @@ scope = spInsert
 data Tabular e s z a where
   TabFinish    :: a -> Tabular e s z a
   TabBind      :: Tabular e s z a' -> (a' -> Tabular e s z a) -> Tabular e s z a
-  TabValue     :: (Categorical e z, Ord s) => ItemRef e t' a z -> SpaceRef s z -> a -> e -> Tabular e s z a
-  TabAssocs    :: (Categorical e z, Ord s) => Path e (c :@ InfoMap e k z a :+ r) z -> SpaceRef s z -> Tabular e s z (Map k a)
-  TabDefValue  :: (Categorical e z, Ord s) => ItemRef e t' a z -> SpaceRef s z -> a -> e -> Tabular e s z ()
-  TabDefAssocs :: (Categorical e z, Ord s) => Path e (c :@ InfoMap e k z a :+ r) z -> SpaceRef s z -> Map k a -> e -> Tabular e s z ()
+  TabValue     :: (Categorical e s z, Ord s) => ItemRef e s t' a z -> SpaceRef s -> a -> e -> Tabular e s z a
+  TabAssocs    :: (Categorical e s z, Ord s) => Path e s (c :@ InfoMap e s k z a :+ r) z -> SpaceRef s -> Tabular e s z (Map k a)
+  TabDefValue  :: (Categorical e s z, Ord s) => ItemRef e s t' a z -> SpaceRef s -> a -> e -> Tabular e s z ()
+  TabDefAssocs :: (Categorical e s z, Ord s) => Path e s (c :@ InfoMap e s k z a :+ r) z -> SpaceRef s -> Map k a -> e -> Tabular e s z ()
 
 instance Monad (Tabular e s z) where
   (>>=)  = TabBind
@@ -325,19 +342,23 @@ newtype TableGath e s z = TableGath (IntMap (CompWrap e s z))
 -- Evaluator
 --
 
-data EvalState e s z = EvalState { stId :: Int              -- id-nr of the computation
-                                 , stNewStamp :: Int        -- the time stamp of the current iteration
-                                 , stReadStamp :: Int       -- most recent timestamp encountered so far
-                                 , stTrie :: SymTrie e s z  -- the trie so far
-                                 , stMsgs :: TblMsgs e      -- messages (i.e. errors) during evaluation
-                                 , stReach :: IntSet        -- computations we depend on so far
-                                 , stChanged :: Bool        -- wether or not we changed an entry
+data EvalState e s z = EvalState { stId        :: Int          -- id-nr of the computation
+                                 , stNewStamp  :: Int          -- the time stamp of the current iteration
+                                 , stReadStamp :: Int          -- most recent timestamp encountered so far
+                                 , stTbl       :: Tbl z s e    -- the table so far
+                                 , stMsgs      :: TblMsgs e    -- messages (i.e. errors) during evaluation
+                                 , stReach     :: IntSet       -- computations we depend on so far
+                                 , stChanged   :: Bool         -- wether or not we changed an entry
                                  }
 type Eval e s z a = State (EvalState e s z) a
 
 appendMsg :: TblMsg e -> Eval e s z ()
 appendMsg msg
   = modify (\s -> s { stMsgs = stMsgs s Seq.|> msg })
+
+appendMsgs :: TblMsgs e -> Eval e s z ()
+appendMsgs msgs
+  = modify (\s -> s { stMsgs = stMsgs s Seq.>< msgs })
 
 encounterIds :: IntSet -> Eval e s z ()
 encounterIds set
@@ -353,61 +374,62 @@ eval (TabBind m f)
   = do a <- eval m
        eval (f a)
 eval (TabValue ref sp a e)
-  = do trie <- gets stTrie
-       chase (trieDeref sp trie)
+  = do tbl <- gets stTbl
+       let (Descr _ trie, msgs) = derefRef ref tbl
+       appendMsgs msgs
+       chase (trieDeref Undefined sp trie)
   where
-    chase [] = do appendMsg (TblMsgMissing e)
-                  return a
-    chase (tbl:tbls)
-      = case derefRef ref tbl of
-          Descr _ Missing _                 -> chase tbls
-          Descr _ (Defined a _ stamp _) ids -> do encounterIds ids
-                                                  encounterStamp stamp
-                                                  return a
+       chase []     = do appendMsg (TblMsgMissing e)
+                         return a
+       chase (d:ds) = case d of
+                        Undefined -> chase ds
+                        Defined a evalId stamp _ ids -> do encounterIds (IntSet.insert evalId ids)
+                                                           encounterStamp stamp
+                                                           return a
 eval (TabAssocs (Path path) sp)
-  = do trie <- gets stTrie
-       chase (trieDeref sp trie)
+  = do tbl <- gets stTbl
+       let (tbl', msgs) = derefSteps path tbl
+       appendMsgs msgs
+       case tbl' of
+         TblCons (InfoMap mp) _
+           -> do maps <- sequence [ chase k (trieDeref Undefined sp trie) | (k, Descr _ trie) <- Map.assocs mp ]
+                 return (Map.unions maps)
   where
-    chase [] = return Map.empty
-    chase (tbl:tbls)
-      = do mp <- chase tbls
-           case derefSteps path tbl of
-             TblCons (InfoMap mp1) _
-               -> let (mp2, ids, stamp) = foldr (\(k,a,ids,s1) (mp,ids',s) -> (Map.insert k a mp, ids `IntSet.union` ids', s1 `max` s))
-                                                (mp,IntSet.empty, 0)
-                                                [(k,a,ids,s) | (k, Descr _ (Defined a _ s _) ids) <- Map.assocs mp1]
-                  in do encounterIds ids
-                        encounterStamp stamp
-                        return mp2
+    chase _ []             = return Map.empty
+    chase k (Undefined:ds) = chase k ds
+    chase k (Defined a evalId stamp _ ids : _)
+      = do encounterIds (IntSet.insert evalId ids)
+           encounterStamp stamp
+           return (Map.singleton k a)
 eval (TabDefValue ref sp a e)
-  = do trie   <- gets stTrie
+  = do tbl    <- gets stTbl
        stamp  <- gets stReadStamp
        evalId <- gets stId
        idsCur <- gets stReach
 
-       let (tbl, trieF)  = chaseTrie sp trie
-           (descr, tblF) = chaseRef ref tbl
-
+       let (descr, tblF, msgs) = chaseRef ref tbl
+       appendMsgs msgs
        case descr of
-         Descr tbl status ids ->
-           let status1 = case status of
-                           Missing -> Defined a evalId stamp (IntMap.singleton evalId e)
-                           _       -> status
-               ids' = idsCur `IntSet.union` ids
-           in if evalId `IntSet.member` ids'
-              then appendMsg (TblMsgCyclic e)
-              else case status1 of
-                     Defined a evalId' stamp' occs ->
-                       do when (IntMap.size occs > 1) $
-                            appendMsg (TblMsgDuplicate $ IntMap.elems occs)
-                          if evalId /= evalId'
-                           then let descr' = Descr tbl (Defined a evalId' stamp' (IntMap.insert evalId e occs))
-                                                       (idsCur `IntSet.union` ids)
-                                in modify (\s -> s{ stTrie = trieF $ tblF descr' })
-                           else if stamp' >= stamp
-                                then return () -- already up to date
-                                else let descr' = Descr tbl (Defined a evalId stamp occs) (idsCur `IntSet.union` ids)
-                                     in modify (\s -> s{ stTrie = trieF $ tblF descr', stChanged = True })
+         Descr tbl' trie ->
+           let (def, trieF) = chaseTrie Undefined sp trie
+           in case def of
+                Undefined -> let occs   = IntMap.singleton evalId e
+                                 descr' = Descr tbl' (trieF (Defined a evalId stamp occs idsCur))
+                             in modify (\s -> s { stTbl = tblF descr', stChanged = True })
+                Defined a' evalId' stamp' occs ids
+                  -> let ids'  = idsCur `IntSet.union` ids
+                         occs' = IntMap.insert evalId e occs
+                     in if evalId `IntSet.member` ids'
+                        then appendMsg (TblMsgCyclic e)
+                        else if evalId /= evalId'
+                             then let descr' = Descr tbl' (trieF (Defined a' evalId' stamp' occs' ids'))
+                                  in modify (\s -> s { stTbl = tblF descr' })
+                             else do when (IntMap.size occs > 1) $
+                                       appendMsg (TblMsgDuplicate $ IntMap.elems occs)
+                                     if stamp' >= stamp
+                                      then return ()  -- already up-to-date
+                                      else let descr' = Descr tbl' (trieF (Defined a evalId stamp occs' ids'))
+                                           in modify (\s -> s { stTbl = tblF descr', stChanged = True })
 
 
 --
@@ -418,34 +440,38 @@ newtype TableFin e s t = TableFin (IntMap CompResult)
 data CompResult where
   CompResult :: Typeable a => a -> CompResult
 
-finalize :: TableGath e s t -> (TableFin e s t, TblMsgs e)
+finalize :: Categorical e s t => TableGath e s t -> (TableFin e s t, TblMsgs e)
 finalize (TableGath compSet)
   = (TableFin (psRes finalstate), psMsgs finalstate)
   where
-    comps = IntMap.assocs compSet
-    initstate  = PassState { psStamp = 1, psChanged = False, psTrie = emptyTrie, psRes = IntMap.empty, psMsgs = Seq.empty }
+    initstate  = PassState { psStamp = 1, psChanged = False, psTbl = emptyTbl, psRes = IntMap.empty
+                           , psMsgs = Seq.empty, psDeps = IntMap.map (\v -> (v, IntSet.empty)) compSet }
     finalstate = execState run initstate
-    run = do onepass comps
+    run = do onepass
              changed <- gets psChanged
              if changed
               then do modify (\ps -> ps { psStamp = psStamp ps + 1, psChanged = False, psMsgs = Seq.empty } )
                       run
               else return ()
 
-data PassState e s z = PassState { psStamp :: Int, psChanged :: Bool, psTrie :: SymTrie e s z
-                                 , psRes :: IntMap CompResult, psMsgs :: TblMsgs e }
+data PassState e s z = PassState { psStamp :: Int, psChanged :: Bool, psTbl :: Tbl z s e
+                                 , psRes :: IntMap CompResult, psMsgs :: TblMsgs e, psDeps :: IntMap (CompWrap e s z, IntSet) }
 
-onepass :: [(Int, CompWrap e s z)] -> State (PassState e s z) ()
-onepass = mapM_ execOne
+onepass :: State (PassState e s z) ()
+onepass = do deps <- gets psDeps
+             let deps' = flattenSCCs (stronglyConnComp [((k,w),k,IntSet.toList ks) | (k,(w,ks)) <- IntMap.assocs deps ])
+             mapM_ (uncurry execOne) deps'
 
-execOne :: (Int, CompWrap e s z) -> State (PassState e s z) ()
-execOne (evalId, CompWrap expr)
-  = modify (\ps -> let st  = EvalState { stId = evalId, stNewStamp = psStamp ps, stReadStamp = 0, stTrie = psTrie ps
+execOne :: Int -> CompWrap e s z -> State (PassState e s z) ()
+execOne evalId w@(CompWrap expr)
+  = modify (\ps -> let st  = EvalState { stId = evalId, stNewStamp = psStamp ps, stReadStamp = 0, stTbl = psTbl ps
                                        , stMsgs = Seq.empty, stReach = IntSet.empty, stChanged = False }
                        (a, st') = runState (eval expr) st
                    in ps { psChanged = psChanged ps || stChanged st'
-                         , psTrie    = stTrie st'
+                         , psTbl     = stTbl st'
                          , psRes     = IntMap.insert evalId (CompResult a) (psRes ps)
+                         , psDeps    = IntMap.insert evalId (w, stReach st') (psDeps ps)
+                         , psMsgs    = psMsgs ps Seq.>< (Seq.take 1 (stMsgs st'))  -- max one error per 'evalId'
                          })
 
 lookupFin :: Typeable a => Int -> TableFin e s t -> a

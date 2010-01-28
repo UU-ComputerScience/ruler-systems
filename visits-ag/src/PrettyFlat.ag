@@ -27,7 +27,7 @@ ppFag vag = pp_Syn_Fag syn
 }
 
 
-ATTR Fag Data Con Sig Itf Ctx MaybeTail Tail MaybeBlock Block Code Clause Def Pat [ | | pp : PP_Doc ]
+ATTR Fag Data Con FieldSig InhSig SynSig Itf Ctx MaybeTail Tail MaybeBlock Block Code Clause Def Pat [ | | pp : PP_Doc ]
 
 SEM Fag
   | Ag  lhs.pp = "-- data types"
@@ -45,7 +45,7 @@ SEM Data
 SEM Con
   | Con   lhs.pp = "|" >#< @name >#< (vlist @sigs.pps)
 
-SEM Sig
+SEM FieldSig InhSig SynSig
   | Sig   lhs.pp = @name >#< "::" >#< @tp
 
 SEM Itf
@@ -120,7 +120,7 @@ SEM Pat
 -- List-like cases
 --
 
-ATTR Datas Cons Sigs Itfs Ctxs Blocks Codes Clauses Defs Pats [ | | pps : {[PP_Doc]} ]
+ATTR Datas Cons FieldSigs InhSigs SynSigs Itfs Ctxs Blocks Codes Clauses Defs Pats [ | | pps : {[PP_Doc]} ]
 
 SEM Datas
   | Cons  lhs.pps = @hd.pp : @tl.pps
@@ -130,7 +130,15 @@ SEM Cons
   | Cons  lhs.pps = @hd.pp : @tl.pps
   | Nil   lhs.pps = []
 
-SEM Sigs
+SEM FieldSigs
+  | Cons  lhs.pps = @hd.pp : @tl.pps
+  | Nil   lhs.pps = []
+
+SEM InhSigs
+  | Cons  lhs.pps = @hd.pp : @tl.pps
+  | Nil   lhs.pps = []
+
+SEM SynSigs
   | Cons  lhs.pps = @hd.pp : @tl.pps
   | Nil   lhs.pps = []
 

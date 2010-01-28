@@ -27,6 +27,10 @@ import qualified Data.Set as Set
 import Data.Set(Set)
 import SymbolTable
 import Data.Monoid
+
+
+
+import Debug.Trace
 }
 
 WRAPPER Fag
@@ -47,77 +51,133 @@ ATTR Fag [ | | fag : {S.Sag} ]
 
 SEM Fag
   | Ag
-      lhs.fag  = S.Sag_Ag [] [] []
+      lhs.fag  = (error $ show (@loc.tblFin, @loc.finInfos)) -- S.Sag_Ag [] [] []
 
 
 --
--- Distribute namespaces
+-- Namespaces and scoping
 --
 
 {
-data SpDatas
-data SpCons
+data SpGeneral
 
-type NmSpaces = Spaces (SpDatas :+ SpCons :+ End) Key
+type NmSpaces = Spaces (SpGeneral :+ End) Key
 
 data Key
-  = KeyData Ident
-  | KeyCon Ident
+  = NoKey
   deriving (Eq, Ord, Show)
 
-spDatas :: SpaceId SpDatas
-spDatas = SpaceId
-
-spCons :: SpaceId SpCons
-spCons = SpaceId
+spGeneral :: SpaceId SpGeneral
+spGeneral = SpaceId
 }
 
-ATTR Datas Data Cons Con [ spaces : NmSpaces | | ]
+ATTR Datas Data Cons Con FieldSigs FieldSig InhSigs InhSig SynSigs SynSig
+     Itfs Itf Ctxs Ctx MaybeTail Tail Blocks MaybeBlock Block
+     Codes Code Clauses Clause Defs Def MergeInfo Pats Pat
+  [ spaces : NmSpaces | | ]
 
-SEM Fag | Ag  datas.spaces = initialSpaces
-SEM Data | Data  loc.spaces = scope (KeyData @name) spDatas @lhs.spaces
-SEM Con | Con    loc.spaces = scope (KeyCon @name) spCons @lhs.spaces
+SEM Fag | Ag     loc.spaces = initialSpaces
 
 
 --
--- Check data types
+-- Symbol table data types
 --
 
 {
-data CatData = CatData
-data CatCon  = CatCon
+data CatData
+data CatCon
+data CatVar
+data CatFld
 
-type SubTbl t a = InfoMap Item Ident t a
+type SubTbl t a = InfoMap Item Key Ident t a
 type TblType = CatData :@ SubTbl  -- data types
                   TblTypeDatas ()
                :+ End
 type TblTypeDatas = CatCon :@ SubTbl  -- constructors
                       ( TblTypeCons
                       ) ()
+                    :+ CatVar :@ SubTbl  -- type variables
+                         ( TblTypeVars
+                         ) ()
                     :+ End
-type TblTypeCons = End
+type TblTypeCons = CatFld :@ SubTbl  -- signatures
+                     ( TblTypeFields
+                     ) Type
+                   :+ End
+type TblTypeFields = End
+type TblTypeVars = End
 type TblGath = TableGath Item Key TblType
 type TblFin  = TableFin Item Key TblType
+type TblRef t a = ItemRef Item Key t a TblType
+
+catData = id
+catCon = id
+catVar (Path steps) = Path (Skip steps)
+catFld = id
 }
 
-ATTR Datas Data Cons Con [ tblFin : TblFin | tblGath : TblGath | ]
-ATTR Datas Data [ rootPath : {Path Item TblType TblType} | | ]
+
+--
+-- Chained attribute through all mayor NTs
+--
+
+ATTR Datas Data Cons Con FieldSigs FieldSig InhSigs InhSig SynSigs SynSig
+     Itfs Itf Ctxs Ctx MaybeTail Tail Blocks MaybeBlock Block
+     Codes Code Clauses Clause Defs Def MergeInfo Pats Pat
+  [ tblFin : TblFin | tblGath : TblGath | ]
 
 SEM Fag
   | Ag
-      loc.rootPath = Path None
       datas.tblGath = tblGathEmpty
       (loc.tblFin, loc.finInfos) = finalize @datas.tblGath
 
 
+--
+-- Paths and references
+--
+
+ATTR Datas Data [ rootPath : {Path Item Key TblType TblType} | | ]
+ATTR Cons Con [ dataPath : {Path Item Key TblTypeDatas TblType} | | ]
+ATTR FieldSigs FieldSig [ conPath : {Path Item Key TblTypeCons TblType} | | ]
+
+SEM Fag | Ag        loc.rootPath   = emptyPath
+                    datas.rootPath = @loc.rootPath .@ catData
+SEM Data | Data     loc.dataInfo   = Item_Data (identPos @name) @name
+                    loc.dataRef    = @lhs.rootPath .! (@name, @loc.dataInfo)
+                    cons.dataPath  = @loc.dataRef .@ catCon
+SEM Con | Con       loc.conInfo    = Item_Con (identPos @name) @name
+                    loc.conRef     = @lhs.dataPath .! (@name, @loc.conInfo)
+                    sigs.conPath   = @loc.conRef .@ catFld
+SEM FieldSig | Sig  loc.fieldInfo  = Item_Field (identPos @name) @name
+                    loc.fieldRef   = @lhs.conPath .! (@name, @loc.fieldInfo)
+
+
+--
+-- Analysis
+--
 
 SEM Data
   | Data
-      loc.dataRef : {ItemRef Item TblTypeDatas () TblType}
-      loc.dataRef = @lhs.rootPath .@ CatData .! @name
-      
-      (cons.tblGath, _) = apply (defValue @loc.dataRef (@lhs.spaces <! spDatas) () (Item_Data (identPos @name) @name))
-                                @lhs.tblGath
+      loc.gath1 = stmt ( defValue @loc.dataRef (@lhs.spaces <! spGeneral) () @loc.dataInfo ) @lhs.tblGath
+      loc.gath2 = stmt ( mapM_ (\ident -> defValue (typevarRef @loc.dataRef ident)
+                                                   (@lhs.spaces <! spGeneral) () (typevarInfo ident)) @vars ) @loc.gath1
+      cons.tblGath = @loc.gath2
+
+{
+typevarRef :: TblRef TblTypeDatas a -> Ident -> TblRef TblTypeVars ()
+typevarRef dataRef ident = dataRef .@ catVar .! (ident, typevarInfo ident)
+
+typevarInfo :: Ident -> Item
+typevarInfo ident = Item_TypeVar (identPos ident) ident
+}
+
+SEM Con
+  | Con
+      sigs.tblGath = stmt ( defValue @loc.conRef (@lhs.spaces <! spGeneral) () @loc.conInfo ) @lhs.tblGath
+
+SEM FieldSig
+  | Sig
+      lhs.tblGath = stmt ( defValue @loc.fieldRef (@lhs.spaces <! spGeneral) @tp @loc.fieldInfo ) @lhs.tblGath
 
 
 --

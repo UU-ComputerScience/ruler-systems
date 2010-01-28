@@ -83,19 +83,23 @@ toVars mp
 
 toCons :: ConMap -> F.Cons
 toCons mp
-  = [ F.Con_Con k (toSigs sigMp) | (k, M.ChnSub sigMp M.ChnEnd) <- M.assocs mp unknownIdent ]
+  = [ F.Con_Con k (toFieldSigs sigMp) | (k, M.ChnSub sigMp M.ChnEnd) <- M.assocs mp unknownIdent ]
 
-toSigs :: SigMap -> F.Sigs
-toSigs mp
-  = [ F.Sig_Sig k (M.extract tp tpUnknown) | (k, M.ChnItem tp M.ChnEnd) <- M.assocs mp unknownIdent ]
+toFieldSigs = toSigs F.FieldSig_Sig
+toInhSigs   = toSigs F.InhSig_Sig
+toSynSigs   = toSigs F.SynSig_Sig
+
+toSigs :: (Ident -> Type -> a) -> SigMap -> [a]
+toSigs f mp
+  = [ f k (M.extract tp tpUnknown) | (k, M.ChnItem tp M.ChnEnd) <- M.assocs mp unknownIdent ]
 
 toItfs :: ItfMap -> F.Itfs
 toItfs mp
-  = [ F.Itf_Itf k (toVars varMp) (toSigs inhMp) (toCtxs k ctxMp) | (k, M.ChnSub varMp (M.ChnSub inhMp (M.ChnSub ctxMp M.ChnEnd))) <- M.assocs mp unknownIdent ]
+  = [ F.Itf_Itf k (toVars varMp) (toInhSigs inhMp) (toCtxs k ctxMp) | (k, M.ChnSub varMp (M.ChnSub inhMp (M.ChnSub ctxMp M.ChnEnd))) <- M.assocs mp unknownIdent ]
 
 toCtxs :: Ident -> CtxMap -> F.Ctxs
 toCtxs defk mp
-  = [ F.Ctx_Ctx k (toSigs synMp) (toTail $ M.extract tl Nothing) | (k, M.ChnItem tl (M.ChnSub synMp M.ChnEnd)) <- M.assocs mp defk ]
+  = [ F.Ctx_Ctx k (toSynSigs synMp) (toTail $ M.extract tl Nothing) | (k, M.ChnItem tl (M.ChnSub synMp M.ChnEnd)) <- M.assocs mp defk ]
 
 toTail :: Maybe (Maybe Ident, Internal) -> F.MaybeTail
 toTail Nothing = Nothing
@@ -241,7 +245,7 @@ SEM CtxDecl
 
 SEM Sig
   | Sig  lhs.gathSigs = M.many1 @names (\ident -> M.Val (M.ChnItem (M.Replaceable @tp) $ M.ChnEnd)
-                                                        (M.MultDef $ return $ Item_Field @lhs.pos ident))
+                                                        (M.SingleDef $ return $ Item_Field @lhs.pos ident))
 
 --
 -- Gather interfaces
