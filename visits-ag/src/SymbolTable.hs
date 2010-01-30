@@ -1,8 +1,11 @@
 {-# OPTIONS -XTypeFamilies -XMultiParamTypeClasses -XFlexibleInstances -XOverlappingInstances
-            -XEmptyDataDecls -XTypeOperators -XGADTs #-}
+            -XEmptyDataDecls -XTypeOperators -XGADTs
+            -XFunctionalDependencies -XFlexibleContexts -XUndecidableInstances -XIncoherentInstances
+#-}
 module SymbolTable( stmt,expr,defValue,value,assocs,tblGathEmpty,TblMsg(..),TblMsgs,End,TableGath,TableFin
                   , (:+),(:@),Tbl,(<!),scope,finalize,Path(..),ItemRef(..),InfoMap
-                  , initialSpaces,Spaces,SpaceId(..),(.!),(.@),emptyPath,CatSelSteps(..)
+                  , initialSpaces,Spaces,SpaceId(..),(.!),emptyPath,(.@@)
+                  , catKeep,catSkip,(.@),skips,catSkip0,catSkip1,catSkip2,catSkip3,catSkip4
                   ) where
 
 import Data.IntSet(IntSet)
@@ -223,54 +226,51 @@ instance Ord k => Derefable (ItemRef e s (c :@ InfoMap e s k t a :+ r) a' z) whe
   (.!) ref (k, info) = Deref (Ref ref) k info
 
 infix 6 .@
+infix 6 .@@
 
 class Selectable v where
   type Se v
   type Ss v
   type St v
   type Sz v
-  (.@) :: v -> (Path (Se v) (Ss v) (St v) (Sz v) -> Path (Se v) (Ss v) t' (Sz v)) -> Path (Se v) (Ss v) t' (Sz v)
+  (.@@) :: v -> (Path (Se v) (Ss v) (St v) (Sz v) -> Path (Se v) (Ss v) t' (Sz v)) -> Path (Se v) (Ss v) t' (Sz v)
+  (.@) :: (Selectable2 (Se v) (Ss v) c (St v) t') => v -> c -> Path (Se v) (Ss v) t' (Sz v)
+  (.@) x c = x .@@ skips c
 
 instance Selectable (Path e s t z) where
   type Se (Path e s t z) = e
   type Ss (Path e s t z) = s
   type St (Path e s t z) = t
   type Sz (Path e s t z) = z
-  (.@) p f = f p
+  (.@@) p f = f p
 
 instance Selectable (ItemRef e s t a z) where
   type Se (ItemRef e s t a z) = e
   type Ss (ItemRef e s t a z) = s
   type St (ItemRef e s t a z) = t
   type Sz (ItemRef e s t a z) = z
-  (.@) ref f = f (Path (Ref ref))
+  (.@@) ref f = f (Path (Ref ref))
 
-{-
-infix 6 .@
-class Selectable v c t | v c -> t where
-  type Se v
-  type Ss v
-  type Sz v
-  (.@) :: v -> c -> Path (Se v) (Ss v) t (Sz v)
+catKeep :: Path e s t z -> Path e s t z
+catKeep = id
 
-instance Selectable (Path e s (c :@ InfoMap e s k t a :+ r) z) c (c :@ InfoMap e s k t a :+ r) where
-  type Se (Path e s (c :@ InfoMap e s k t a :+ r) z)   = e
-  type Ss (Path e s (c :@ InfoMap e s k t a :+ r) z)   = s
-  type Sz (Path e s (c :@ InfoMap e s k t a :+ r) z)   = z
-  (.@) p _ = undefined -- p
+catSkip :: Path e s ((c :@ InfoMap e s k t a) :+ r) z -> Path e s r z
+catSkip (Path steps) = Path (Skip steps)
 
-instance (Selectable (Path e s r z) c t) => Selectable (Path e s (c' :@ t' :+ r) z) c t where
-  type Se (Path e s (c' :@ t' :+ r) z) = e
-  type Ss (Path e s (c' :@ t' :+ r) z) = s
-  type Sz (Path e s (c' :@ t' :+ r) z) = z
-  (.@) (Path steps) c = undefined -- Path (Skip steps) .@ c
+catSkip0 = catKeep
+catSkip1 = catSkip
+catSkip2 = catSkip . catSkip
+catSkip3 = catSkip2 . catSkip
+catSkip4 = catSkip3 . catSkip
 
-instance Selectable (Path e s t z) c t => Selectable (ItemRef e s t a z) c t where
-  type Se (ItemRef e s t a z) = e
-  type Ss (ItemRef e s t a z) = s
-  type Sz (ItemRef e s t a z) = z
-  (.@) ref c = undefined -- Path (Ref ref) .@ c
--}
+class Selectable2 e s c t t' | c t -> t', t -> e s, t' -> e s where
+  skips :: c -> Path e s t z -> Path e s t' z
+
+instance Selectable2 e s c (c :@ InfoMap e s k t a :+ r) (c :@ InfoMap e s k t a :+ r) where
+  skips _ = catKeep
+
+instance Selectable2 e s c r t => Selectable2 e s c (c' :@ InfoMap e s k t' a :+ r) t where
+  skips c p = skips c (catSkip p)
 
 
 --
