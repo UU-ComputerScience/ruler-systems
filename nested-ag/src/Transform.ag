@@ -1,0 +1,537 @@
+MODULE {Transform} {} {}
+
+optpragmas {
+{-# LANGUAGE MultiParamTypeClasses, FlexibleInstances, FlexibleContexts, UndecidableInstances, TypeSynonymInstances #-}
+}
+
+PRAGMA genlinepragmas
+
+INCLUDE "BackendAg.ag"
+
+imports
+{
+import BackendAst
+import CommonTypes
+import UU.Scanner.Position
+import Data.Map(Map)
+import qualified Data.Map as Map
+import Data.IntMap(IntMap)
+import qualified Data.IntMap as IntMap
+import Data.Set(Set)
+import qualified Data.Set as Set
+import Language.Haskell.Pretty
+import Language.Haskell.Syntax
+import System.FilePath
+import qualified Data.ByteString.Char8 as B
+import Data.Maybe
+import Data.Monoid
+
+import Debug.Trace
+}
+
+WRAPPER Ag
+
+{
+transform :: Ag -> String
+transform ast
+  = B.unpack (output_Syn_Ag syn)
+  where
+    sem = sem_Ag ast
+    syn = wrap_Ag sem inh
+    inh = Inh_Ag {}
+
+nextUnique :: Int -> (Int, Int)
+nextUnique n = (n+1, n)
+
+find :: (Show k, Ord k, Show a, Show p) => p -> k -> Map k a -> a
+find p k m = Map.findWithDefault (error (show p ++ ": no key " ++ show k ++ " in " ++ show m)) k m
+
+ppHaskell :: Pretty a => a -> B.ByteString
+ppHaskell = B.pack . prettyPrintWithMode modePP
+
+pushPP :: Pretty a => a -> B.ByteString -> B.ByteString
+pushPP h = push (ppHaskell h)
+  where push ys xs = B.append (B.append xs (B.pack "\r\n")) ys
+
+modePP :: PPHsMode
+modePP = defaultMode { layout = PPSemiColon, linePragmas = False }
+
+posToSrcLoc :: Pos -> SrcLoc
+posToSrcLoc (Pos l c f) = SrcLoc f l c
+
+class IdentConv a b where
+  toHsn :: a -> b
+
+instance IdentConv Ident HsName where
+  toHsn = HsIdent . show
+
+instance IdentConv String HsName where
+  toHsn = HsIdent
+
+instance IdentConv HsName HsName where
+  toHsn = id
+
+instance IdentConv a HsName => IdentConv a HsQName where
+  toHsn = UnQual . toHsn
+
+conTy :: HsName -> HsType
+conTy = HsTyCon . toHsn
+}
+
+
+ATTR Ag Blocks Block Itf Code Items Item
+  [ | | output USE {`B.append`} {B.empty} : {B.ByteString} ]
+
+SEM Itf
+  | Itf
+      loc.lsrc  = posToSrcLoc @pos
+      
+      -- generation of I-type
+      loc.iname = toHsn ("I_" ++ show @name)
+      loc.ity   = HsTyApp stTy $ HsTyApp (conTy @loc.sname) sTy
+      +output   = let ty = HsTyFun refty @loc.ity
+                      refty = HsTyApp strefTy (HsTyApp (conTy @loc.sname) sTy)
+                  in pushPP $ HsNewTypeDecl @loc.lsrc [] @loc.iname [sHsn] (HsConDecl @loc.lsrc @loc.iname [HsUnBangedTy ty]) []
+      
+      -- generation of S-type
+      loc.sname = toHsn ("S_" ++ show @name)
+      loc.sty   = HsTyTuple [ HsTyApp (conTy @loc.inhName) sTy, HsTyApp (conTy @loc.synName) sTy, HsTyApp (conTy @loc.visName) sTy ]
+      +output   = pushPP $ HsNewTypeDecl @loc.lsrc [] @loc.sname [sHsn] (HsConDecl @loc.lsrc @loc.sname [HsUnBangedTy @loc.sty]) []
+      
+      -- generation of InhS-type
+      loc.inhName = toHsn ("InhS_" ++ show @name)
+      loc.inhTy   = HsTyTuple [ HsTyApp strefTy $ mkHaskellTp tp | (_, tp) <- Map.toAscList @visits.inhInfos ]
+      +output     = let con = HsConDecl @loc.lsrc @loc.inhName [HsUnBangedTy @loc.inhTy]
+                    in pushPP $ HsNewTypeDecl @loc.lsrc [] @loc.inhName [sHsn] con []
+
+      -- generation of SynS-type
+      loc.synName = toHsn ("SynS_" ++ show @name)
+      loc.synTy   = HsTyTuple [ HsTyApp strefTy $ mkHaskellTp tp | (_, tp) <- Map.toAscList @visits.synInfos ]
+      +output     = let con = HsConDecl @loc.lsrc @loc.synName [HsUnBangedTy @loc.synTy]
+                    in pushPP $ HsNewTypeDecl @loc.lsrc [] @loc.synName [sHsn] con []
+      
+      -- generation of Inh-type
+      loc.inhIName = toHsn ("Inh_" ++ show @name)
+      loc.inhITps  = [ ([qualNm "inh" @name nm], HsUnBangedTy $ mkHaskellTp tp) | (nm, tp) <- Map.toAscList @visits.inhInfos ]
+      +output      = pushPP $ HsDataDecl @loc.lsrc [] @loc.inhIName [] [HsRecDecl @loc.lsrc @loc.inhIName @loc.inhITps] []
+      
+      -- generation of Syn-type
+      loc.synIName = toHsn ("Syn_" ++ show @name)
+      loc.synITps  = [ ([qualNm "syn" @name nm], HsUnBangedTy $ mkHaskellTp tp) | (nm, tp) <- Map.toAscList @visits.synInfos ]
+      +output      = pushPP $ HsDataDecl @loc.lsrc [] @loc.synIName [] [HsRecDecl @loc.lsrc @loc.synIName @loc.synITps] []
+
+      -- generation of VisS-type
+      loc.visName = toHsn ("VisS_" ++ show @name)
+      loc.visTy   = HsTyTuple (replicate @visits.nVisits (HsTyApp stTy (HsTyTuple [])))
+      +output     = let con = HsConDecl @loc.lsrc @loc.visName [HsUnBangedTy @loc.visTy]
+                    in pushPP $ HsNewTypeDecl @loc.lsrc [] @loc.visName [sHsn] con []
+      
+      -- generation of eval-function
+      loc.evalName = toHsn ("eval_" ++ show @name)
+      +output      = let firstTy = mkHaskellTp ("(forall s . I_" ++ show @name ++ " s)")
+                         evalsTy = HsTyFun firstTy (HsTyFun (conTy @loc.inhIName) (conTy @loc.synIName))
+                     in pushPP $ HsTypeSig @loc.lsrc [@loc.evalName] (HsQualType [] evalsTy)
+      +output      = let body    = HsApp (HsVar $ toHsn "runST") (HsParen action)
+                         action  = HsDo ( [unpack, mkref, match, setref] ++ assigns ++ visits ++ derefs ++ [build] )
+                         mkref   = HsGenerator @loc.lsrc (HsPVar $ toHsn "ref") errRef
+                         errRef  = HsApp (HsVar $ toHsn "newSTRef") (HsVar $ toHsn "undefined")
+                         match   = HsGenerator @loc.lsrc (HsPVar $ toHsn "sem") actApp
+                         actApp  = HsApp (HsVar $ toHsn "act") (HsVar $ toHsn "ref")
+                         setref  = HsQualifier (writeExp (HsVar $ toHsn "ref") (HsVar $ toHsn "sem"))
+                         unpack  = HsLetStmt [HsPatBind @loc.lsrc tree (HsUnGuardedRhs $ HsVar $ toHsn "x") []]
+                         semRef  = HsVar $ toHsn "ref"
+                         assigns = [ assign nm | (nm,_) <- Map.toAscList @visits.inhInfos ]
+                         assign nm = let params = [semRef, HsVar $ toHsn ("i_" ++ show nm)]
+                                     in HsQualifier $ foldl HsApp (HsVar $ toHsn $ assignNmInh @name nm) params
+                         visits  = [ visit nm | (_,nm) <- IntMap.toAscList @visits.visitInfos ]
+                         visit nm = HsQualifier $ HsApp (HsVar $ toHsn $ visitNm @name nm) semRef
+                         derefs  = [ deref nm | (nm,_) <- Map.toAscList @visits.synInfos ]
+                         deref nm = let exp = HsApp (HsVar $ toHsn $ derefNmSyn @name nm) semRef
+                                    in HsGenerator @loc.lsrc (HsPVar $ toHsn ("s_" ++ show nm)) exp
+                         build   = HsQualifier $ HsApp (HsVar $ toHsn "return") (HsParen syn)
+                         tree    = HsPApp (toHsn @loc.iname) [HsPVar $ toHsn "act"]
+                         xmatch  = HsPVar $ toHsn "x"
+                         inhNms  = [ toHsn ("i_" ++ show nm) | (nm,_) <- Map.toAscList @visits.inhInfos ]
+                         synNms  = [ toHsn ("s_" ++ show nm) | (nm,_) <- Map.toAscList @visits.synInfos ]
+                         inh     = HsPApp (toHsn @loc.inhIName) (map HsPVar inhNms)
+                         syn     = foldl HsApp (HsVar $ toHsn @loc.synIName) (map HsVar synNms)
+                         rhs     = HsUnGuardedRhs body
+                         fun     = HsFunBind [HsMatch @loc.lsrc @loc.evalName [xmatch, inh] rhs []]
+                     in pushPP fun
+
+      -- generation of visits
+      +output = let nVisits = IntMap.size @visits.visitInfos
+                    visitMatches = replicate (max (nVisits-1) 0) HsPWildCard
+                    visName v = toHsn ("visit_" ++ show @name ++ "_" ++ show v)
+                    f (n,v) = let name = visName v
+                                  fun = HsFunBind [HsMatch @loc.lsrc name [refMatch] rhs []]
+                                  refNm    = "ref"
+                                  resNm    = "res"
+                                  refMatch = HsPVar (toHsn refNm)
+                                  semMatch = HsPApp (toHsn @loc.sname) [HsPTuple [HsPWildCard, HsPWildCard, visMatch]]
+                                  visMatch = HsPApp (toHsn @loc.visName) [HsPTuple matches]
+                                  matches  = let (l,r) = splitAt n visitMatches
+                                             in l ++ [HsPVar (toHsn resNm)] ++ r
+                                  rhs = HsUnGuardedRhs body
+                                  body = HsDo [ HsGenerator @loc.lsrc (HsPParen semMatch) (readExp $ HsVar $ toHsn refNm)
+                                              , HsQualifier $ HsVar $ toHsn resNm]
+                              in fun
+                    g (n,v) = let name = visName v
+                                  tp = HsTyFun refTp unitTp
+                                  unitTp = HsTyApp stTy (HsTyTuple [])
+                                  refTp = HsTyApp strefTy semTp
+                                  semTp = HsTyApp (HsTyCon $ toHsn @loc.sname) sTy
+                              in HsTypeSig @loc.lsrc [name] (HsQualType [] tp)
+                in \b -> foldr (\i -> pushPP (f i) . pushPP (g i)) b (IntMap.toAscList @visits.visitInfos)
+      
+      -- generation of childs
+      loc.childName = toHsn ("child_" ++ show @name)
+      +output = let tp     = HsTyFun refTp (HsTyFun ity unitTp)
+                    ity    = HsTyApp (conTy @loc.iname) sTy
+                    unitTp = HsTyApp stTy (HsTyTuple [])
+                    refTp  = HsTyApp strefTy semTp
+                    semTp  = HsTyApp (HsTyCon $ toHsn @loc.sname) sTy
+                    sig    = HsTypeSig @loc.lsrc [@loc.childName] (HsQualType [] tp)
+                in pushPP sig
+      +output = let fun       = HsFunBind [HsMatch @loc.lsrc @loc.childName [refMatch, treeMatch] rhs []]
+                    refNm     = "ref"
+                    actNm     = "act"
+                    treeNm    = "tree"
+                    refMatch  = HsPVar $ toHsn refNm
+                    treeMatch = HsPApp (toHsn @loc.iname) [HsPVar $ toHsn actNm]
+                    rhs       = HsUnGuardedRhs body
+                    body      = HsDo [ HsGenerator @loc.lsrc (HsPVar $ toHsn treeNm) act
+                                     , HsQualifier $ writeExp (HsVar $ toHsn refNm) (HsVar $ toHsn treeNm)]
+                    act       = HsApp (HsVar $ toHsn actNm) (HsVar $ toHsn refNm)
+                in pushPP fun
+
+      -- generation of assigns
+      +output = \b -> foldr (@loc.genAssign True) b (zip [0..] $ Map.toAscList @visits.inhInfos)
+      +output = \b -> foldr (@loc.genAssign False) b  (zip [0..] $ Map.toAscList @visits.synInfos)
+      loc.genAssign = \isInh (ind,(nm,str)) ->
+                        let name  = if isInh then assignNmInh @name nm else assignNmSyn @name nm
+                            fun   = HsFunBind [HsMatch @loc.lsrc name [HsPVar $ toHsn refNm, HsPVar $ toHsn valNm] rhs []]
+                            refNm = "ref"
+                            valNm = "val"
+                            atNm = "attr"
+                            rhs   = HsUnGuardedRhs (HsDo [match, write])
+                            match = HsGenerator @loc.lsrc pat (readExp $ HsVar $ toHsn refNm)
+                            pat   = HsPParen $ HsPApp (toHsn @loc.sname) [HsPTuple tup]
+                            tup | isInh     = [HsPApp (toHsn @loc.inhName) [matches nInh], HsPWildCard, HsPWildCard]
+                                | otherwise = [HsPWildCard, HsPApp (toHsn @loc.synName) [matches nSyn], HsPWildCard]
+                            nInh = Map.size @visits.inhInfos
+                            nSyn = Map.size @visits.synInfos
+                            matches n = let (l,r) = splitAt ind (replicate (max 0 (n-1)) HsPWildCard)
+                                        in HsPTuple (l ++ [HsPVar (toHsn atNm)] ++ r)
+                            write = HsQualifier $ writeExp (HsVar $ toHsn atNm) (HsVar $ toHsn valNm)
+
+                            sig   = HsTypeSig @loc.lsrc [name] (HsQualType [] tp)
+                            tp    = HsTyFun refTy (HsTyFun valTy resTy)
+                            resTy = HsTyApp stTy (HsTyTuple [])
+                            refTy = HsTyApp strefTy (HsTyApp (conTy @loc.sname) sTy)
+                            valTy = mkHaskellTp str
+                        in pushPP fun . pushPP sig
+      
+      -- generation of derefs
+      +output = \b -> foldr (@loc.genDeref True) b (zip [0..] $ Map.toAscList @visits.inhInfos)
+      +output = \b -> foldr (@loc.genDeref False) b  (zip [0..] $ Map.toAscList @visits.synInfos)
+      loc.genDeref = \isInh (ind,(nm,str)) ->
+                        let name  = if isInh then derefNmInh @name nm else derefNmSyn @name nm
+                            fun   = HsFunBind [HsMatch @loc.lsrc name [HsPVar $ toHsn refNm] rhs []]
+                            refNm = "ref"
+                            atNm = "attr"
+                            rhs   = HsUnGuardedRhs (HsDo [match, read])
+                            match = HsGenerator @loc.lsrc pat (readExp $ HsVar $ toHsn refNm)
+                            pat   = HsPParen $ HsPApp (toHsn @loc.sname) [HsPTuple tup]
+                            tup | isInh     = [HsPApp (toHsn @loc.inhName) [matches nInh], HsPWildCard, HsPWildCard]
+                                | otherwise = [HsPWildCard, HsPApp (toHsn @loc.synName) [matches nSyn], HsPWildCard]
+                            nInh = Map.size @visits.inhInfos
+                            nSyn = Map.size @visits.synInfos
+                            matches n = let (l,r) = splitAt ind (replicate (max 0 (n-1)) HsPWildCard)
+                                        in HsPTuple (l ++ [HsPVar (toHsn atNm)] ++ r)
+                            read  = HsQualifier $ readExp (HsVar $ toHsn atNm)
+
+                            sig   = HsTypeSig @loc.lsrc [name] (HsQualType [] tp)
+                            tp    = HsTyFun refTy resTy
+                            resTy = HsTyApp stTy valTy
+                            refTy = HsTyApp strefTy (HsTyApp (conTy @loc.sname) sTy)
+                            valTy = mkHaskellTp str
+                        in pushPP fun . pushPP sig
+
+{
+sHsn :: HsName
+sHsn = toHsn "s"
+
+sTy :: HsType
+sTy = HsTyVar sHsn
+
+stTy :: HsType
+stTy = HsTyApp (HsTyCon $ toHsn "ST") sTy
+
+strefTy :: HsType
+strefTy = HsTyApp (HsTyCon $ toHsn "STRef") sTy
+
+mkHaskellTp :: String -> HsType
+mkHaskellTp str = HsTyTuple [HsTyVar $ HsIdent $ map rep str]
+  where rep '\n' = ' '
+        rep '\r' = ' '
+        rep c    = c
+
+qualNm :: String -> Ident -> Ident -> HsName
+qualNm x y z = toHsn (x ++ "_" ++ show y ++ "_" ++ show z)
+
+visitNm :: Ident -> Ident -> HsName
+visitNm i v = toHsn ("visit_" ++ show i ++ "_" ++ show v)
+
+assignNmSyn :: Ident -> Ident -> HsName
+assignNmSyn i a = toHsn ("assign_syn_" ++ show i ++ "_" ++ show a)
+
+assignNmInh :: Ident -> Ident -> HsName
+assignNmInh i a = toHsn ("assign_inh_" ++ show i ++ "_" ++ show a)
+
+derefNmSyn :: Ident -> Ident -> HsName
+derefNmSyn i a = toHsn ("deref_syn_" ++ show i ++ "_" ++ show a)
+
+derefNmInh :: Ident -> Ident -> HsName
+derefNmInh i a = toHsn ("deref_inh_" ++ show i ++ "_" ++ show a)
+
+writeExp :: HsExp -> HsExp -> HsExp
+writeExp ref val
+  = HsApp (HsApp (HsVar $ toHsn "writeSTRef") ref) val
+
+readExp :: HsExp -> HsExp
+readExp ref
+  = HsApp (HsVar $ toHsn "readSTRef") ref
+}
+
+
+-- number the visits and collect them
+ATTR ItfVisits ItfVisit [ | nVisits : Int | visitInfos USE {`mappend`} {mempty} : {IntMap Ident} ]
+
+SEM Itf | Itf  visits.nVisits = 0
+
+SEM ItfVisit
+  | Visit
+      loc.nr : UNIQUEREF nVisits
+      lhs.visitInfos = IntMap.singleton @loc.nr @name
+
+-- get the inherited and synthesized attributes
+ATTR ItfVisits ItfVisit Params Param [ | | inhInfos, synInfos USE {`mappend`} {mempty} : {Map Ident String} ]
+
+SEM Param
+  | Param
+      loc.info     = Map.singleton @name @type
+      lhs.inhInfos = if @isInput then @loc.info else mempty
+      lhs.synInfos = if not @isInput then @loc.info else mempty
+
+-- collect and spread attribute info
+ATTR Blocks Block Itf [ | | gathItfs USE {`mappend`} {mempty} : {Map Ident (Map Ident String, Map Ident String, IntMap Ident)} ]
+ATTR Blocks Block Code Items Item SemVisits SemVisit Stmts Stmt [ imap : {Map Ident (Map Ident String, Map Ident String, IntMap Ident)} | | ]
+
+SEM Ag | Ag  blocks.imap = @blocks.gathItfs
+SEM Itf | Itf  lhs.gathItfs = Map.singleton @name (@visits.inhInfos, @visits.synInfos, @visits.visitInfos)
+
+
+SEM Item
+  | Plain
+      lhs.output = @loc.spacing `B.append` (B.pack @txt)
+      loc.spacing = B.replicate (column @pos) ' '
+  | Attr
+      lhs.output = B.pack $ toFieldNameIn @name @field
+  | Sem
+      loc.lsrc   = posToSrcLoc @pos
+      lhs.output = let treeIdentStr = "__tree"
+                   in B.unlines (  [ B.pack "(let {"
+                                   , ppHaskell $ HsPatBind @loc.lsrc (HsPVar $ toHsn treeIdentStr) (HsUnGuardedRhs @loc.exp) []
+                                   , B.pack ("} in " ++ treeIdentStr ++ ")")
+                                   , B.replicate (column @pos) ' '
+                                   ]
+                                )
+
+{
+toFieldNameOut :: Ident -> Ident -> String
+toFieldNameOut child attr
+  = toFieldName False child attr
+
+toFieldNameIn :: Ident -> Ident -> String
+toFieldNameIn child attr
+  = toFieldName True child attr
+
+toFieldName :: Bool -> Ident -> Ident -> String
+toFieldName isIn child attr
+  | show child == "loc" = "_" ++ show child ++ "L" ++ show attr
+  | isIn      = "_" ++ show child ++ "I" ++ show attr
+  | otherwise = "_" ++ show child ++ "O" ++ show attr
+}
+
+
+--
+-- Generate semantics
+--
+
+SEM Item
+  | Sem
+      (loc.inhs, loc.syns, loc.visits) = Map.findWithDefault (error ("tp: " ++ show @tp)) @tp @lhs.imap
+      loc.semTp = let addS t = HsTyApp t sTy
+                      addI n = "I_" ++ show n
+                  in addS $ conTy . toHsn $ addI @tp
+      loc.exp  = let expr = HsApp (HsVar $ toHsn ("I_" ++ show @tp)) (HsParen body)
+                     body = HsLambda @loc.lsrc [HsPVar $ toHsn semVarStr] doexp
+                     doexp = HsDo (crefs ++ lrefs ++ inhs ++ syns ++  [vis, cisv, rexp])
+                     crefs = [ cref nm | nm <- Map.keys @visits.childInfos ]
+                     cref nm = HsGenerator @loc.lsrc (HsPVar $ toHsn ("cref_" ++ show nm)) (newRefExp $ HsVar $ toHsn "undefined")
+                     lref nm = HsGenerator @loc.lsrc (HsPVar $ toHsn ("lref_" ++ show nm)) (newRefExp $ HsVar $ toHsn "undefined")
+                     lrefs = if @lhs.toplevel
+                             then [ lref nm | nm <- Set.toList @visits.allLocals ]
+                             else []
+                     mkRef suf nm = HsGenerator @loc.lsrc (HsPVar $ toHsn (suf ++ show nm)) (newRefExp $ HsVar $ toHsn "undefined")
+                     inhs = [ mkRef "iref_" nm  | (nm, _) <- Map.toAscList @loc.inhs ]
+                     syns = [ mkRef "sref_" nm  | (nm, _) <- Map.toAscList @loc.syns ]
+                     vis  = HsLetStmt @visits.decls
+                     cisv = HsLetStmt [ cinh, csyn, cvis ]
+                     cinh = HsPatBind @loc.lsrc (HsPVar $ toHsn "inh") (HsUnGuardedRhs einh) []
+                     einh = HsApp (HsCon $ toHsn ("InhS_" ++ show @tp)) $ HsTuple tinh
+                     tinh = [ HsVar $ toHsn ("iref_" ++ show nm) | (nm,_) <- Map.toAscList @loc.inhs ]
+                     csyn = HsPatBind @loc.lsrc (HsPVar $ toHsn "syn") (HsUnGuardedRhs esyn) []
+                     esyn = HsApp (HsCon $ toHsn ("SynS_" ++ show @tp)) $ HsTuple tsyn
+                     tsyn = [ HsVar $ toHsn ("sref_" ++ show nm) | (nm,_) <- Map.toAscList @loc.syns ]
+                     cvis = HsPatBind @loc.lsrc (HsPVar $ toHsn "vis") (HsUnGuardedRhs evis) []
+                     evis = HsApp (HsCon $ toHsn ("VisS_" ++ show @tp)) $ HsTuple tvis
+                     tvis = [ HsVar $ toHsn ("vis_" ++ show nm) | (_,nm) <- IntMap.toAscList @loc.visits ]
+                     rexp = HsQualifier $ HsApp (HsVar $ toHsn "return") (HsParen rapp)
+                     rapp = HsApp (HsCon $ toHsn ("S_" ++ show @tp)) $ HsTuple [rinh,rsyn,rvis]
+                     rinh = HsVar $ toHsn "inh"
+                     rsyn = HsVar $ toHsn "syn"
+                     rvis = HsVar $ toHsn "vis"
+                 in expr
+
+{
+semVarStr :: String
+semVarStr = "__sem"
+
+newRefExp :: HsExp -> HsExp
+newRefExp e = HsParen $ HsApp (HsVar $ toHsn "newSTRef") (HsParen e)
+}
+
+--
+-- Toplevel sem?
+--
+
+ATTR SemVisits SemVisit Stmts Stmt Code Items Item [ toplevel : Bool | | ]
+SEM Block | Section code.toplevel = True
+SEM Stmt | Child  code.toplevel = False
+         | Eval   expr.toplevel = False
+
+--
+-- Defined children
+--
+
+ATTR SemVisits SemVisit Stmts Stmt [ allChildInfos : {Map Ident Ident} | | childInfos USE {`mappend`} {mempty} : {Map Ident Ident} ]
+SEM Stmt | Child  lhs.childInfos = Map.singleton @name @type
+SEM Item | Sem  visits.allChildInfos = @visits.childInfos
+
+--
+-- Locals
+--
+
+ATTR SemVisits SemVisit Stmts Stmt Code Items Item Pats Pat [ | | allLocals USE {`mappend`} {mempty} : {Set Ident}]
+SEM Pat | Attr  lhs.allLocals = if show @child == "loc"
+                                then Set.singleton @name
+                                else Set.empty
+
+ATTR SemVisits SemVisit [ | | decls USE {++} {[]} : {[HsDecl]}]
+
+SEM SemVisit
+  | Visit
+      loc.lsrc  = posToSrcLoc @pos
+      lhs.decls = [HsPatBind @loc.lsrc (HsPVar $ toHsn ("vis_" ++ show @name)) (HsUnGuardedRhs @loc.exp) []]
+      loc.exp  = HsDo (@stmts.stmts ++ [ HsQualifier $ HsApp (HsVar $ toHsn "return") (HsTuple []) ])
+
+ATTR SemVisits SemVisit Stmts Stmt [ parentTp : {Ident} | | ]
+SEM Item | Sem  visits.parentTp = @tp
+
+ATTR Stmts Stmt [ | | stmts USE {++} {[]} : {[HsStmt]} ]
+
+SEM Stmt
+  | Invoke
+      loc.tp    = Map.findWithDefault (error ("tp: " ++ show @name)) @name @lhs.allChildInfos
+      lhs.stmts = [ HsQualifier $ HsApp (HsVar $ toHsn $ visitNm @tp @visit) (HsVar $ toHsn semVarStr) ]
+  | Child Eval
+      loc.derefAttr = \(child, field) ->
+                         let pat = HsPVar $ toHsn $ toFieldNameIn child field
+                             exp | show child == "loc" = readExp (HsVar $ toHsn ("lref_" ++ show field))
+                                 | otherwise = let tp = if show child == "lhs"
+                                                        then @lhs.parentTp
+                                                        else Map.findWithDefault (error ("child: " ++ show child)) child @lhs.allChildInfos
+                                                   lookupnm = if show child == "lhs"
+                                                              then derefNmInh tp field
+                                                              else derefNmSyn tp field
+                                                   semnm = if show child == "lhs"
+                                                           then semVarStr
+                                                           else "cref_" ++ show child
+                                               in HsApp (HsVar $ toHsn lookupnm) (HsVar $ toHsn semnm)
+                         in HsGenerator @loc.lsrc pat exp
+  | Child  loc.lsrc  = posToSrcLoc @pos
+           lhs.stmts = map @loc.derefAttr (Set.toList @code.derefAttrs) ++ [HsQualifier @loc.exp]
+           loc.exp   = let body = HsApp (HsApp childfun arg) def
+                           childfun = HsVar $ toHsn ("child_" ++ show @type)
+                           arg = HsVar $ toHsn ("cref_" ++ show @name)
+                           def = embedExp @code.output
+                       in body
+  | Eval   loc.lsrc    = posToSrcLoc noPos
+           loc.derefs  = map @loc.derefAttr (Set.toList @expr.derefAttrs)
+           loc.decl    = HsLetStmt [HsPatBind @loc.lsrc @pat.pat (HsUnGuardedRhs $ embedExp @expr.output) []]
+           loc.assigns = let assignAttr (child,field)
+                               = let val = HsVar $ toHsn $ toFieldNameOut child field
+                                     exp | show child == "loc" = readExp (HsVar $ toHsn ("lref_" ++ show field))
+                                         | otherwise = let tp = if show child == "lhs"
+                                                                then @lhs.parentTp
+                                                                else Map.findWithDefault (error ("child: " ++ show child)) child @lhs.allChildInfos
+                                                           lookupnm = if show child == "lhs"
+                                                                      then assignNmSyn tp field
+                                                                      else assignNmInh tp field
+                                                           semnm = if show child == "lhs"
+                                                                   then semVarStr
+                                                                   else "cref_" ++ show child
+                                                       in HsApp (HsApp (HsVar $ toHsn lookupnm) (HsVar $ toHsn semnm)) val
+                                 in HsQualifier exp
+                         in map assignAttr (Set.toList @pat.assignAttrs)
+           lhs.stmts   = @loc.derefs ++ [@loc.decl] ++ @loc.assigns
+
+{
+embedExp :: B.ByteString -> HsExp
+embedExp str
+  = HsVar $ UnQual $ HsSymbol $ B.unpack $ B.unlines
+  $ [ B.pack "(let {"
+    , (B.pack "_R_=") `B.append` (B.drop 4 str)
+    , B.pack "} in _R_)"
+    ]
+}
+
+--
+-- Attributes that need to be dereferenced beforehand
+--
+
+ATTR Code Items Item [ | | derefAttrs USE {`mappend`} {mempty} : {Set (Ident,Ident)} ]
+SEM Item | Attr   lhs.derefAttrs = Set.singleton (@name, @field)
+
+
+--
+-- Generate a pattern from a pattern
+--
+
+ATTR Pat [ | | pat : {HsPat} ]
+ATTR Pats [ | | pats : {[HsPat]} ]
+
+SEM Pat
+  | Con         lhs.pat = HsPParen $ HsPApp (toHsn @name) @pats.pats
+  | Attr        lhs.pat = HsPVar $ toHsn $ toFieldNameOut @child @name
+  | Tup         lhs.pat = HsPTuple @pats.pats
+  | Underscore  lhs.pat = HsPWildCard
+
+SEM Pats
+  | Cons  lhs.pats = @hd.pat : @tl.pats
+  | Nil   lhs.pats = []
+
+ATTR Pats Pat [ | | assignAttrs USE {`mappend`} {mempty} : {Set (Ident,Ident)}]
+SEM Pat | Attr  lhs.assignAttrs = Set.singleton (@child,@name)

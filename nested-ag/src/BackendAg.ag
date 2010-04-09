@@ -1,0 +1,89 @@
+DATA Ag
+  | Ag
+      blocks : Blocks
+
+TYPE Blocks = [Block]
+
+DATA Block
+  | Itf
+      itf  : Itf
+  | Section
+      code : Code
+
+DATA Itf
+  | Itf
+      pos    : Pos
+      name   : Ident
+      visits : ItfVisits
+
+TYPE ItfVisits = [ItfVisit]
+
+DATA ItfVisit
+  | Visit
+      pos    : Pos
+      name   : Ident
+      params : Params
+
+TYPE Params = [Param]
+
+DATA Param
+  | Param
+      name    : Ident
+      type    : String
+      isInput : Bool
+
+DATA Code
+  | Code
+      items : Items
+
+TYPE Items = [Item]
+
+DATA Item
+  | Plain
+      pos   : Pos
+      txt   : String
+  | Attr
+      pos   : Pos
+      name  : Ident
+      field : Ident
+  | Sem
+      pos      : Pos
+      tp       : Ident
+      visits   : SemVisits
+
+TYPE SemVisits = [SemVisit]
+
+DATA SemVisit
+  | Visit
+      pos      : Pos
+      name     : Ident
+      stmts    : Stmts
+
+TYPE Stmts = [Stmt]
+
+DATA Stmt
+  | Child
+      pos     : Pos
+      name    : Ident
+      type    : Ident
+      code    : Code
+  | Invoke
+      pos   : Pos
+      name  : Ident
+      visit : Ident
+  | Eval
+      pat  : Pat
+      expr : Code
+
+TYPE Pats = [Pat]
+
+DATA Pat
+  | Con
+      name : Ident
+      pats : Pats
+  | Attr
+      child : Ident
+      name  : Ident
+  | Tup
+      pats : Pats
+  | Underscore
