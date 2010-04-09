@@ -1,0 +1,37 @@
+-- Example ag
+
+{
+{-# LANGUAGE RankNTypes #-}
+module Example where
+
+import Data.STRef
+import Control.Monad.ST
+import qualified Data.Map as Map
+import Data.Map(Map)
+
+data Ty = Arr | Con
+type Env a = Map String a
+}
+
+itf Name
+  visit vGather
+          syn gathMap :: Env Ty
+
+  visit vDisperse
+    inh finMap :: Env Ty
+  
+{
+mk_Name_Split l r
+  = sem :: Name
+      visit vGather
+        child left :: Name = l
+        child right :: Name = r
+        invoke left vGather
+        invoke right vGather
+        lhs.gathMap = left.gathMap `Map.union` right.gathMap
+      visit vDisperse
+        left.finMap = lhs.finMap
+        right.finMap = lhs.finMap
+        invoke left vDisperse
+        invoke right vDisperse
+}
