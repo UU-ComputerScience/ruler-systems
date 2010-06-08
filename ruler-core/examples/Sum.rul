@@ -1,0 +1,44 @@
+{
+module Sum where
+}
+
+itf S
+  visit v1
+    inh l :: [Int]
+  visit v2
+    syn s :: Int
+
+{
+sum' = sem sum : S
+         visit v1
+           clause sumNil
+             match [] = lhs.l
+             visit v2
+               clause sumNil2
+                 lhs.s = 0
+           clause sumCons
+             match (loc.x : loc.xs) = lhs.l
+             attach v1 of tl : S = sum'
+             tl.l = loc.xs
+             invoke v1 of tl = noIter1
+             visit v2
+               clause sumCons2
+                 invoke v2 of tl = noIter2
+                 lhs.s = loc.x + tl.x
+}
+
+itf CoSv1
+  visit v1
+    syn l :: [Int]
+
+itf CoSv2
+  visit v2
+    inh s :: Int
+
+{
+noIter1 = sem noIter : CoSv1
+            visit v1  -- empty clauses
+
+noIter2 = sem noIter : CoSv2
+            visit v2  -- empty clauses
+}

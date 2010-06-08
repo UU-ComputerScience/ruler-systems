@@ -1,0 +1,50 @@
+MODULE {Errs} {errsToStr, prettyErrs, Errs, Err} {}
+
+PRAGMA genlinepragmas
+
+imports
+{
+import Common
+import UU.Pretty
+import UU.Scanner.Position
+import Data.Sequence(Seq)
+import qualified Data.Sequence as Seq
+import Data.Foldable
+import Opts
+}
+
+WRAPPER Err
+
+{
+type Errs = Seq Err
+
+prettyErr :: Opts -> Err -> PP_Doc
+prettyErr opts e
+  = pp_Syn_Err syn
+  where
+    inh = Inh_Err { opts_Inh_Err = opts }
+    syn = wrap_Err sem inh
+    sem = sem_Err e
+
+prettyErrs :: Opts -> Errs -> PP_Doc
+prettyErrs opts = vlist . map (prettyErr opts) . toList
+
+errsToStr :: Opts -> Errs -> String
+errsToStr opts es = disp (prettyErrs opts es) 999999 ""
+}
+
+DATA Err
+  | General
+      pos : Pos
+      str : String
+
+ATTR Err [ opts : Opts | | pp : {PP_Doc} ]
+
+SEM Err
+  | General  lhs.pp = locLine @pos @str
+
+{
+locLine :: PP a => Pos -> a -> PP_Doc
+locLine (Pos l c f) d
+  = pp f >|< ":" >|< pp l >|< "," >|< pp c >|< ": " >|< pp d
+}

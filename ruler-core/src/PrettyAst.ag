@@ -1,0 +1,191 @@
+MODULE {PrettyAst} {prettyProgram, progToStr} {}
+
+PRAGMA genlinepragmas
+
+INCLUDE "AstAG.ag"
+
+imports
+{
+import Common
+import Ast
+import UU.Pretty
+}
+
+WRAPPER Program
+
+{
+progToStr :: Program -> String
+progToStr prog = disp (prettyProgram prog) 999999 ""
+
+prettyProgram :: Program -> PP_Doc
+prettyProgram prog
+  = pp_Syn_Program syn
+  where
+    inh = Inh_Program {}
+    syn = wrap_Program sem inh
+    sem = sem_Program prog
+
+instance PP Ident where
+  pp = text . identName
+}
+
+ATTR Program Block Itf ItfVisit Attr BoundCode Code Item SemVisit VisitAttr Clause Stmt Mode Bind Pat
+  [ | | pp : {PP_Doc} ]
+
+SEM Program
+  | Program      lhs.pp = vlist @blocks.pps
+
+SEM Block
+  | Section      lhs.pp = "{" >-< @code.pp >-< "}"
+  | Itf          lhs.pp = @itf.pp
+
+SEM Itf
+  | Itf          lhs.pp = "itf" >#< @name
+                          >-< indent 2 (vlist @visits.pps)
+
+SEM ItfVisit
+  | Visit        lhs.pp = "visit" >#< @name
+                          >-< indent 2 (vlist @attrs.pps)   
+
+SEM Attr
+  | Inh          lhs.pp = "inh" >#< @name >#< "::" >#< @type
+  | Syn          lhs.pp = "syn" >#< @name >#< "::" >#< @type
+
+SEM BoundCode
+  | Code         lhs.pp = @bind.pp >#< @code.pp
+
+SEM Code
+  | Code         lhs.pp = vlist @items.pps
+
+SEM Item
+  | Plain        lhs.pp = text (modifySpacing @loc.diff @txt)
+  | Attr         lhs.pp = addSpaces @loc.diff (@name >|< "." >|< @field)
+  | Sem          lhs.pp = addSpaces @loc.diff ("sem" >#< @name >#< ":" >#< @tp
+                                              >-< indent 2 @first.pp)
+  | Detach       lhs.pp = addSpaces @loc.diff ("detach" >#< @name >#< "of" >#< @visit)
+
+ATTR BoundCode Code Items Item SemVisit Stmts Clauses Clause Stmt [ indent : Int | | ]
+
+SEM Block | Section   code.indent = 0
+SEM BoundCode | Code  code.indent = column @pos + @bind.width + 1
+
+SEM Item
+  | *            loc.diff = column @pos - @lhs.indent
+
+{
+modifySpacing :: Int -> String -> String
+modifySpacing n | n <= 0 = drop n
+                | n > 0  = (replicate n ' ' ++)
+
+addSpaces :: Int -> PP_Doc -> PP_Doc
+addSpaces n d = text (replicate n ' ') >|< d
+}
+
+SEM SemVisit
+  | Visit        lhs.pp = "visit" >#< @name
+                          >-< indent 2 (   vlist @attrs.pps
+                                       >-< vlist @stmts.pps
+                                       >-< vlist @clauses.pps
+                                       )
+  | End          lhs.pp = empty
+
+SEM VisitAttr
+  | Chn          lhs.pp = "chn" >#< @name >#< "::" >#< @type
+
+SEM Clause
+  | Clause       lhs.pp = "clause" >#< @name
+                          >-< indent 2 (   vlist @stmts.pps
+                                       >-< @next.pp
+                                       )
+
+SEM Stmt
+  | Eval         lhs.pp = @mode.pp >|< @pat.pp >#< @code.pp
+  | Attach       lhs.pp = "attach" >#< @name >#< "of" >#< @visit >#< ":" >#< @type >#< @code.pp
+  | Invoke       lhs.pp = "invoke" >#< @name >#< "of" >#< @visit >#< @code.pp
+
+SEM Mode
+  | Match        lhs.pp = text "match "
+  | Assert       lhs.pp = empty
+
+SEM Bind
+  | Fun          lhs.pp = text "="
+  | Monadic      lhs.pp = text "<-"
+
+ATTR Bind [ | | width : Int ]
+SEM Bind
+  | Fun          lhs.width = 1
+  | Monadic      lhs.width = 2
+
+SEM Pat
+  | Con          lhs.pp = addParens PrioCon @lhs.prio @lhs.isRight (@name >#< hlist_sp @pats.pps)
+  | Attr         lhs.pp = @child >|< "." >|< @name
+  | Tup          lhs.pp = pp_block "(" ")" "," @pats.pps
+  | List         lhs.pp = pp_block "[" "]" "," @pats.pps
+  | Cons         lhs.pp = addParens PrioCons @lhs.prio @lhs.isRight (@hd.pp >#< ":" >#< @tl.pp)
+  | Underscore   lhs.pp = text "_"
+
+ATTR Pat Pats [ prio : Prio | | ]
+ATTR Pat [ isRight : Bool | | ]
+
+SEM Stmt | Eval    pat.prio    = PrioTop
+                   pat.isRight = False
+
+SEM Pat
+  | Con   pats.prio = PrioCon
+  | Tup   pats.prio = PrioTop
+  | List  pats.prio = PrioTop
+  | Cons  hd.prio   = PrioCons
+          tl.prio   = PrioCons
+
+SEM Pats | Cons  hd.isRight = False
+
+SEM Pat
+  | Cons  hd.isRight = False
+          tl.isRight = True
+
+{
+data Prio
+  = PrioTop | PrioCons | PrioCon
+  deriving (Eq, Ord)
+
+addParens :: Prio -> Prio -> Bool -> PP_Doc -> PP_Doc
+addParens myPrio lhsPrio isRight doc
+  | myPrio > lhsPrio || (myPrio == lhsPrio && isRight) = doc
+  | otherwise                                          = pp_parens doc
+}
+
+ATTR Blocks ItfVisits Attrs Items VisitAttrs Clauses Stmts Pats
+  [ | | pps : {[PP_Doc]} ]
+
+SEM Blocks
+  | Cons  lhs.pps = @hd.pp : @tl.pps
+  | Nil   lhs.pps = []
+
+SEM ItfVisits
+  | Cons  lhs.pps = @hd.pp : @tl.pps
+  | Nil   lhs.pps = []
+
+SEM Attrs
+  | Cons  lhs.pps = @hd.pp : @tl.pps
+  | Nil   lhs.pps = []
+
+SEM Items
+  | Cons  lhs.pps = @hd.pp : @tl.pps
+  | Nil   lhs.pps = []
+
+SEM VisitAttrs
+  | Cons  lhs.pps = @hd.pp : @tl.pps
+  | Nil   lhs.pps = []
+
+SEM Clauses
+  | Cons  lhs.pps = @hd.pp : @tl.pps
+  | Nil   lhs.pps = []
+
+SEM Stmts
+  | Cons  lhs.pps = @hd.pp : @tl.pps
+  | Nil   lhs.pps = []
+
+SEM Pats
+  | Cons  lhs.pps = @hd.pp : @tl.pps
+  | Nil   lhs.pps = []
+
