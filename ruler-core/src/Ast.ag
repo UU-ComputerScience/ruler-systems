@@ -1,0 +1,10 @@
+MODULE {Ast} {} {}
+
+PRAGMA genlinepragmas
+
+INCLUDE "AstAG.ag"
+
+imports
+{
+import Common
+}

@@ -1,0 +1,29 @@
+MODULE {Transform} {transform} {}
+
+PRAGMA genlinepragmas
+
+INCLUDE "AstAG.ag"
+
+imports
+{
+import Common
+import Ast
+import Errs
+import qualified Data.Sequence as Seq
+}
+
+WRAPPER Program
+
+{
+transform :: Program -> Errs
+transform prog
+  = errs_Syn_Program syn
+  where
+    inh = Inh_Program {}
+    syn = wrap_Program sem inh
+    sem = sem_Program prog
+}
+
+
+ATTR Program [ | | errs USE {Seq.><} {Seq.empty} : {Errs} ]
+

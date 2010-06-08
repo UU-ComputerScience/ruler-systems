@@ -1,0 +1,135 @@
+DATA Program
+  | Program
+      blocks : Blocks
+
+TYPE Blocks = [Block]
+
+DATA Block
+  | Itf
+      itf : Itf
+  | Section
+      code : Code
+
+DATA Itf
+  | Itf
+      pos    : Pos
+      name   : Ident
+      visits : ItfVisits
+
+TYPE ItfVisits = [ItfVisit]
+
+DATA ItfVisit
+  | Visit
+      pos    : Pos
+      name   : Ident
+      attrs  : Attrs
+
+TYPE Attrs = [Attr]
+
+DATA Attr
+  | Inh
+      name : Ident
+      type : String
+  | Syn
+      name : Ident
+      type : String
+
+DATA Code
+  | Code
+      items : Items
+
+DATA BoundCode
+  | Code
+      bind : Bind
+      pos  : Pos
+      code : Code
+
+TYPE Items = [Item]
+
+DATA Item
+  | Plain
+      pos      : Pos
+      txt      : String
+  | Attr
+      pos      : Pos
+      name     : Ident
+      field    : Ident
+  | Sem
+      pos      : Pos
+      name     : Ident
+      tp       : Ident
+      first    : SemVisit
+  | Detach
+      pos      : Pos
+      name     : Ident
+      visit    : Ident
+
+DATA SemVisit
+  | Visit
+      pos      : Pos
+      name     : Ident
+      attrs    : VisitAttrs
+      stmts    : Stmts
+      clauses  : Clauses
+  | End
+
+TYPE VisitAttrs = [VisitAttr]
+
+DATA VisitAttr
+  | Chn
+      name  : Ident
+      type  : String
+
+TYPE Clauses = [Clause]
+
+DATA Clause
+  | Clause
+      pos     : Pos
+      name    : Ident
+      stmts   : Stmts
+      next    : SemVisit
+
+TYPE Stmts = [Stmt]
+
+DATA Stmt
+  | Eval
+      mode    : Mode
+      pat     : Pat
+      code    : BoundCode
+  | Attach
+      pos     : Pos
+      name    : Ident
+      visit   : Ident
+      type    : Ident
+      code    : BoundCode
+  | Invoke
+      pos     : Pos
+      name    : Ident
+      visit   : Ident
+      code    : BoundCode
+
+DATA Mode
+  | Match
+  | Assert
+
+DATA Bind
+  | Fun
+  | Monadic
+
+TYPE Pats = [Pat]
+
+DATA Pat
+  | Con
+      name   : Ident
+      pats   : Pats
+  | Attr
+      child  : Ident
+      name   : Ident
+  | Tup
+      pats   : Pats
+  | List
+      pats   : Pats
+  | Cons
+      hd     : Pat
+      tl     : Pat
+  | Underscore
