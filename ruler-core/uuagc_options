@@ -5,7 +5,7 @@ file: "src/PrettyAst.ag"
 options: catas, rename, semfuns, signatures, optimize
 
 file: "src/Transform.ag"
-options: catas, rename, semfuns, signatures, optimize
+options: catas, rename, semfuns, signatures
 
 file: "src/Errs.ag"
 options: data, rename, catas, semfuns, signatures, optimize

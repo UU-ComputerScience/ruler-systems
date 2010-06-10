@@ -1,4 +1,4 @@
-MODULE {Errs} {errsToStr, prettyErrs, Errs, Err} {}
+MODULE {Errs} {errsToStr, prettyErrs, Errs, Err(..), debugMsg} {}
 
 PRAGMA genlinepragmas
 
@@ -31,17 +31,60 @@ prettyErrs opts = vlist . map (prettyErr opts) . toList
 
 errsToStr :: Opts -> Errs -> String
 errsToStr opts es = disp (prettyErrs opts es) 999999 ""
+
+debugMsg :: String -> Errs
+debugMsg = Seq.singleton . Err_General noPos
 }
 
 DATA Err
   | General
       pos : Pos
       str : String
+  | Missing
+      ks : {[Ident]}
+  | Dup
+      ks : {[Ident]}
+  | ExpVisit
+      found  : {Ident}
+      expect : {Ident}
+  | VisitsNotImpl
+      nonterm : {[Ident]}
+      vs : {[Ident]}
+  | UndefVisit
+      child : {Ident}
+      visit : {Ident}
+      visits : {[Ident]}
+  | UndetachVisit
+      child : {Ident}
+      visit : {Ident}
+      expect : {Ident}
 
 ATTR Err [ opts : Opts | | pp : {PP_Doc} ]
 
 SEM Err
-  | General  lhs.pp = locLine @pos @str
+  | General        lhs.pp = locLine @pos @str
+  | Missing        lhs.pp = locLine @loc.pos ("undefined identifier" >#< show @loc.main)
+  | Dup            lhs.pp = locLine @loc.pos ("duplicate identifier" >#< show @loc.main)
+  | ExpVisit       lhs.pp = locLine @loc.pos ("expecting visit" >#< show @expect >#< "found" >#< show @found)
+  | VisitsNotImpl  lhs.pp = locLine @loc.pos ("missing visit" >#< show @loc.main >#< "for" >#< show (head @nonterm))
+  | UndefVisit     lhs.pp = locLine @loc.pos ("undefined visit" >#< show @visit >#< "of child" >#< show @child)
+  | UndetachVisit  lhs.pp = locLine @loc.pos ("undetachable visit" >#< show @visit >#< "of child" >#< show @child >|< ": expecting visit" >#< show @expect)
+
+SEM Err
+  | Missing Dup
+      loc.main   = if null @ks then ident "<unspecified>" else head @ks
+      loc.others = tail @ks
+      loc.pos    = identPos @loc.main
+  | ExpVisit
+      loc.pos    = identPos @found
+  | VisitsNotImpl
+      loc.main   = if null @vs then ident "<unspecified>" else head @vs
+      loc.others = tail @vs
+      loc.pos    = identPos (head @nonterm)
+  | UndefVisit
+      loc.pos    = identPos @visit
+  | UndetachVisit
+      loc.pos    = identPos @visit
 
 {
 locLine :: PP a => Pos -> a -> PP_Doc

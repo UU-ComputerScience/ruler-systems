@@ -9,7 +9,13 @@ imports
 import Common
 import Ast
 import Errs
+import Data.Sequence(Seq)
 import qualified Data.Sequence as Seq
+import Data.Map(Map)
+import qualified Data.Map as Map
+import Env
+import Data.Monoid
+import Data.List(nub, isPrefixOf)
 }
 
 WRAPPER Program
@@ -17,13 +23,326 @@ WRAPPER Program
 {
 transform :: Program -> Errs
 transform prog
-  = errs_Syn_Program syn
+  = errs
   where
-    inh = Inh_Program {}
-    syn = wrap_Program sem inh
-    sem = sem_Program prog
+    inh  = Inh_Program {}
+    syn  = wrap_Program sem inh
+    sem  = sem_Program prog
+    errs = firstErrs [errs1_Syn_Program syn, errs2_Syn_Program syn, errs3_Syn_Program syn]
+
+firstErrs :: [Errs] -> Errs
+firstErrs [] = Seq.empty
+firstErrs (x:xs) = if Seq.null x then firstErrs xs else x
 }
 
 
-ATTR Program [ | | errs USE {Seq.><} {Seq.empty} : {Errs} ]
+--
+-- Collect errors
+--
+
+-- errs1: rudamentary checks
+-- errs2: child checks
+-- errs3: attribute checks
+
+SET AllCode = Code Items Item SemVisit Clauses Clause Stmts Stmt BoundCode
+SET AllCodeBlocks = Blocks Block AllCode
+
+ATTR Program AllCodeBlocks [ | | errs1,errs2,errs3 USE {Seq.><} {Seq.empty} : {Errs} ]
+
+SEM Program
+  | Program  +errs1 = addDefErrs @blocks.gathItfs
+             +errs1 = addDefErrs @blocks.gathVisits
+             +errs1 = addDefErrs @blocks.gathInhs
+             +errs1 = addDefErrs @blocks.gathSyns
+             +errs1 = addDefErrs @blocks.gathNonterms
+             +errs1 = addDefErrs @blocks.gathClauses
+             +errs1 = addUseErrs @blocks.distItfs
+             +errs1 = addUseErrs @blocks.distVisits
+             +errs1 = addUseErrs @blocks.distChildDefs
+
+{
+addDefErrs :: Env QIdent v -> Errs -> Errs
+addDefErrs env es
+  = Seq.fromList (map (Err_Dup . head) ds) Seq.>< es
+  where ds = map (map fst) (dups env)
+
+addUseErrs :: Env QIdent v -> Errs -> Errs
+addUseErrs env es
+  = Seq.fromList (map (Err_Missing . head) ms) Seq.>< es
+  where ms = missing env
+}
+
+--
+-- Standard duplication checks
+--
+
+
+{
+type ItfEnv = Env QIdent ()
+}
+
+ATTR Blocks Block Itf [ | gathItfs : ItfEnv | ]
+
+SEM Program
+  | Program  blocks.gathItfs = emptyEnv
+
+SEM Itf | Itf  +gathItfs = extend [@name] ()
+
+
+ATTR ItfVisits ItfVisit Attrs Attr [ itf : {QIdent} | | ]
+SEM Itf | Itf  visits.itf = [@name]
+
+{
+type VisitEnv = Env QIdent ()
+}
+
+ATTR Blocks Block Itf ItfVisits ItfVisit [ | gathVisits : VisitEnv | ]
+
+SEM Program
+  | Program  blocks.gathVisits = emptyEnv
+
+SEM ItfVisit | Visit  +gathVisits = extend (@name : @lhs.itf) ()
+
+
+ATTR Attrs Attr [ visit : {QIdent} | | ]
+SEM ItfVisit | Visit  attrs.visit = @name : @lhs.itf
+
+{
+type AttrEnv = Env QIdent String
+}
+
+ATTR Blocks Block Itf ItfVisits ItfVisit Attrs Attr [ | gathInhs, gathSyns : AttrEnv | ]
+
+SEM Program
+  | Program  blocks.gathInhs = emptyEnv
+             blocks.gathSyns = emptyEnv
+
+SEM Attr
+  | Inh  +gathInhs = extend (@name : @lhs.itf) @type
+  | Syn  +gathSyns = extend (@name : @lhs.itf) @type
+
+{
+type NontermEnv = Env QIdent ()
+type ClausesEnv = Env QIdent ()
+}
+
+ATTR AllCodeBlocks [ | gathNonterms : NontermEnv gathClauses : ClausesEnv | ]
+ATTR AllCode [ nonterm : {QIdent} | | ]
+
+SEM Block | Section  code.nonterm  = [ident "<root>"]
+SEM Item | Sem       first.nonterm = [@name]
+
+SEM Program
+  | Program  blocks.gathNonterms = emptyEnv
+             blocks.gathClauses  = emptyEnv
+
+SEM Item
+  | Sem     +gathNonterms = extend [@name] ()
+
+SEM Clause
+  | Clause  +gathClauses = extend (@name : @lhs.nonterm) ()
+
+
+--
+-- Standard usage checks
+--
+
+ATTR AllCodeBlocks [ | distItfs : ItfEnv | ]
+
+SEM Program
+  | Program  blocks.distItfs = @blocks.gathItfs
+
+SEM Item
+  | Sem  +distItfs = snd . find [@tp] ()
+
+ATTR AllCode [ itf : QIdent | | ]
+SEM Block
+  | Section  code.itf = [ident "<root>"]
+
+SEM Item
+  | Sem      first.itf = [@tp]
+
+ATTR AllCodeBlocks [ | distVisits : VisitEnv | ]
+
+SEM Program
+  | Program  blocks.distVisits = @blocks.gathVisits
+
+SEM SemVisit
+  | Visit  +distVisits = snd . find (@name : @lhs.itf) ()
+
+SEM Stmt
+  | Invoke  loc.unqualChildItf = head @loc.childItf
+            loc.childVisits = Map.findWithDefault [] @loc.unqualChildItf @lhs.distVisitOrder
+  | Attach  loc.childVisits = Map.findWithDefault [] @type @lhs.distVisitOrder
+  | Invoke Attach
+            +errs1 = ( if null @loc.childVisits || @visit `elem` @loc.childVisits
+                       then Seq.empty else Seq.singleton (Err_UndefVisit @name @visit @loc.childVisits)) Seq.><
+
+--
+-- Children defined
+--
+
+ATTR AllCodeBlocks Pats Pat [ | gathChildDefs, distChildDefs : {Env QIdent (QIdent, QIdent)} | ]
+
+SEM Program | Program  blocks.gathChildDefs = emptyEnv
+                       blocks.distChildDefs = @blocks.gathChildDefs
+
+SEM Item
+  | Sem  loc.firstVisit = if null @loc.nextVisits then unknIdent else head @loc.nextVisits
+         first.gathChildDefs = extend locQIdent (locQIdent, locQIdent)
+                               $ extend lhsQIdent ([@tp], [@loc.firstVisit, @tp])
+                               $ enter @lhs.gathChildDefs
+         first.distChildDefs = @first.gathChildDefs
+         (lhs.distChildDefs, loc.localChildDefs) = leave @first.distChildDefs
+         +errs1 = addUseErrs @loc.localChildDefs
+  | Attr    ((loc.childItf, loc.startVisit), lhs.gathChildDefs) = find [@name] (unknQIdent,unknQIdent) @lhs.gathChildDefs
+  | Detach  ((loc.childItf, loc.startVisit), lhs.distChildDefs) = find [@name] (unknQIdent,unknQIdent) @lhs.distChildDefs
+
+SEM Clauses
+  | Cons  (hd.gathChildDefs, tl.gathChildDefs) = split @lhs.gathChildDefs
+          lhs.gathChildDefs = merge @hd.gathChildDefs @tl.gathChildDefs
+
+SEM Stmt
+  | Attach  +gathChildDefs = extend [@name] ([@type],[@visit,@type])
+  | Invoke  ((loc.childItf, loc.startVisit), code.gathChildDefs) = find [@name] (unknQIdent,unknQIdent) @lhs.gathChildDefs
+
+SEM Pat
+  | Attr    ((loc.childItf, loc.startVisit), lhs.distChildDefs) = find [@child] (unknQIdent,unknQIdent) @lhs.distChildDefs
+
+{
+unknIdent :: Ident
+unknIdent = ident "<undefined>"
+
+unknQIdent :: QIdent
+unknQIdent = [unknIdent]
+
+locQIdent :: QIdent
+locQIdent = [ident "loc"]
+
+lhsQIdent :: QIdent
+lhsQIdent = [ident "lhs"]
+}
+
+--
+-- Visit order
+--
+
+ATTR Blocks Block Itf [ | | gathVisitOrder USE {`mappend`} {mempty} : {Map Ident [Ident]} ]
+ATTR ItfVisits ItfVisit [ | | gathVisitOrder USE {++} {[]} : {[Ident]} ]
+
+SEM Itf | Itf         lhs.gathVisitOrder = Map.singleton @name @visits.gathVisitOrder
+SEM ItfVisit | Visit  lhs.gathVisitOrder = [@name]
+
+ATTR AllCodeBlocks [ distVisitOrder : {Map Ident [Ident]} | | ]
+ATTR SemVisit Clauses Clause [ nextVisits : {[Ident]} | | ]
+
+SEM Program | Program  blocks.distVisitOrder = @blocks.gathVisitOrder
+SEM Item | Sem         loc.nextVisits        = Map.findWithDefault [] @tp @lhs.distVisitOrder
+
+SEM SemVisit
+  | Visit  (loc.sequenceErrs, clauses.nextVisits) = checkVisitSequence @name @lhs.nextVisits
+           +errs1 = @loc.sequenceErrs Seq.><
+  | End    +errs1 = (if null @lhs.nextVisits then Seq.empty else Seq.singleton (Err_VisitsNotImpl @lhs.nonterm @lhs.nextVisits)) Seq.><
+
+{
+checkVisitSequence :: Ident -> [Ident] -> (Errs, [Ident])
+checkVisitSequence _ [] = (Seq.empty, [])  -- dont report more errors if already erroneous
+checkVisitSequence nm (nm' : nms)
+  | nm == nm' = (Seq.empty, nms)
+  | otherwise = (Seq.singleton $ Err_ExpVisit nm nm', [])  -- mismatch
+}
+
+
+--
+-- Compute from bottom to top: the set of possible child visit sequences.
+-- For each attach: check if all of these are a prefix of the range attached.
+--
+
+ATTR SemVisit Clauses Clause Stmts Stmt [ | | gathChildSeqs USE {`unionWithPlusplus`} {Map.empty} : {Map Ident [[Ident]]} ]
+
+SEM Stmt | Invoke     lhs.gathChildSeqs = Map.singleton @name [[@visit]]
+SEM Stmts | Cons      loc.gathChildSeqs = unionWithSequential @hd.gathChildSeqs @tl.gathChildSeqs
+SEM Clause | Clause   loc.gathChildSeqs = unionWithSequential @stmts.gathChildSeqs @next.gathChildSeqs
+SEM Clauses | Cons    lhs.gathChildSeqs = if @tl.isNil then @hd.gathChildSeqs else unionWithParallel @hd.gathChildSeqs @tl.gathChildSeqs
+SEM SemVisit | Visit  lhs.gathChildSeqs = unionWithSequential @stmts.gathChildSeqs @clauses.gathChildSeqs
+
+ATTR Clauses [ | | isNil : Bool ]
+SEM Clauses
+  | Nil   lhs.isNil = True
+  | Cons  lhs.isNil = False
+
+{
+unionWithPlusplus :: Ord k => Map k [v] -> Map k [v] -> Map k [v]
+unionWithParallel, unionWithSequential :: (Ord k, Ord v) => Map k [[v]] -> Map k [[v]] -> Map k [[v]]
+
+unionWithPlusplus   = Map.unionWith (++)
+unionWithParallel mp1 mp2 = Map.unionWith (++) mp1' mp2'
+  where addleft  = Map.map (const [[]]) (mp2 `Map.difference` mp1)
+        addright = Map.map (const [[]]) (mp1 `Map.difference` mp2)
+        mp1' = addleft `Map.union` mp1
+        mp2' = addright `Map.union` mp2
+unionWithSequential = Map.unionWith (\[h] t -> map (h++) t)
+}
+
+ATTR Stmt [ distChildSeqs : {Map Ident [[Ident]]} | | ]
+
+SEM Stmts
+  | Cons  hd.distChildSeqs = @loc.gathChildSeqs
+
+SEM Stmt
+  | Attach  loc.allowedVisits = dropWhile (/= @visit) @loc.childVisits
+            loc.sequences = Map.findWithDefault [[]] @name @lhs.distChildSeqs
+            +errs2 = Seq.fromList [ mkExpVisitErr s @loc.allowedVisits
+                                  | s <- @loc.sequences, not (isPrefixOf s @loc.allowedVisits)] Seq.><
+
+{
+mkExpVisitErr (x : xs) (y : ys)
+  | x == y    = mkExpVisitErr xs ys
+  | otherwise = Err_ExpVisit x y
+}
+
+--
+-- Compute from top to bottom: visits that have been invoked on children
+-- Used to compute if the detach is the "next" visit of all visits invoked
+-- so far
+--
+
+ATTR AllCodeBlocks [ gathInvokedVisits : {Map Ident [Ident]} | | ]
+
+SEM Program | Program  blocks.gathInvokedVisits = Map.empty
+
+ATTR Stmt [ | | gathInvokedVisits : {Map Ident [Ident]} ]
+
+SEM Stmt | Invoke  +gathInvokedVisits = Map.insertWith (++) @name [@visit]
+
+SEM Item
+  | Detach  loc.invoked = Map.findWithDefault [] @name @lhs.gathInvokedVisits
+            loc.unqualChildItf = head @loc.childItf
+            loc.childVisits = Map.findWithDefault [] @loc.unqualChildItf @lhs.distVisitOrder
+            loc.visit' = nextAfterInvoked @loc.invoked @loc.childVisits
+            +errs2 = ( if @visit == @loc.visit'
+                       then Seq.empty else Seq.singleton (Err_UndetachVisit @name @visit @visit')) Seq.><
+
+{
+nextAfterInvoked :: [Ident] -> [Ident] -> Ident
+nextAfterInvoked (a:as) (b:bs)
+  | a == b    = nextAfterInvoked as bs
+  | otherwise = b
+}
+
+
+--
+-- The real nasty part: attribute checks
+-- (1) match/eval statements:
+--      check def-attrs against defineable attributes
+-- (2) statements with code:
+--      check use-attrs against available attributes
+-- (3) invoke statement:
+--       check inh attrs against available attributes
+--
+-- computation of defineable attributes
+--   all attributes of lhs
+--   the gath
+-- computation of available attributes
+--
 

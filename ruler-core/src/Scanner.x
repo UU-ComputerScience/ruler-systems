@@ -87,6 +87,8 @@ push sc (Reserved k pos)
   | sc == a && k == "="          = ((pos, h) :)
   | sc == a && k == "<-"         = ((pos, h) :)
   | sc == 0 && k == "::"         = ((pos, h) :)
+  | sc == a && k == "visit"      = ((pos, a) :)
+  | sc == a && k == "clause"     = ((pos, a) :)
 push _ _ = id
 
 unwind :: Pos -> String -> CtxStack -> [Token] -> (Int, CtxStack, [Token])
