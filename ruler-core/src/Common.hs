@@ -1,5 +1,5 @@
 module Common
-  ( Ident(..), identName, identPos, ident, explainIdent, explainPos
+  ( Ident(..), identName, identPos, ident, explainIdent, explainPos, QIdent
   , module UU.Scanner.Position
   )
   where
@@ -39,3 +39,9 @@ explainIdent ident = show ident ++ " {" ++ explainPos (identPos ident) ++ "}"
 
 explainPos :: Pos -> String
 explainPos (Pos l c file) = file ++ ":" ++ show l ++ "," ++ show c
+
+--
+-- Qualified Identifiers
+--
+
+type QIdent = [Ident]

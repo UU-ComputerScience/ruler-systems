@@ -36,9 +36,9 @@ itf CoSv2
     inh s :: Int
 
 {
-noIter1 = sem noIter : CoSv1
+noIter1 = sem noIter1 : CoSv1
             visit v1  -- empty clauses
 
-noIter2 = sem noIter : CoSv2
+noIter2 = sem noIter2 : CoSv2
             visit v2  -- empty clauses
 }

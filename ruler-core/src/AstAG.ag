@@ -61,8 +61,8 @@ DATA Item
       first    : SemVisit
   | Detach
       pos      : Pos
-      name     : Ident
       visit    : Ident
+      name     : Ident
 
 DATA SemVisit
   | Visit
@@ -98,14 +98,14 @@ DATA Stmt
       code    : BoundCode
   | Attach
       pos     : Pos
-      name    : Ident
       visit   : Ident
+      name    : Ident
       type    : Ident
       code    : BoundCode
   | Invoke
       pos     : Pos
-      name    : Ident
       visit   : Ident
+      name    : Ident
       code    : BoundCode
 
 DATA Mode

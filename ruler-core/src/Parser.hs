@@ -92,6 +92,7 @@ pSemVisit
   = opt ( SemVisit_Visit <$> pKeyPos "visit" <*> pIdentVisit
                          <*> pList_gr pChn <*> pList_gr pStmt
                          <*> pList_gr pClause
+                         <* pEnd
                          <?> "visit"
         ) SemVisit_End
 
@@ -99,7 +100,7 @@ pChn :: AgParser VisitAttr
 pChn = VisitAttr_Chn <$ pKey "chn" <*> pVarIdent <* pKey "::" <*> (pTextln <?> "type") <* pEnd <?> "visit-local attr"
 
 pClause :: AgParser Clause
-pClause = Clause_Clause <$> pKeyPos "clause" <*> pVarIdent <*> pList_gr pStmt <*> pSemVisit <?> "clause"
+pClause = Clause_Clause <$> pKeyPos "clause" <*> pVarIdent <*> pList_gr pStmt <*> pSemVisit <* pEnd <?> "clause"
 
 pStmt :: AgParser Stmt
 pStmt
