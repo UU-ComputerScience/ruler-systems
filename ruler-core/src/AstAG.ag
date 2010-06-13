@@ -52,8 +52,8 @@ DATA Item
       txt      : String
   | Attr
       pos      : Pos
+      child    : Ident
       name     : Ident
-      field    : Ident
   | Sem
       pos      : Pos
       name     : Ident
@@ -70,7 +70,7 @@ DATA SemVisit
       name     : Ident
       attrs    : VisitAttrs
       stmts    : Stmts
-      clauses  : Clauses
+      clauses  : ClausesTop
   | End
 
 TYPE VisitAttrs = [VisitAttr]
@@ -79,6 +79,10 @@ DATA VisitAttr
   | Chn
       name  : Ident
       type  : String
+
+DATA ClausesTop
+  | Top
+      clauses : Clauses
 
 TYPE Clauses = [Clause]
 
@@ -133,3 +137,17 @@ DATA Pat
       hd     : Pat
       tl     : Pat
   | Underscore
+
+DATA AttrTypePat
+  | VisLocal
+  | ProdLocal
+  | Lhs
+  | Child
+  | Visit
+
+DATA AttrTypeCode
+  | VisLocal
+  | ProdLocal
+  | Lhs
+  | Child
+  | Visit

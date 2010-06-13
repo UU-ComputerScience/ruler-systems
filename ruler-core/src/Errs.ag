@@ -38,26 +38,39 @@ debugMsg = Seq.singleton . Err_General noPos
 
 DATA Err
   | General
-      pos : Pos
-      str : String
+      pos     : Pos
+      str     : String
   | Missing
-      ks : {[Ident]}
+      ks      : {[Ident]}
   | Dup
-      ks : {[Ident]}
+      ks      : {[Ident]}
   | ExpVisit
-      found  : {Ident}
-      expect : {Ident}
+      found   : Ident
+      expect  : Ident
   | VisitsNotImpl
       nonterm : {[Ident]}
-      vs : {[Ident]}
+      vs      : {[Ident]}
   | UndefVisit
-      child : {Ident}
-      visit : {Ident}
-      visits : {[Ident]}
+      child   : Ident
+      visit   : Ident
+      visits  : {[Ident]}
   | UndetachVisit
-      child : {Ident}
-      visit : {Ident}
-      expect : {Ident}
+      child   : Ident
+      visit   : Ident
+      expect  : Ident
+  | UndeclAttr
+      child   : Ident
+      name    : Ident
+  | NameClash
+      name    : Ident
+  | MissingAttr
+      inherited : Bool
+      child     : Ident
+      name      : Ident
+  | DupAttr
+      inherited : Bool
+      child     : Ident
+      name      : Ident
 
 ATTR Err [ opts : Opts | | pp : {PP_Doc} ]
 
@@ -69,6 +82,10 @@ SEM Err
   | VisitsNotImpl  lhs.pp = locLine @loc.pos ("missing visit" >#< show @loc.main >#< "for" >#< show (head @nonterm))
   | UndefVisit     lhs.pp = locLine @loc.pos ("undefined visit" >#< show @visit >#< "of child" >#< show @child)
   | UndetachVisit  lhs.pp = locLine @loc.pos ("undetachable visit" >#< show @visit >#< "of child" >#< show @child >|< ": expecting visit" >#< show @expect)
+  | UndeclAttr     lhs.pp = locLine @loc.pos ("undeclared attr" >#< show @child >|< "." >|< show @name)
+  | NameClash      lhs.pp = locLine @loc.pos ("name clash" >#< show @name)
+  | MissingAttr    lhs.pp = locLine @loc.pos ("undefined" >#< @loc.type >#< "attr" >#< show @child >|< "." >|< show @name)
+  | DupAttr        lhs.pp = locLine @loc.pos ("duplicate" >#< @loc.type >#< "attr" >#< show @child >|< "." >|< show @name)
 
 SEM Err
   | Missing Dup
@@ -85,6 +102,16 @@ SEM Err
       loc.pos    = identPos @visit
   | UndetachVisit
       loc.pos    = identPos @visit
+  | UndeclAttr
+      loc.pos    = identPos @name
+  | NameClash
+      loc.pos    = identPos @name
+  | MissingAttr
+      loc.pos    = identPos @name
+      loc.type   = if @inherited then text "inh" else text "syn"
+  | DupAttr
+      loc.pos    = identPos @name
+      loc.type   = if @inherited then text "inh" else text "syn"
 
 {
 locLine :: PP a => Pos -> a -> PP_Doc

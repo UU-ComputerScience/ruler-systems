@@ -59,7 +59,7 @@ SEM Code
 
 SEM Item
   | Plain        lhs.pp = text (modifySpacing @loc.diff @txt)
-  | Attr         lhs.pp = addSpaces @loc.diff (@name >|< "." >|< @field)
+  | Attr         lhs.pp = addSpaces @loc.diff (@child >|< "." >|< @name)
   | Sem          lhs.pp = addSpaces @loc.diff ("sem" >#< @name >#< ":" >#< @tp
                                               >-< indent 2 @first.pp)
   | Detach       lhs.pp = addSpaces @loc.diff ("detach" >#< @name >#< "of" >#< @visit)
@@ -154,7 +154,7 @@ addParens myPrio lhsPrio isRight doc
   | otherwise                                          = pp_parens doc
 }
 
-ATTR Blocks ItfVisits Attrs Items VisitAttrs Clauses Stmts Pats
+ATTR Blocks ItfVisits Attrs Items VisitAttrs ClausesTop Clauses Stmts Pats
   [ | | pps : {[PP_Doc]} ]
 
 SEM Blocks

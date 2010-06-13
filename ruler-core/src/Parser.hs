@@ -91,7 +91,7 @@ pSemVisit :: AgParser SemVisit
 pSemVisit
   = opt ( SemVisit_Visit <$> pKeyPos "visit" <*> pIdentVisit
                          <*> pList_gr pChn <*> pList_gr pStmt
-                         <*> pList_gr pClause
+                         <*> (ClausesTop_Top <$> pList_gr pClause)
                          <* pEnd
                          <?> "visit"
         ) SemVisit_End
@@ -130,6 +130,7 @@ pPatBase
   <|> Pat_Tup <$> pParens_pCommas pPat
   <|> Pat_List <$> pBracks_pCommas pPat
   <?> "simple pattern"
+
 
 --
 -- Run parser
