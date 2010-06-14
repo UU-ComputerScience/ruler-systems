@@ -12,6 +12,7 @@ data Opts
          , verbose :: !Bool
          , tokens :: !Bool
          , pretty :: !Bool
+         , genHaskell :: !Bool
          }
 
 opts :: [OptDescr (Opts -> IO Opts)]
@@ -19,14 +20,11 @@ opts = [ Option "o" ["output"] (ReqArg oOutput "path") "output .hs file"
        , Option "v" ["verbose"] (NoArg oVerbose) "verbose output"
        , Option ""  ["pretty"] (NoArg oPretty) "pp AST to STDOUT"
        , Option ""  ["tokens"] (NoArg oTokens) "print tokens to STDOUT"
+       , Option ""  ["haskell"] (NoArg oHaskell) "generate Haskell code (default)"
        ]
 
 oOutput :: FilePath -> Opts -> IO Opts
-oOutput s o = do b <- doesFileExist s
-                 if b
-                  then return (o { outputFile = Just s })
-                  else do hPutStrLn stderr ("error: file " ++ s ++ " not found.")
-                          return o
+oOutput s o = return (o { outputFile = Just s })
 
 oVerbose :: Opts -> IO Opts
 oVerbose o = return (o { verbose = True })
@@ -37,8 +35,11 @@ oPretty o = return (o { pretty = True })
 oTokens :: Opts -> IO Opts
 oTokens o = return (o { tokens = True })
 
+oHaskell :: Opts -> IO Opts
+oHaskell o = return (o { genHaskell = True })
+
 defaultOpts :: Opts
-defaultOpts = Opts { sourceFile = "", outputFile = Nothing, verbose = False, pretty = False, tokens = False }
+defaultOpts = Opts { sourceFile = "", outputFile = Nothing, verbose = False, pretty = False, tokens = False, genHaskell = True }
 
 commandlineArgs :: IO Opts
 commandlineArgs

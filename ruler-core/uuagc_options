@@ -1,9 +1,6 @@
 file: "src/Ast.ag"
 options: data, rename
 
-file: "src/PrettyAst.ag"
-options: catas, rename, semfuns, signatures, optimize
-
 file: "src/Transform.ag"
 options: catas, rename, semfuns, signatures
 
