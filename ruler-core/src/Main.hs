@@ -4,11 +4,11 @@ import Scanner
 import Parser
 import Opts
 import Common
-import PrettyAst
 import Transform
 import Errs
 import Control.Monad
 import System.IO
+import System
 
 main :: IO ()
 main = do opts  <- commandlineArgs
@@ -17,14 +17,15 @@ main = do opts  <- commandlineArgs
             do str <- readFile path
                let tks  = tokenize path str
                    pres = parseProgram opts (Pos 1 1 path) tks
-               when (tokens opts) $
-                 putStrLn (show $ ppTokens tks)
+               when (tokens opts) (putStrLn (show $ ppTokens tks))
                case pres of
-                 Left err  -> putStrLn err
-                 Right ast -> do when (pretty opts) $
-                                   putStrLn (progToStr ast)
-                                 case outputFile opts of
-                                   Nothing   -> return ()
-                                   Just file -> let errs = transform ast
-                                                in hPutStrLn stderr (errsToStr opts errs)
-                                                   -- writeFile (outputFile opts) (transform ast)
+                 Left err  -> do hPutStrLn stderr err
+                                 exitFailure
+                 Right ast -> let (errs, txtId, txtTarget) = transform opts ast
+                              in do when (pretty opts) (putStrLn txtId)
+                                    if nullErrs errs
+                                      then case outputFile opts of
+                                             Just name -> writeFile name txtTarget
+                                             Nothing   -> return ()
+                                      else do hPutStrLn stderr (errsToStr opts errs)
+                                              exitFailure

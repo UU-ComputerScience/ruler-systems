@@ -1,4 +1,4 @@
-MODULE {Errs} {errsToStr, prettyErrs, Errs, Err(..), debugMsg} {}
+MODULE {Errs} {errsToStr, prettyErrs, Errs, Err(..), debugMsg, nullErrs} {}
 
 PRAGMA genlinepragmas
 
@@ -34,6 +34,9 @@ errsToStr opts es = disp (prettyErrs opts es) 999999 ""
 
 debugMsg :: String -> Errs
 debugMsg = Seq.singleton . Err_General noPos
+
+nullErrs :: Errs -> Bool
+nullErrs = Seq.null
 }
 
 DATA Err

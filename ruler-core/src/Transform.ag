@@ -18,24 +18,47 @@ import qualified Data.Set as Set
 import Env
 import Data.Monoid
 import Data.List(nub, isPrefixOf, intersect)
+import UU.Pretty
+import Opts
 }
+
 
 WRAPPER Program
 
 {
-transform :: Program -> Errs
-transform prog
-  = errs
+transform :: Opts -> Program -> (Errs, String, String)
+transform opts prog
+  = (errs, txtPretty, txtTarget)
   where
-    inh  = Inh_Program {}
+    inh  = Inh_Program { opts_Inh_Program = opts }
     syn  = wrap_Program sem inh
     sem  = sem_Program prog
     errs = firstErrs [errs1_Syn_Program syn, errs2_Syn_Program syn, errs3_Syn_Program syn]
+    
+    resPretty = pretty_Syn_Program syn
+    txtPretty = disp resPretty 999999 ""
+    resTarget = pp_Syn_Program syn
+    txtTarget = disp resTarget 999999 ""
 
 firstErrs :: [Errs] -> Errs
 firstErrs [] = Seq.empty
 firstErrs (x:xs) = if Seq.null x then firstErrs xs else x
 }
+
+
+--
+-- Transformations for various backends
+--
+
+ATTR Program [ | | pp, pretty : {PP_Doc} ]
+SEM Program | Program
+  lhs.pp     = empty   -- add output for additional backends
+  lhs.pretty = @loc.ppId
+
+INCLUDE "TargetHaskell.ag"
+
+
+ATTR Program AllCodeBlocks [ opts : Opts | | ]
 
 
 --
@@ -630,3 +653,205 @@ SEM Stmt | Invoke
   loc.synAttrMap = Map.findWithDefault Map.empty @visit (Map.findWithDefault Map.empty @loc.unqualChildItf @lhs.distVisitSynAttrs)
   code.gathDefs = Map.foldWithKey (\n _ -> snd . find (@name,replPos @pos n,True) Nothing) @lhs.gathDefs @loc.inhAttrMap
   +gathDefs = \e -> Map.foldWithKey (\n t -> extend (@name,replPos @pos n,False) (Just t)) e @loc.synAttrMap
+
+
+--
+-- Some useful properties
+--
+
+ATTR ItfVisits ItfVisit [ | | firstVisit : Ident ]
+SEM ItfVisit | Visit  lhs.firstVisit = @name
+SEM ItfVisits
+  | Cons  lhs.firstVisit = @hd.firstVisit
+  | Nil   lhs.firstVisit = ident "nofirstvisit"
+
+SEM ItfVisit
+  | Visit  loc.itfNm = head @lhs.itf
+
+SEM Attr
+  | Inh Syn  loc.itfNm = head @lhs.itf
+             loc.visNm = head @lhs.visit
+
+ATTR ItfVisit [ mbNextVisit : {Maybe Ident} | | ]
+ATTR ItfVisits [ | | mbNextVisit : {Maybe Ident} ]
+
+SEM ItfVisits
+  | Cons  hd.mbNextVisit  = @tl.mbNextVisit
+          lhs.mbNextVisit = Just @hd.firstVisit
+  | Nil   lhs.mbNextVisit = Nothing
+
+
+--
+-- The identity-transformation: pretty-print of the AST
+--
+
+{
+instance PP Ident where
+  pp = text . identName
+}
+
+ATTR Block Itf ItfVisit Attr BoundCode Code Item SemVisit VisitAttr Clause Stmt Mode Bind Pat
+  [ | | pp : {PP_Doc} ]
+
+SEM Program
+  | Program      loc.ppId = vlist @blocks.pps
+
+SEM Block
+  | Section      lhs.pp = "{" >-< @code.pp >-< "}"
+  | Itf          lhs.pp = @itf.pp
+
+SEM Itf
+  | Itf          lhs.pp = "itf" >#< @name
+                          >-< indent 2 (vlist @visits.pps)
+
+SEM ItfVisit
+  | Visit        lhs.pp = "visit" >#< @name
+                          >-< indent 2 (vlist @attrs.pps)   
+
+SEM Attr
+  | Inh          lhs.pp = "inh" >#< @name >#< "::" >#< @type
+  | Syn          lhs.pp = "syn" >#< @name >#< "::" >#< @type
+
+SEM BoundCode
+  | Code         lhs.pp = @bind.pp >#< @code.pp
+
+SEM Code
+  | Code         lhs.pp = vlist @items.pps
+
+SEM Item
+  | Plain        loc.pp = text (modifySpacing @loc.diff @txt)
+  | Attr         lhs.pp = addSpaces @loc.diff (@child >|< "." >|< @name)
+  | Sem          lhs.pp = addSpaces @loc.diff ("sem" >#< @name >#< ":" >#< @tp
+                                              >-< indent 2 @first.pp)
+  | Detach       lhs.pp = addSpaces @loc.diff ("detach" >#< @name >#< "of" >#< @visit)
+
+ATTR BoundCode Code Items Item SemVisit Stmts ClausesTop Clauses Clause Stmt [ indent : Int | | ]
+
+SEM Block | Section   code.indent = 0
+SEM BoundCode | Code  code.indent = column @pos + @bind.width + 1
+
+SEM Item
+  | *            loc.diff = column @pos - @lhs.indent
+
+{
+modifySpacing :: Int -> String -> String
+modifySpacing n | n <= 0 = drop n
+                | n > 0  = (replicate n ' ' ++)
+
+addSpaces :: Int -> PP_Doc -> PP_Doc
+addSpaces n d = text (replicate n ' ') >|< d
+}
+
+SEM SemVisit
+  | Visit        lhs.pp = "visit" >#< @name
+                          >-< indent 2 (   vlist @attrs.pps
+                                       >-< vlist @stmts.pps
+                                       >-< vlist @clauses.pps
+                                       )
+  | End          lhs.pp = empty
+
+SEM VisitAttr
+  | Chn          lhs.pp = "chn" >#< @name >#< "::" >#< @type
+
+SEM Clause
+  | Clause       lhs.pp = "clause" >#< @name
+                          >-< indent 2 (   vlist @stmts.pps
+                                       >-< @next.pp
+                                       )
+
+SEM Stmt
+  | Eval         lhs.pp = @mode.pp >|< @pat.pp >#< @code.pp
+  | Attach       lhs.pp = "attach" >#< @name >#< "of" >#< @visit >#< ":" >#< @type >#< @code.pp
+  | Invoke       lhs.pp = "invoke" >#< @name >#< "of" >#< @visit >#< @code.pp
+
+SEM Mode
+  | Match        lhs.pp = text "match "
+  | Assert       lhs.pp = empty
+
+SEM Bind
+  | Fun          lhs.pp = text "="
+  | Monadic      lhs.pp = text "<-"
+
+ATTR Bind [ | | width : Int ]
+SEM Bind
+  | Fun          lhs.width = 1
+  | Monadic      lhs.width = 2
+
+SEM Pat
+  | Con          loc.needPar = needParens PrioCon @lhs.prio @lhs.isRight
+  | Cons         loc.needPar = needParens PrioCons @lhs.prio @lhs.isRight
+
+SEM Pat
+  | Con          lhs.pp = addParens @loc.needPar (@name >#< hlist_sp @pats.pps)
+  | Attr         lhs.pp = @child >|< "." >|< @name
+  | Tup          lhs.pp = pp_block "(" ")" "," @pats.pps
+  | List         lhs.pp = pp_block "[" "]" "," @pats.pps
+  | Cons         lhs.pp = addParens @loc.needPar (@hd.pp >#< ":" >#< @tl.pp)
+  | Underscore   lhs.pp = text "_"
+
+ATTR Pat Pats [ prio : Prio | | ]
+ATTR Pat [ isRight : Bool | | ]
+
+SEM Stmt | Eval    pat.prio    = PrioTop
+                   pat.isRight = False
+
+SEM Pat
+  | Con   pats.prio = PrioCon
+  | Tup   pats.prio = PrioTop
+  | List  pats.prio = PrioTop
+  | Cons  hd.prio   = PrioCons
+          tl.prio   = PrioCons
+
+SEM Pats | Cons  hd.isRight = False
+
+SEM Pat
+  | Cons  hd.isRight = False
+          tl.isRight = True
+
+{
+data Prio
+  = PrioTop | PrioCons | PrioCon
+  deriving (Eq, Ord)
+
+needParens :: Prio -> Prio -> Bool -> Bool
+needParens myPrio lhsPrio isRight = myPrio <= lhsPrio && (myPrio /= lhsPrio || isRight)
+
+addParens :: Bool -> PP_Doc -> PP_Doc
+addParens True  = pp_parens
+addParens False = id
+}
+
+ATTR Blocks ItfVisits Attrs Items VisitAttrs ClausesTop Clauses Stmts Pats
+  [ | | pps : {[PP_Doc]} ]
+
+SEM Blocks
+  | Cons  lhs.pps = @hd.pp : @tl.pps
+  | Nil   lhs.pps = []
+
+SEM ItfVisits
+  | Cons  lhs.pps = @hd.pp : @tl.pps
+  | Nil   lhs.pps = []
+
+SEM Attrs
+  | Cons  lhs.pps = @hd.pp : @tl.pps
+  | Nil   lhs.pps = []
+
+SEM Items
+  | Cons  lhs.pps = @hd.pp : @tl.pps
+  | Nil   lhs.pps = []
+
+SEM VisitAttrs
+  | Cons  lhs.pps = @hd.pp : @tl.pps
+  | Nil   lhs.pps = []
+
+SEM Clauses
+  | Cons  lhs.pps = @hd.pp : @tl.pps
+  | Nil   lhs.pps = []
+
+SEM Stmts
+  | Cons  lhs.pps = @hd.pp : @tl.pps
+  | Nil   lhs.pps = []
+
+SEM Pats
+  | Cons  lhs.pps = @hd.pp : @tl.pps
+  | Nil   lhs.pps = []
