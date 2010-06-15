@@ -20,6 +20,7 @@ import Data.Monoid
 import Data.List(nub, isPrefixOf, intersect)
 import UU.Pretty
 import Opts
+import Data.Maybe
 }
 
 
@@ -651,7 +652,7 @@ replPos p i = Ident (identName i) p
 SEM Stmt | Invoke
   loc.inhAttrMap = Map.findWithDefault Map.empty @visit (Map.findWithDefault Map.empty @loc.unqualChildItf @lhs.distVisitInhAttrs)
   loc.synAttrMap = Map.findWithDefault Map.empty @visit (Map.findWithDefault Map.empty @loc.unqualChildItf @lhs.distVisitSynAttrs)
-  code.gathDefs = Map.foldWithKey (\n _ -> snd . find (@name,replPos @pos n,True) Nothing) @lhs.gathDefs @loc.inhAttrMap
+  code.gathDefs  = Map.foldWithKey (\n _ -> snd . find (@name,replPos @pos n,True) Nothing) @lhs.gathDefs @loc.inhAttrMap
   +gathDefs = \e -> Map.foldWithKey (\n t -> extend (@name,replPos @pos n,False) (Just t)) e @loc.synAttrMap
 
 
@@ -680,6 +681,38 @@ SEM ItfVisits
           lhs.mbNextVisit = Just @hd.firstVisit
   | Nil   lhs.mbNextVisit = Nothing
 
+SEM SemVisit | Visit  loc.itfNm = head @lhs.itf
+SEM Clause | Clause   loc.itfNm = head @lhs.itf
+
+ATTR SemVisit [ | | mbNextVisit : {Maybe Ident} ]
+SEM SemVisit
+  | Visit  lhs.mbNextVisit = Just @name
+  | End    lhs.mbNextVisit = Nothing
+
+
+--
+-- Compute the next visit of the children in scope
+--
+
+ATTR SemVisit ClausesTop Clauses Clause Stmts Stmt [ | gathNextVisits : {Map Ident (Maybe Ident)} | ]
+
+SEM Item | Sem  first.gathNextVisits = Map.empty
+
+SEM Stmt
+  | Attach  +gathNextVisits = Map.insert @name (Just @visit)
+  | Invoke  loc.mbNextVisit = visitAfter @visit @loc.childVisits
+            +gathNextVisits = Map.insert @name @loc.mbNextVisit
+
+{
+visitAfter :: Ident -> [Ident] -> Maybe Ident
+visitAfter nm (a : b : nms)
+  | nm == a    = Just b
+  | otherwise  = visitAfter nm (b : nms)
+visitAfter _ _ = Nothing
+}
+
+ATTR ClausesTop Clauses Clause [ myNextVisits : {Map Ident (Maybe Ident)} | | ]
+SEM SemVisit | Visit  loc.myNextVisits = Map.filter isJust @lhs.gathNextVisits
 
 --
 -- The identity-transformation: pretty-print of the AST

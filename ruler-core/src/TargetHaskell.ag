@@ -1,0 +1,208 @@
+-- This file is included by Transform.ag
+-- Based on the AST of AstAG.ag
+-- Generates code for Haskell
+
+SEM Program | Program
+  +pp = if genHaskell @lhs.opts
+        then (@loc.hpp >-<)
+        else id
+
+
+{
+hItfNm nm = "I_" ++ show nm
+hItfVsNm nm vis = "I_" ++ show nm ++ "_" ++ show vis
+hNt x = "_nt_" ++ show x
+hVis x = "_vis_" ++ show x
+hSemNm k v = "_sem_" ++ show k ++ "_" ++ show v
+
+hInp child name
+  | show child == "loc" = show child ++ "L" ++ show name
+  | show child == "lhs" = show child ++ "I" ++ show name
+  | show child == "vis" = show child ++ "I" ++ show name
+  | otherwise           = show child ++ "S" ++ show name
+
+hOutp child name
+  | show child == "loc" = show child ++ "L" ++ show name
+  | show child == "lhs" = show child ++ "S" ++ show name
+  | show child == "vis" = show child ++ "S" ++ show name
+  | otherwise           = show child ++ "I" ++ show name
+
+hInhFldNm nm itf vis = show nm ++ "_Inh_" ++ show itf ++ "_" ++ show vis
+hSynFldNm nm itf vis = show nm ++ "_Syn_" ++ show itf ++ "_" ++ show vis
+
+hInhDt itf vis = "Inh_" ++ show itf ++ "_" ++ show vis
+hSynDt itf vis = "Syn_" ++ show itf ++ "_" ++ show vis
+}
+
+
+SEM Program | Program
+  loc.hpp = vlist @blocks.hpps
+
+ATTR Block Itf ItfVisit BoundCode Code Item SemVisit ClausesTop Clauses Clause Stmt Pat
+  [ | | hpp : {PP_Doc} ]
+
+SEM Block
+  | Section  lhs.hpp = @code.hpp
+  | Itf      lhs.hpp = @itf.hpp
+
+SEM Itf
+  | Itf      lhs.hpp = empty
+  
+             +hpp = ("type" >#< hItfNm @name >#< "=" >#< hItfVsNm @name @visits.firstVisit) >-<
+             +hpp = vlist @visits.hpps >-<
+
+SEM ItfVisit
+  | Visit    lhs.hpp    = empty
+             loc.hConNm = text $ hItfVsNm @loc.itfNm @name
+             loc.hRepFld  = [ hSynFldNm repIdent @loc.itfNm @name >#< "::" >#< @loc.hConNm ]
+             loc.hNextFld = maybe [] (\nm -> [ hSynFldNm nextIdent @loc.itfNm @name 
+                                               >#< "::" >#< hItfVsNm @loc.itfNm nm]) @lhs.mbNextVisit
+             loc.hArrTp  = hInhDt @loc.itfNm @name >#< "-> IO" >#< pp_parens (text $ hSynDt @loc.itfNm @name)
+             +hpp = ("newtype" >#< @loc.hConNm >#< "=" >#< @loc.hConNm >#< pp_parens @loc.hArrTp) >-<
+             +hpp = ("data" >#< hInhDt @loc.itfNm @name >#< "=" >#< hInhDt @loc.itfNm @name
+                            >#< pp_block "{" "}" "," @attrs.hInhDeclPPs) >-<
+             +hpp = ("data" >#< hSynDt @loc.itfNm @name >#< "=" >#< hSynDt @loc.itfNm @name
+                            >#< pp_block "{" "}" "," (@loc.hRepFld ++ @loc.hNextFld ++ @attrs.hSynDeclPPs)
+                            ) >-<
+
+{
+nextIdent :: Ident
+nextIdent = ident "next_"
+
+repIdent :: Ident
+repIdent = ident "rep_"
+}
+
+ATTR Attrs Attr [ | | hInhDeclPPs,hSynDeclPPs USE {++} {[]} : {[PP_Doc]}]
+
+SEM Attr
+  | Inh Syn  loc.hTpPP       = stripSpacing @type
+  | Inh      loc.hFldNm      = hInhFldNm @name @loc.itfNm @loc.visNm
+             lhs.hInhDeclPPs = [@loc.hFldNm >#< "::" >#< @loc.hTpPP ]
+  | Syn      loc.hFldNm      = hSynFldNm @name @loc.itfNm @loc.visNm
+             lhs.hSynDeclPPs = [@loc.hFldNm >#< "::" >#< @loc.hTpPP ]
+
+{
+stripSpacing :: String -> PP_Doc
+stripSpacing = pp_block "(" ")" " " . map text . lines
+}
+
+SEM BoundCode
+  | Code         lhs.hpp = if @bind.isFun
+                           then "return" >#< pp_parens @code.hpp
+                           else @code.hpp
+
+ATTR Bind [ | | isFun : Bool ]
+SEM Bind
+  | Fun       lhs.isFun = True
+  | Monadic   lhs.isFun = False
+
+SEM Code
+  | Code         lhs.hpp = vlist @items.hpps
+
+SEM Item
+  | Plain        loc.hpp = text (modifySpacing @loc.diff @txt)
+  | Attr         lhs.hpp = addSpaces @loc.diff (text $ hInp @child @name)
+  | Sem          lhs.hpp = addSpaces @loc.diff ( "let " >#< hNt @name >#< "=" >#< @first.hpp
+                                                 >-< "in" >#< hNt @name)
+  | Detach       lhs.hpp = addSpaces @loc.diff (text $ hSemNm @name @visit)
+
+SEM SemVisit
+  | Visit        loc.hChildren = hlist_sp [ hSemNm k v | (k, Just v) <- Map.assocs @loc.myNextVisits ]
+                 loc.hChns     = [ text $ hInp visIdent nm | (nm,_) <- Map.assocs @attrs.gathVisitLocalAttrs ]
+                 loc.hChnsOut  = [ text $ hOutp @name nm | (nm,_) <- Map.assocs @attrs.gathVisitLocalAttrs ]
+                 loc.hInhPPs = [ hInhFldNm nm @loc.itfNm @name >#< "=" >#< (hInp lhsIdent nm) | (nm,_) <- Map.assocs @loc.inhAttrMap ]
+                 loc.hMatch = pp_parens (hInhDt @loc.itfNm @name >#< pp_block "{" "}" "," @loc.hInhPPs)
+                 lhs.hpp = pp_parens (
+                             "let" >#< ( hVis @name >#< @loc.hChildren >#< @loc.hChns >#< @loc.hMatch
+                                       >-< indent 2 (
+                                         "=" >#< "do" >#< (
+                                           vlist @stmts.hpps
+                                           >-< @clauses.hpp
+                                         ))
+                                       )
+                             >-< "in" >#< hItfVsNm @loc.itfNm @name >#< hVis @name >#< @loc.hChildren >#< @loc.hChnsOut
+                           )
+  | End          lhs.hpp = pp_parens ("error" >#< show "there is no next visit")
+
+SEM Clauses
+  | Cons         lhs.hpp = pp_parens ("catch" >#< (pp_parens @hd.hpp >-< (pp_parens ("\\_ -> " >#< @tl.hpp))))
+  | Nil          lhs.hpp = pp_parens ("fail" >#< show ("no applicable clause for " ++ show (head @lhs.itf) ++ "." ++ show @lhs.visit))
+
+SEM Clause
+  | Clause       loc.hChildren = hlist_sp [ hSemNm k v | (k, Just v) <- Map.assocs @lhs.myNextVisits ]
+                 loc.hChns     = hlist_sp [ text $ hInp visIdent nm | (nm,_) <- Map.assocs @lhs.directVisitLocalAttrs ]
+                 loc.hNext     = maybe [] (\nm -> [ hSynFldNm nextIdent @loc.itfNm @name >#< "= _visNext" ]) @next.mbNextVisit
+                 lhs.hpp = "do" >#< (
+                             vlist @stmts.hpps
+                             >-< [ hInp visIdent @lhs.visit >#< "=" >#< hOutp visIdent nm
+                                 | (nm,_) <- Map.assocs @lhs.directVisitLocalAttrs ]
+                             >-< "let" >#< (
+                                       "_visRestart =" >#< hItfVsNm @loc.itfNm @lhs.visit
+                                                       >#< hVis @lhs.visit >#< @loc.hChildren >#< @loc.hChns
+                                   >-< "_visNext    =" >#< @next.hpp
+                                 )
+                             >-< "return" >#< pp_parens (
+                                   hSynDt @loc.itfNm @lhs.visit
+                                   >#< pp_block "{" "}" "," ( [hSynFldNm repIdent @loc.itfNm @lhs.visit >#< "= _visRestart" ] ++
+                                                              @loc.hNext ++
+                                                              [ hSynFldNm nm @loc.itfNm @lhs.visit >#< "=" >#< hOutp lhsIdent nm
+                                                              | (nm,_) <- Map.assocs @loc.synAttrMap ] ))
+                           )
+
+SEM Stmt
+  | Eval         lhs.hpp = if @mode.isMatch
+                           then @pat.hpp >#< "<-" >#< @code.hpp
+                           else "__fresh" >#< "<-" >#< @code.hpp
+                                >-< "let" >#< pp_parens @pat.hpp >#< "= __fresh"
+  | Attach       lhs.hpp = hSemNm @name @visit >#< "<-" >#< @code.hpp
+  | Invoke       lhs.hpp   = @loc.hPat >#< "<-" >#< ("let" >#< @loc.hIter >-< "in" >#< @loc.hRhs)
+                 loc.hIter = empty
+                 loc.hRhs  = "__iter" >#< hSemNm @name @visit >#< pp_parens (
+                               hInhDt @loc.unqualChildItf @visit >#< pp_block "{" "}" ","
+                                 [ hInhFldNm nm @loc.unqualChildItf @visit >#< "=" >#< hOutp @name nm
+                                 | (nm,_) <- Map.assocs @loc.inhAttrMap ]
+                             )
+                 loc.hPat  = pp_parens (
+                               hSynDt @loc.unqualChildItf @visit >#< pp_block "{" "}" "," (
+                                 ( maybe [] (\nm -> [ hSynFldNm nextIdent @loc.unqualChildItf @visit >#< "=" >#< hSemNm @name nm ])
+                                   @loc.mbNextVisit) ++
+                                 [ hSynFldNm nm @loc.unqualChildItf @visit >#< "=" >#< hInp @name nm
+                                 | (nm,_) <- Map.assocs @loc.synAttrMap ]
+                             ))
+
+ATTR Mode [ | | isMatch : Bool ]
+SEM Mode
+  | Match   lhs.isMatch = True
+  | Assert  lhs.isMatch = False
+
+SEM Pat
+  | Con          lhs.hpp = addParens @loc.needPar (@name >#< hlist_sp @pats.pps)
+  | Attr         lhs.hpp = text $ hOutp @child @name
+  | Tup          lhs.hpp = pp_block "(" ")" "," @pats.pps
+  | List         lhs.hpp = pp_block "[" "]" "," @pats.pps
+  | Cons         lhs.hpp = addParens @loc.needPar (@hd.pp >#< ":" >#< @tl.pp)
+  | Underscore   lhs.hpp = text "_"
+
+ATTR Blocks ItfVisits Items Stmts Pats
+  [ | | hpps : {[PP_Doc]} ]
+
+SEM Blocks
+  | Cons  lhs.hpps = @hd.hpp : @tl.hpps
+  | Nil   lhs.hpps = []
+
+SEM ItfVisits
+  | Cons  lhs.hpps = @hd.hpp : @tl.hpps
+  | Nil   lhs.hpps = []
+
+SEM Items
+  | Cons  lhs.hpps = @hd.hpp : @tl.hpps
+  | Nil   lhs.hpps = []
+
+SEM Stmts
+  | Cons  lhs.hpps = @hd.hpp : @tl.hpps
+  | Nil   lhs.hpps = []
+
+SEM Pats
+  | Cons  lhs.hpps = @hd.hpp : @tl.hpps
+  | Nil   lhs.hpps = []
