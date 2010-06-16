@@ -136,13 +136,13 @@ addDefUseErrs'' env = addDefErrs'' env . addUseErrs'' env
 type ItfEnv = Env QIdent ()
 }
 
-ATTR Blocks Block Itf [ | gathItfs : ItfEnv | ]
+ATTR Blocks Block Itf ItfVisits ItfVisit [ | gathItfs : ItfEnv | ]
 
 SEM Program
   | Program  blocks.gathItfs = emptyEnv
 
-SEM Itf | Itf  +gathItfs = extend [@name] ()
-
+SEM Itf | Itf         +gathItfs = extend [@name] ()
+SEM ItfVisit | Visit  +gathItfs = extend @loc.coItf ()
 
 ATTR ItfVisits ItfVisit Attrs Attr [ itf : {QIdent} | | ]
 SEM Itf | Itf  visits.itf = [@name]
@@ -156,11 +156,20 @@ ATTR Blocks Block Itf ItfVisits ItfVisit [ | gathVisits : VisitEnv | ]
 SEM Program
   | Program  blocks.gathVisits = emptyEnv
 
-SEM ItfVisit | Visit  +gathVisits = extend (@name : @lhs.itf) ()
+SEM ItfVisit | Visit
+  +gathVisits = extend (@name : @lhs.itf) ()
+  +gathVisits = extend (@name : @loc.coItf) ()
 
 
-ATTR Attrs Attr [ visit : {QIdent} | | ]
-SEM ItfVisit | Visit  attrs.visit = @name : @lhs.itf
+ATTR Attrs Attr [ visit : {QIdent} coItf : {QIdent} | | ]
+SEM ItfVisit | Visit
+  attrs.visit = @name : @lhs.itf
+  loc.coItf = [mkCoIdent (head @lhs.itf) @name]
+
+{
+mkCoIdent :: Ident -> Ident -> Ident
+mkCoIdent itf vis = Ident ("Co_" ++ show itf ++ "_" ++ show vis) (identPos itf)
+}
 
 {
 type AttrEnv = Env QIdent String
@@ -174,7 +183,9 @@ SEM Program
 
 SEM Attr
   | Inh  +gathInhs = extend (@name : @lhs.itf) @type
+         +gathSyns = extend (@name : @lhs.coItf) @type
   | Syn  +gathSyns = extend (@name : @lhs.itf) @type
+         +gathInhs = extend (@name : @lhs.coItf) @type
 
 ATTR VisitAttrs VisitAttr [ | gathChns : AttrEnv | ]
 
@@ -193,14 +204,15 @@ ATTR AllCodeBlocks [ | gathNonterms : NontermEnv gathClauses : ClausesEnv | ]
 ATTR AllCode [ nonterm : {QIdent} | | ]
 
 SEM Block | Section  code.nonterm  = [ident "<root>"]
-SEM Item | Sem       first.nonterm = [@name]
+SEM Item | Sem CoSem
+  first.nonterm = [@name]
 
 SEM Program
   | Program  blocks.gathNonterms = emptyEnv
              blocks.gathClauses  = emptyEnv
 
 SEM Item
-  | Sem     +gathNonterms = extend [@name] ()
+  | Sem CoSem  +gathNonterms = extend [@name] ()
 
 SEM Clause
   | Clause  +gathClauses = extend (@name : @lhs.nonterm) ()
@@ -210,7 +222,7 @@ ATTR AllCodeBlocks [ allVisits : {Set Ident} | | ]
 SEM Program | Program
   blocks.allVisits = Set.empty
 
-SEM Item | Sem
+SEM Item | Sem CoSem
   first.allVisits = Set.union (Set.fromList @loc.nextVisits) @lhs.allVisits
 
 SEM Stmt | Attach
@@ -228,8 +240,8 @@ ATTR AllCodeBlocks [ | distItfs : ItfEnv | ]
 SEM Program
   | Program  blocks.distItfs = @blocks.gathItfs
 
-SEM Item
-  | Sem  +distItfs = snd . find [@tp] ()
+SEM Item | Sem CoSem
+  +distItfs = snd . find [@tp] ()
 
 ATTR AllCode Pats Pat AttrTypePat AttrTypeCode [ itf : QIdent | | ]
 SEM Block
@@ -237,6 +249,8 @@ SEM Block
 
 SEM Item
   | Sem      first.itf = [@tp]
+  | CoSem    first.itf = [@loc.coItf]
+             loc.coItf = mkCoIdent @tp @visit
 
 ATTR AllCodeBlocks [ | distVisits : VisitEnv | ]
 
@@ -264,7 +278,8 @@ SEM Program | Program  blocks.gathChildDefs = emptyEnv
                        blocks.distChildDefs = @blocks.gathChildDefs
 
 SEM Item
-  | Sem  loc.firstVisit = if null @loc.nextVisits then unknIdent else head @loc.nextVisits
+  | Sem CoSem
+         loc.firstVisit = if null @loc.nextVisits then unknIdent else head @loc.nextVisits
          first.gathChildDefs = extend locQIdent (locQIdent, locQIdent)
                                $ extend visQIdent (visQIdent, visQIdent)
                                $ extend lhsQIdent ([@tp], [@loc.firstVisit, @tp])
@@ -316,17 +331,19 @@ visQIdent = [visIdent]
 -- Visit order
 --
 
-ATTR Blocks Block Itf [ | | gathVisitOrder USE {`mappend`} {mempty} : {Map Ident [Ident]} ]
-ATTR ItfVisits ItfVisit [ | | gathVisitOrder USE {++} {[]} : {[Ident]} ]
+ATTR Blocks Block Itf ItfVisits ItfVisit [ | | gathVisitOrder USE {`mappend`} {mempty} : {Map Ident [Ident]} ]
+ATTR ItfVisits ItfVisit [ | | gathVisitsOrder USE {++} {[]} : {[Ident]} ]
 
-SEM Itf | Itf         lhs.gathVisitOrder = Map.singleton @name @visits.gathVisitOrder
-SEM ItfVisit | Visit  lhs.gathVisitOrder = [@name]
+SEM Itf | Itf         +gathVisitOrder = Map.insert @name @visits.gathVisitsOrder
+SEM ItfVisit | Visit  lhs.gathVisitsOrder = [@name]
+                      lhs.gathVisitOrder = Map.singleton (head @loc.coItf) [@name]
 
 ATTR AllCodeBlocks [ distVisitOrder : {Map Ident [Ident]} | | ]
 ATTR SemVisit ClausesTop Clauses Clause [ nextVisits : {[Ident]} | | ]
 
 SEM Program | Program  blocks.distVisitOrder = @blocks.gathVisitOrder
 SEM Item | Sem         loc.nextVisits        = Map.findWithDefault [] @tp @lhs.distVisitOrder
+         | CoSem       loc.nextVisits        = Map.findWithDefault [] @loc.coItf @lhs.distVisitOrder
 
 SEM SemVisit
   | Visit  (loc.sequenceErrs, clauses.nextVisits) = checkVisitSequence @name @lhs.nextVisits
@@ -432,9 +449,9 @@ type AttrMap = Map Ident (Map Ident String)
 type VisitAttrMap = Map Ident AttrMap
 }
 
-ATTR Blocks Block Itf [ | | gathInhAttrs, gathSynAttrs USE {`mappend`} {mempty} : AttrMap ]
-ATTR Blocks Block Itf [ | | gathVisitInhAttrs, gathVisitSynAttrs USE {`mappend`} {mempty} : VisitAttrMap ]
-ATTR ItfVisits ItfVisit [ | | gathVisitInhAttrs, gathVisitSynAttrs USE {`mappend`} {mempty} : AttrMap ]
+ATTR Blocks Block Itf ItfVisits ItfVisit [ | | gathInhAttrs, gathSynAttrs USE {`mappend`} {mempty} : AttrMap ]
+ATTR Blocks Block Itf ItfVisits ItfVisit [ | | gathVisitInhAttrs, gathVisitSynAttrs USE {`mappend`} {mempty} : VisitAttrMap ]
+ATTR ItfVisits ItfVisit [ | | gathVisitsInhAttrs, gathVisitsSynAttrs USE {`mappend`} {mempty} : AttrMap ]
 ATTR Attrs Attr [ | | gathVisitInhAttrs, gathVisitSynAttrs USE {`mappend`} {mempty} : {Map Ident String} ]
 
 SEM Attr
@@ -442,15 +459,19 @@ SEM Attr
   | Syn  lhs.gathVisitSynAttrs = Map.singleton @name @type
 
 SEM ItfVisit
-  | Visit  lhs.gathVisitInhAttrs = Map.singleton @name @attrs.gathVisitInhAttrs
-           lhs.gathVisitSynAttrs = Map.singleton @name @attrs.gathVisitSynAttrs
+  | Visit  lhs.gathVisitsInhAttrs = Map.singleton @name @attrs.gathVisitInhAttrs
+           lhs.gathVisitsSynAttrs = Map.singleton @name @attrs.gathVisitSynAttrs
+           lhs.gathVisitInhAttrs  = Map.singleton (head @loc.coItf) (Map.singleton @name @attrs.gathVisitSynAttrs)
+           lhs.gathVisitSynAttrs  = Map.singleton (head @loc.coItf) (Map.singleton @name @attrs.gathVisitInhAttrs)
+           lhs.gathInhAttrs = Map.singleton (head @loc.coItf) @attrs.gathVisitSynAttrs
+           lhs.gathSynAttrs = Map.singleton (head @loc.coItf) @attrs.gathVisitInhAttrs
 
 SEM Itf
-  | Itf    lhs.gathVisitInhAttrs = Map.singleton @name @visits.gathVisitInhAttrs
-           lhs.gathVisitSynAttrs = Map.singleton @name @visits.gathVisitSynAttrs
+  | Itf    +gathVisitInhAttrs = Map.insert @name @visits.gathVisitsInhAttrs
+           +gathVisitSynAttrs = Map.insert @name @visits.gathVisitsSynAttrs
 
-           lhs.gathInhAttrs = Map.singleton @name $ Map.unions $ Map.elems @visits.gathVisitInhAttrs
-           lhs.gathSynAttrs = Map.singleton @name $ Map.unions $ Map.elems @visits.gathVisitSynAttrs
+           +gathInhAttrs = Map.insert @name $ Map.unions $ Map.elems @visits.gathVisitsInhAttrs
+           +gathSynAttrs = Map.insert @name $ Map.unions $ Map.elems @visits.gathVisitsSynAttrs
 
 ATTR AllCodeBlocks [ distInhAttrs, distSynAttrs : AttrMap distVisitInhAttrs, distVisitSynAttrs : VisitAttrMap | | ]
 
@@ -467,7 +488,7 @@ ATTR AllCodeBlocks [ directVisitAttrs : {Map Ident (Map Ident String)} | | ]
 SEM SemVisit | Visit   +gathVisitAttrs = Map.insert @name @attrs.gathVisitLocalAttrs
 SEM VisitAttr | Chn    lhs.gathVisitLocalAttrs = Map.singleton @name @type
 SEM Program | Program  blocks.directVisitAttrs = Map.empty
-SEM Item | Sem         first.directVisitAttrs = @first.gathVisitAttrs
+SEM Item | Sem CoSem   first.directVisitAttrs = @first.gathVisitAttrs
 
 ATTR AllCodeBlocks [ directVisitLocalAttrs : {Map Ident String} | | ]
 SEM Program | Program  blocks.directVisitLocalAttrs = Map.empty
@@ -571,7 +592,7 @@ SEM Program | Program  blocks.gathDefs         = emptyEnv
                        blocks.gathVisLocalDefs = emptyEnv
 
 -- scoping
-SEM Item | Sem
+SEM Item | Sem CoSem
       first.gathDefs = enter @lhs.gathDefs
       first.gathVisLocalDefs = enter @lhs.gathVisLocalDefs
       (lhs.gathDefs, loc.localDefs) = leave @first.gathDefs
@@ -696,7 +717,8 @@ SEM SemVisit
 
 ATTR SemVisit ClausesTop Clauses Clause Stmts Stmt [ | gathNextVisits : {Map Ident (Maybe Ident)} | ]
 
-SEM Item | Sem  first.gathNextVisits = Map.empty
+SEM Item | Sem CoSem
+  first.gathNextVisits = Map.empty
 
 SEM Stmt
   | Attach  +gathNextVisits = Map.insert @name (Just @visit)
@@ -752,24 +774,40 @@ SEM Code
   | Code         lhs.pp = vlist @items.pps
 
 SEM Item
-  | Plain        loc.pp = text (modifySpacing @loc.diff @txt)
+  | Plain        loc.pp = vlist (modifySpacing @loc.diff @lhs.indent @txt)
   | Attr         lhs.pp = addSpaces @loc.diff (@child >|< "." >|< @name)
   | Sem          lhs.pp = addSpaces @loc.diff ("sem" >#< @name >#< ":" >#< @tp
                                               >-< indent 2 @first.pp)
+  | CoSem        lhs.pp = addSpaces @loc.diff ("cosem" >#< @name >#< ":" >#< @tp >#< @visit
+                                              >-< indent 2 @first.pp)
   | Detach       lhs.pp = addSpaces @loc.diff ("detach" >#< @name >#< "of" >#< @visit)
+  | Brackets     lhs.pp = addSpaces @loc.diff (text "{")
+                          >-< vlist @items.pps
+                          >-< addSpaces @loc.diff2 (text "}")
 
 ATTR BoundCode Code Items Item SemVisit Stmts ClausesTop Clauses Clause Stmt [ indent : Int | | ]
 
-SEM Block | Section   code.indent = 0
-SEM BoundCode | Code  code.indent = column @pos + @bind.width + 1
+SEM Block | Section   code.indent = 1
+SEM BoundCode | Code  code.indent = column @pos + @bind.width
 
 SEM Item
-  | *            loc.diff = column @pos - @lhs.indent
+  | *            loc.diff  = column @pos - @lhs.indent
+  | Brackets     loc.diff2 = column @posEnd - @lhs.indent
 
 {
-modifySpacing :: Int -> String -> String
-modifySpacing n | n <= 0 = drop n
-                | n > 0  = (replicate n ' ' ++)
+modifySpacing :: Int -> Int -> String -> [String]
+modifySpacing n m s
+  = take (length ls) (r : rs)
+  where
+    ls = lines s
+    (f : fs) = ls ++ [""]
+    r  = shift n f
+    rs = map (drop (m-1)) fs
+    
+shift :: Int -> String -> String
+shift n
+  | n <= 0 = drop n
+  | n > 0  = (replicate n ' ' ++)
 
 addSpaces :: Int -> PP_Doc -> PP_Doc
 addSpaces n d = text (replicate n ' ') >|< d

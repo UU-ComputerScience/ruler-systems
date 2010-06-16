@@ -80,8 +80,16 @@ pItem
                <* pKey ":"
                <*> pIdentItf
                <*> pSemVisit
-               <* pEnd <?> "nested sem")
+               <* pEnd <?> "sem")
+  <|> (Item_CoSem <$> pKeyPos "cosem"
+                  <*> pIdentSem
+                  <* pKey ":"
+                  <*> pIdentItf
+                  <*> pIdentVisit
+                  <*> pSemVisit
+                  <* pEnd <?> "cosem")
   <|> (Item_Detach <$> pKeyPos "detach" <*> pIdentVisit <* pKey "of" <*> pIdentChild <* pEnd <?> "detach item")
+  <|> (Item_Brackets <$> pKeyPos "{" <*> pList_gr pItem <*> pKeyPos"}" <?> "brackets")
   <?> "code item"
   where
     mkAttr s p = let (i,t) = break (== '.') s

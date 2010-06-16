@@ -1,4 +1,5 @@
 {
+{-# LANGUAGE BangPatterns, NoMonomorphismRestriction #-}
 module Sum where
 }
 
@@ -16,6 +17,7 @@ sum' = sem sum : S
              visit v2
                clause sumNil2
                  lhs.s = 0
+
            clause sumCons
              match (loc.x : loc.xs) = lhs.l
              attach v1 of tl : S = sum'
@@ -27,18 +29,21 @@ sum' = sem sum : S
                  lhs.s = loc.x + tl.s
 }
 
-itf CoSv1
-  visit v1
-    syn l :: [Int]
+{
+noIter1 = cosem noIter1 : S v1
+            visit v1
 
-itf CoSv2
-  visit v2
-    inh s :: Int
+noIter2 = cosem noIter2 : S v2
+            visit v2
+}
 
 {
-noIter1 = sem noIter1 : CoSv1
-            visit v1  -- empty clauses
-
-noIter2 = sem noIter2 : CoSv2
-            visit v2  -- empty clauses
+test :: [Int] -> IO ()
+test xs = do
+  let inh1 = Inh_S_v1 { l_Inh_S_v1 = xs }
+  syn1 <- invoke_S_v1 sum' inh1
+  let inh2 = Inh_S_v2 {}
+  syn2 <- invoke_S_v2 (next_S_v1 syn1) inh2
+  let s = s_Syn_S_v2 syn2
+  putStrLn ("sum: " ++ show s ++ " of: " ++ show xs)
 }
