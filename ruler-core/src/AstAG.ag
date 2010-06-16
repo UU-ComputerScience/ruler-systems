@@ -59,10 +59,20 @@ DATA Item
       name     : Ident
       tp       : Ident
       first    : SemVisit
+  | CoSem
+      pos      : Pos
+      name     : Ident
+      tp       : Ident
+      visit    : Ident
+      first    : SemVisit
   | Detach
       pos      : Pos
       visit    : Ident
       name     : Ident
+  | Brackets
+      pos      : Pos
+      items    : Items
+      posEnd   : Pos
 
 DATA SemVisit
   | Visit

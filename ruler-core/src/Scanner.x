@@ -14,15 +14,15 @@ $identChar   = [a-zA-Z0-9\'_]
 @lcIdent     = [a-z] $identChar*
 
 tokens :-
-  <0,a>   $white+                                     ;                        -- ignore spaces
+  <0,a>   (" " | \n | \r)+                            ;                        -- ignore spaces
   <0,a>   "--" $white .*                              ;                        -- to-end-of-line comment
-  <0,a> "{-" ([^\-] | $white | "-" [^\}])* "-}"       ;                        -- multi-line comment (not nested)
-  <h>   "{-" ([^\-] | $white | "-" [^\}])* "-}"       { valueToken TkTextln }  -- haskell comment token
+  <0,a>  "{-" ([^\-] | $white | "-" [^\}])* "-}"      ;                        -- multi-line comment (not nested)
+  <h>    "{-" ([^\-] | $white | "-" [^\}])* "-}"      { valueToken TkTextln }  -- haskell comment token
 
-  <0>    "{"                                          { reserved }
+  <0,h>  "{"                                          { reserved }
   <h>    "}"                                          { reserved }
 
-  <0>    itf | sem | visit | inh | syn                { reserved }
+  <0>    itf | visit | inh | syn                      { reserved }
 
   <a>    clause | visit | chn                         { reserved }
   <a>    match | invoke | attach | detach | of        { reserved }
@@ -30,7 +30,7 @@ tokens :-
   <0,a>  "::" | ":"                                   { reserved }
 
   <a>    "=" | "<-" | "(" | ")" | "[" | "]" | "."     { reserved }
-  <h>    sem                                          { reserved }
+  <h>    cosem | sem                                  { reserved }
 
   <0,a>  @lcIdent                                     { valueToken TkVarid  }
   <0,a>  @ucIdent                                     { valueToken TkConid  }
@@ -80,9 +80,11 @@ scanTks st inp@(pos,str)
 push :: Int -> Token -> CtxStack -> CtxStack
 push sc (Reserved k pos)
   | sc == 0 && k == "{"          = ((noPos, h) :)
+  | sc == h && k == "{"          = ((noPos, h) :)
   | sc == h && k == "}"          = tail
   | sc == 0 && k == "itf"        = ((pos, 0) :)
   | sc /= a && k == "sem"        = ((pos, a) :)
+  | sc /= a && k == "cosem"      = ((pos, a) :)
   | sc /= a && k == "detach"     = ((pos, a) :)
   | sc == a && k == "="          = ((pos, h) :)
   | sc == a && k == "<-"         = ((pos, h) :)

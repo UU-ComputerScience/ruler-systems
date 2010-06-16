@@ -10,7 +10,9 @@ SEM Program | Program
 
 {
 hItfNm nm = "I_" ++ show nm
+hCoItfNm nm vis = hItfNm (mkCoIdent nm vis)
 hItfVsNm nm vis = "I_" ++ show nm ++ "_" ++ show vis
+hCoItfVsNm nm vis = hItfVsNm (mkCoIdent nm vis) vis
 hNt x = "_nt_" ++ show x
 hVis x = "_vis_" ++ show x
 hSemNm k v = "_sem_" ++ show k ++ "_" ++ show v
@@ -29,9 +31,18 @@ hOutp child name
 
 hInhFldNm nm itf vis = show nm ++ "_Inh_" ++ show itf ++ "_" ++ show vis
 hSynFldNm nm itf vis = show nm ++ "_Syn_" ++ show itf ++ "_" ++ show vis
+hCoInhFldNm nm itf vis = hInhFldNm nm (mkCoIdent itf vis) vis
+hCoSynFldNm nm itf vis = hSynFldNm nm (mkCoIdent itf vis) vis
 
 hInhDt itf vis = "Inh_" ++ show itf ++ "_" ++ show vis
 hSynDt itf vis = "Syn_" ++ show itf ++ "_" ++ show vis
+hCoInhDt itf vis = hInhDt (mkCoIdent itf vis) vis
+hCoSynDt itf vis = hSynDt (mkCoIdent itf vis) vis
+
+hInvNm itf nm = "invoke_" ++ show itf ++ "_" ++ show nm
+hCoInvNm itf nm = "coinvoke_" ++ show itf ++ "_" ++ show nm
+hNextNm itf nm = "next_" ++ show itf ++ "_" ++ show nm
+hCurrentNm itf nm = "current_" ++ show itf ++ "_" ++ show nm
 }
 
 
@@ -48,22 +59,45 @@ SEM Block
 SEM Itf
   | Itf      lhs.hpp = empty
   
-             +hpp = ("type" >#< hItfNm @name >#< "=" >#< hItfVsNm @name @visits.firstVisit) >-<
+             +hpp = ("type" >#< hItfNm @name >#< "m" >#< "=" >#< hItfVsNm @name @visits.firstVisit >#< "m") >-<
+             +hpp = ("type" >#< hCoItfNm @name @visits.firstVisit >#< "m" >#< "=" >#< hCoItfVsNm @name @visits.firstVisit >#< "m") >-<
              +hpp = vlist @visits.hpps >-<
 
 SEM ItfVisit
-  | Visit    lhs.hpp    = empty
-             loc.hConNm = text $ hItfVsNm @loc.itfNm @name
-             loc.hRepFld  = [ hSynFldNm repIdent @loc.itfNm @name >#< "::" >#< @loc.hConNm ]
+  | Visit    lhs.hpp      = empty
+             loc.hConNm   = text $ hItfVsNm @loc.itfNm @name
+             loc.hCoConNm = text $ hCoItfVsNm @loc.itfNm @name
+             loc.hRepFld  = [ hSynFldNm repIdent @loc.itfNm @name >#< "::" >#< "!" >|< pp_parens (@loc.hConNm >#< "m") ]
              loc.hNextFld = maybe [] (\nm -> [ hSynFldNm nextIdent @loc.itfNm @name 
-                                               >#< "::" >#< hItfVsNm @loc.itfNm nm]) @lhs.mbNextVisit
-             loc.hArrTp  = hInhDt @loc.itfNm @name >#< "-> IO" >#< pp_parens (text $ hSynDt @loc.itfNm @name)
-             +hpp = ("newtype" >#< @loc.hConNm >#< "=" >#< @loc.hConNm >#< pp_parens @loc.hArrTp) >-<
-             +hpp = ("data" >#< hInhDt @loc.itfNm @name >#< "=" >#< hInhDt @loc.itfNm @name
+                                               >#< "::" >#< "!" >|< pp_parens (hItfVsNm @loc.itfNm nm >#< "m")]) @lhs.mbNextVisit
+             loc.hArrTp   = hInhDt @loc.itfNm @name >#< "m" >#< "->" >#< "m" >#< pp_parens (hSynDt @loc.itfNm @name >#< "m")
+             loc.hCoArrTp = hCoInhDt @loc.itfNm @name >#< "m" >#< "->" >#< "m" >#< pp_parens (hCoSynDt @loc.itfNm @name >#< "m")
+             +hpp = ("newtype" >#< @loc.hConNm >#< "m" >#< "=" >#< @loc.hConNm >#< pp_parens @loc.hArrTp) >-<
+             +hpp = ("newtype" >#< @loc.hCoConNm >#< "m" >#< "=" >#< @loc.hCoConNm >#< pp_parens @loc.hCoArrTp) >-<
+             +hpp = ("data" >#< hInhDt @loc.itfNm @name >#< "m" >#< "=" >#< hInhDt @loc.itfNm @name
                             >#< pp_block "{" "}" "," @attrs.hInhDeclPPs) >-<
-             +hpp = ("data" >#< hSynDt @loc.itfNm @name >#< "=" >#< hSynDt @loc.itfNm @name
+             +hpp = ("data" >#< hSynDt @loc.itfNm @name >#< "m" >#< "=" >#< hSynDt @loc.itfNm @name
                             >#< pp_block "{" "}" "," (@loc.hRepFld ++ @loc.hNextFld ++ @attrs.hSynDeclPPs)
                             ) >-<
+             +hpp = ("data" >#< hCoInhDt @loc.itfNm @name >#< "m" >#< "=" >#< hCoInhDt @loc.itfNm @name
+                             >#< pp_block "{" "}" "," @attrs.hCoInhDeclPPs) >-<
+             +hpp = ("data" >#< hCoSynDt @loc.itfNm @name >#< "m" >#< "=" >#< hCoSynDt @loc.itfNm @name
+                             >#< pp_block "{" "}" "," (
+                                  (hCoSynFldNm repIdent @loc.itfNm @name >#< "::" >#< "!" >|< pp_parens (@loc.hCoConNm >#< "m"))
+                                  : @attrs.hCoSynDeclPPs)
+                             ) >-<
+             
+             +hpp = (hInvNm @loc.itfNm @name >#< "!" >|< pp_parens (@loc.hConNm >#< "__f") >#< "=" >#< "__f") >-<
+             +hpp = (hCoInvNm @loc.itfNm @name >#< "!" >|< pp_parens (@loc.hCoConNm >#< "__f") >#< "=" >#< "__f") >-<
+             +hpp = case @lhs.mbNextVisit of
+                       Nothing -> id
+                       Just v  -> ((hNextNm @loc.itfNm @name >#< "!" >|< pp_parens (
+                                    hSynDt @loc.itfNm @name >#< pp_braces (
+                                      hSynFldNm nextIdent @loc.itfNm @name >#< "=" >#< "__f")
+                                  ) >#< "=" >#< "__f" >#< "--" >#< v) >-<)
+             +hpp = ((hCurrentNm @loc.itfNm @name >#< "!" >|< pp_parens (
+                      hSynDt @loc.itfNm @name >#< pp_braces (hSynFldNm repIdent @loc.itfNm @name >#< "=" >#< "__f")
+                    ) >#< "=" >#< "__f") >-<)
 
 {
 nextIdent :: Ident
@@ -73,14 +107,19 @@ repIdent :: Ident
 repIdent = ident "rep_"
 }
 
-ATTR Attrs Attr [ | | hInhDeclPPs,hSynDeclPPs USE {++} {[]} : {[PP_Doc]}]
+ATTR Attrs Attr [ | | hInhDeclPPs,hSynDeclPPs,hCoInhDeclPPs,hCoSynDeclPPs USE {++} {[]} : {[PP_Doc]}]
 
 SEM Attr
-  | Inh Syn  loc.hTpPP       = stripSpacing @type
-  | Inh      loc.hFldNm      = hInhFldNm @name @loc.itfNm @loc.visNm
-             lhs.hInhDeclPPs = [@loc.hFldNm >#< "::" >#< @loc.hTpPP ]
-  | Syn      loc.hFldNm      = hSynFldNm @name @loc.itfNm @loc.visNm
-             lhs.hSynDeclPPs = [@loc.hFldNm >#< "::" >#< @loc.hTpPP ]
+  | Inh Syn  loc.hTpPP         = stripSpacing @type
+  | Inh      loc.hFldNm        = hInhFldNm @name @loc.itfNm @loc.visNm
+             lhs.hInhDeclPPs   = [@loc.hFldNm >#< "::" >#< "!" >|< pp_parens @loc.hTpPP]
+  | Syn      loc.hFldNm        = hSynFldNm @name @loc.itfNm @loc.visNm
+             lhs.hSynDeclPPs   = [@loc.hFldNm >#< "::" >#< "!" >|< pp_parens @loc.hTpPP]
+
+  | Inh      loc.hCoFldNm      = hCoSynFldNm @name @loc.itfNm @loc.visNm
+             lhs.hCoSynDeclPPs = [@loc.hCoFldNm >#< "::" >#< "!" >|< pp_parens @loc.hTpPP]
+  | Syn      loc.hCoFldNm      = hCoInhFldNm @name @loc.itfNm @loc.visNm
+             lhs.hCoInhDeclPPs = [@loc.hCoFldNm >#< "::" >#< "!" >|< pp_parens @loc.hTpPP]
 
 {
 stripSpacing :: String -> PP_Doc
@@ -89,7 +128,9 @@ stripSpacing = pp_block "(" ")" " " . map text . lines
 
 SEM BoundCode
   | Code         lhs.hpp = if @bind.isFun
-                           then "return" >#< pp_parens @code.hpp
+                           then "return" >#< "("
+                                >-< @code.hpp
+                                >-< ")"
                            else @code.hpp
 
 ATTR Bind [ | | isFun : Bool ]
@@ -101,18 +142,23 @@ SEM Code
   | Code         lhs.hpp = vlist @items.hpps
 
 SEM Item
-  | Plain        loc.hpp = text (modifySpacing @loc.diff @txt)
+  | Plain        lhs.hpp = vlist $ modifySpacing @loc.diff @lhs.indent @txt
   | Attr         lhs.hpp = addSpaces @loc.diff (text $ hInp @child @name)
-  | Sem          lhs.hpp = addSpaces @loc.diff ( "let " >#< hNt @name >#< "=" >#< @first.hpp
-                                                 >-< "in" >#< hNt @name)
+  | Sem CoSem    lhs.hpp = addSpaces @loc.diff ( pp_parens (
+                             "let" >#< hNt @name >#< "="
+                             >-< indent 5 @first.hpp
+                             >-< "in" >#< hNt @name ))
   | Detach       lhs.hpp = addSpaces @loc.diff (text $ hSemNm @name @visit)
+  | Brackets     lhs.hpp = addSpaces @loc.diff (text "{")
+                           >-< vlist @items.hpps
+                           >-< addSpaces @loc.diff2 (text "}")
 
 SEM SemVisit
   | Visit        loc.hChildren = hlist_sp [ hSemNm k v | (k, Just v) <- Map.assocs @loc.myNextVisits ]
                  loc.hChns     = [ text $ hInp visIdent nm | (nm,_) <- Map.assocs @attrs.gathVisitLocalAttrs ]
                  loc.hChnsOut  = [ text $ hOutp @name nm | (nm,_) <- Map.assocs @attrs.gathVisitLocalAttrs ]
-                 loc.hInhPPs = [ hInhFldNm nm @loc.itfNm @name >#< "=" >#< (hInp lhsIdent nm) | (nm,_) <- Map.assocs @loc.inhAttrMap ]
-                 loc.hMatch = pp_parens (hInhDt @loc.itfNm @name >#< pp_block "{" "}" "," @loc.hInhPPs)
+                 loc.hInhPPs   = [ hInhFldNm nm @loc.itfNm @name >#< "=" >#< (hInp lhsIdent nm) | (nm,_) <- Map.assocs @loc.inhAttrMap ]
+                 loc.hMatch    = pp_parens (hInhDt @loc.itfNm @name >#< pp_block "{" "}" "," @loc.hInhPPs)
                  lhs.hpp = pp_parens (
                              "let" >#< ( hVis @name >#< @loc.hChildren >#< @loc.hChns >#< @loc.hMatch
                                        >-< indent 2 (
@@ -121,7 +167,8 @@ SEM SemVisit
                                            >-< @clauses.hpp
                                          ))
                                        )
-                             >-< "in" >#< hItfVsNm @loc.itfNm @name >#< hVis @name >#< @loc.hChildren >#< @loc.hChnsOut
+                             >-< "in" >#< hItfVsNm @loc.itfNm @name >#<
+                                   pp_parens (hVis @name >#< @loc.hChildren >#< @loc.hChnsOut)
                            )
   | End          lhs.hpp = pp_parens ("error" >#< show "there is no next visit")
 
@@ -132,15 +179,17 @@ SEM Clauses
 SEM Clause
   | Clause       loc.hChildren = hlist_sp [ hSemNm k v | (k, Just v) <- Map.assocs @lhs.myNextVisits ]
                  loc.hChns     = hlist_sp [ text $ hInp visIdent nm | (nm,_) <- Map.assocs @lhs.directVisitLocalAttrs ]
-                 loc.hNext     = maybe [] (\nm -> [ hSynFldNm nextIdent @loc.itfNm @name >#< "= _visNext" ]) @next.mbNextVisit
+                 loc.hNext     = maybe [] (\nm -> [ hSynFldNm nextIdent @loc.itfNm @lhs.visit >#< "= _visNext" ]) @next.mbNextVisit
                  lhs.hpp = "do" >#< (
                              vlist @stmts.hpps
                              >-< [ hInp visIdent @lhs.visit >#< "=" >#< hOutp visIdent nm
                                  | (nm,_) <- Map.assocs @lhs.directVisitLocalAttrs ]
-                             >-< "let" >#< (
+                             >-< "let" >#< ( "!" >|< 
                                        "_visRestart =" >#< hItfVsNm @loc.itfNm @lhs.visit
-                                                       >#< hVis @lhs.visit >#< @loc.hChildren >#< @loc.hChns
-                                   >-< "_visNext    =" >#< @next.hpp
+                                                       >#< pp_parens (hVis @lhs.visit >#< @loc.hChildren >#< @loc.hChns)
+                                   >-< case @next.mbNextVisit of
+                                         Nothing -> empty
+                                         Just _  -> "!" >|< "_visNext" >#< "=" >#< @next.hpp
                                  )
                              >-< "return" >#< pp_parens (
                                    hSynDt @loc.itfNm @lhs.visit
@@ -152,17 +201,37 @@ SEM Clause
 
 SEM Stmt
   | Eval         lhs.hpp = if @mode.isMatch
-                           then @pat.hpp >#< "<-" >#< @code.hpp
-                           else "__fresh" >#< "<-" >#< @code.hpp
+                           then ppBind @pat.hpp @code.hpp
+                           else ppBind ("!" >|< "__fresh") @code.hpp
                                 >-< "let" >#< pp_parens @pat.hpp >#< "= __fresh"
-  | Attach       lhs.hpp = hSemNm @name @visit >#< "<-" >#< @code.hpp
-  | Invoke       lhs.hpp   = @loc.hPat >#< "<-" >#< ("let" >#< @loc.hIter >-< "in" >#< @loc.hRhs)
-                 loc.hIter = empty
-                 loc.hRhs  = "__iter" >#< hSemNm @name @visit >#< pp_parens (
-                               hInhDt @loc.unqualChildItf @visit >#< pp_block "{" "}" ","
-                                 [ hInhFldNm nm @loc.unqualChildItf @visit >#< "=" >#< hOutp @name nm
-                                 | (nm,_) <- Map.assocs @loc.inhAttrMap ]
-                             )
+  | Attach       lhs.hpp = ppBind (hSemNm @name @visit) @code.hpp
+  | Invoke       lhs.hpp   = ppBind @loc.hPat ("let" >#< @loc.hIter >-< "in" >#< @loc.hRhs)
+                 loc.hIter = "__iter" >#< pp_parens (hItfVsNm @loc.unqualChildItf @visit >#< "__f")
+                                      >#< @loc.hfInps
+                             >-< indent 2 ( "=" >#< "do" >#< (
+                                   "!" >|< ppBind (hCoItfVsNm @loc.unqualChildItf @visit >#< "!" >|< "__g") @code.hpp
+                                   >-< ppBind ("!" >|< "__res@" >|< @loc.hfOuts) ("__f" >#< @loc.hfInps)
+                                   >-< "catch" >#< (   pp_parens ( "do" >#< (
+                                                         "!" >|< ppBind @loc.hgOuts ("__g" >#< @loc.hgInps)
+                                                         >-< "__iter" >#< "__f" >#< @loc.hfInps
+                                                       ))
+                                                   >-< pp_parens (text "const (return __res)")
+                                                   )
+                                 ))
+                 loc.hfInps = pp_parens (hInhDt @loc.unqualChildItf @visit >#< pp_block "{" "}" ","
+                                [ hInhFldNm nm @loc.unqualChildItf @visit >#< "=" >#< hOutp @name nm
+                                | (nm,_) <- Map.assocs @loc.inhAttrMap ] )
+                 loc.hfOuts = pp_parens (hSynDt @loc.unqualChildItf @visit >#< pp_block "{" "}" ","
+                                ( (hSynFldNm repIdent @loc.unqualChildItf @visit >#< "=" >#< "__f") :
+                                [ hSynFldNm nm @loc.unqualChildItf @visit >#< "=" >#< hInp @name nm
+                                | (nm,_) <- Map.assocs @loc.synAttrMap ] ))
+                 loc.hgInps = pp_parens (hCoInhDt @loc.unqualChildItf @visit >#< pp_block "{" "}" ","
+                                [ hCoInhFldNm nm @loc.unqualChildItf @visit >#< "=" >#< hInp @name nm
+                                | (nm,_) <- Map.assocs @loc.synAttrMap ] )
+                 loc.hgOuts = pp_parens (hCoSynDt @loc.unqualChildItf @visit >#< pp_block "{" "}" ","
+                                [ hCoSynFldNm nm @loc.unqualChildItf @visit >#< "=" >#< hOutp @name nm
+                                | (nm,_) <- Map.assocs @loc.inhAttrMap ] )
+                 loc.hRhs  = "__iter" >#< hSemNm @name @visit >#< @loc.hfInps
                  loc.hPat  = pp_parens (
                                hSynDt @loc.unqualChildItf @visit >#< pp_block "{" "}" "," (
                                  ( maybe [] (\nm -> [ hSynFldNm nextIdent @loc.unqualChildItf @visit >#< "=" >#< hSemNm @name nm ])
@@ -171,18 +240,23 @@ SEM Stmt
                                  | (nm,_) <- Map.assocs @loc.synAttrMap ]
                              ))
 
+{
+ppBind :: (PP a, PP b) => a -> b -> PP_Doc
+ppBind pat expr = pp_parens (pp pat) >#< "<-" >-< indent 2 (pp_parens (pp expr))
+}
+
 ATTR Mode [ | | isMatch : Bool ]
 SEM Mode
   | Match   lhs.isMatch = True
   | Assert  lhs.isMatch = False
 
 SEM Pat
-  | Con          lhs.hpp = addParens @loc.needPar (@name >#< hlist_sp @pats.pps)
-  | Attr         lhs.hpp = text $ hOutp @child @name
-  | Tup          lhs.hpp = pp_block "(" ")" "," @pats.pps
-  | List         lhs.hpp = pp_block "[" "]" "," @pats.pps
-  | Cons         lhs.hpp = addParens @loc.needPar (@hd.pp >#< ":" >#< @tl.pp)
-  | Underscore   lhs.hpp = text "_"
+  | Con          lhs.hpp = "!" >|< pp_parens (@name >#< hlist_sp @pats.hpps)
+  | Attr         lhs.hpp = "!" >|< hOutp @child @name
+  | Tup          lhs.hpp = "!" >|< pp_block "(" ")" "," @pats.hpps
+  | List         lhs.hpp = "!" >|< pp_block "[" "]" "," @pats.hpps
+  | Cons         lhs.hpp = "!" >|< pp_parens (@hd.hpp >#< ":" >#< pp_parens @tl.hpp)
+  | Underscore   lhs.hpp = "!" >|< text "_"
 
 ATTR Blocks ItfVisits Items Stmts Pats
   [ | | hpps : {[PP_Doc]} ]
