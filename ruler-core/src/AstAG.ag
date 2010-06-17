@@ -7,6 +7,8 @@ TYPE Blocks = [Block]
 DATA Block
   | Itf
       itf : Itf
+  | Data
+      data : Data
   | Section
       code : Code
 
@@ -33,6 +35,27 @@ DATA Attr
   | Syn
       name : Ident
       type : String
+
+DATA Data
+  | Data
+      pos  : Pos
+      name : Ident
+      cons : Cons
+
+TYPE Cons = [Con]
+
+DATA Con
+  | Con
+      pos    : Pos
+      name   : Ident
+      fields : Fields
+
+TYPE Fields = [Field]
+
+DATA Field
+  | Field
+      name   : Ident
+      type   : String
 
 DATA Code
   | Code
@@ -136,6 +159,10 @@ DATA Pat
   | Con
       name   : Ident
       pats   : Pats
+  | AttrCon
+      con    : Ident
+      name   : Ident
+      dt     : Ident
   | Attr
       child  : Ident
       name   : Ident

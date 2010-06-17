@@ -23,13 +23,15 @@ tokens :-
   <h>    "}"                                          { reserved }
 
   <0>    itf | visit | inh | syn                      { reserved }
+  <0>    data | con                                   { reserved }
 
   <a>    clause | visit | chn                         { reserved }
   <a>    match | invoke | attach | detach | of        { reserved }
 
   <0,a>  "::" | ":"                                   { reserved }
 
-  <a>    "=" | "<-" | "(" | ")" | "[" | "]" | "."     { reserved }
+  <a>    "=" | "<-" | "(" | ")" | "[" | "]"           { reserved }
+  <a>    "." | "@"                                    { reserved }
   <h>    cosem | sem                                  { reserved }
 
   <0,a>  @lcIdent                                     { valueToken TkVarid  }
@@ -83,6 +85,7 @@ push sc (Reserved k pos)
   | sc == h && k == "{"          = ((noPos, h) :)
   | sc == h && k == "}"          = tail
   | sc == 0 && k == "itf"        = ((pos, 0) :)
+  | sc == 0 && k == "data"       = ((pos, 0) :)
   | sc /= a && k == "sem"        = ((pos, a) :)
   | sc /= a && k == "cosem"      = ((pos, a) :)
   | sc /= a && k == "detach"     = ((pos, a) :)

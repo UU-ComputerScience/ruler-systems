@@ -31,6 +31,9 @@ pIdentChild  = pVarIdent <?> "child ident"
 pIdentVisit  = pVarIdent <?> "visit ident"
 pIdentClause = pVarIdent <?> "clause ident"
 pIdentCon    = pConIdent <?> "con ident"
+pDataIdent   = pConIdent <?> "data ident"
+pConstrIdent = pConIdent <?> "con ident"
+pFieldIdent  = pVarIdent <?> "field ident"
 
 pProgram :: AgParser Program
 pProgram = Program_Program <$> pList_gr pBlock
@@ -38,6 +41,7 @@ pProgram = Program_Program <$> pList_gr pBlock
 pBlock :: AgParser Block
 pBlock  =  Block_Itf <$> pItf
        <|> Block_Section <$> pCurly pCode
+       <|> Block_Data <$> pData
 
 pCode :: AgParser Code
 pCode = Code_Code <$> pList_gr pItem
@@ -70,6 +74,15 @@ pAttrInh = Attr_Inh <$ pKey "inh" <*> pVarIdent <* pKey "::" <*> (pTextln <?> "t
 
 pAttrSyn :: AgParser Attr
 pAttrSyn = Attr_Syn <$ pKey "syn" <*> pVarIdent <* pKey "::" <*> (pTextln <?> "type") <* pEnd
+
+pData :: AgParser Data
+pData = Data_Data <$> pKeyPos "data" <*> pDataIdent <*> pList_gr pCon <* pEnd <?> "data"
+
+pCon :: AgParser Con
+pCon = Con_Con <$> pKeyPos "con" <*> pConstrIdent <*> pList_gr pField <?> "con"
+
+pField :: AgParser Field
+pField = Field_Field <$> pFieldIdent <* pKey "::" <*> (pTextln <?> "type") <* pEnd
 
 pItem :: AgParser Item
 pItem
@@ -124,12 +137,13 @@ pBoundCode
   <|> BoundCode_Code Bind_Monadic  <$> pKeyPos "<-" <*> pCode
 
 pPat :: AgParser Pat
-pPat = pChainr_gr (Pat_Cons <$ pKey ":") pPatBase
+pPat = pChainr_gr (Pat_Cons <$ pKey ":") pPatCon
 
 pPatCon :: AgParser Pat
-pPatCon =   Pat_Con <$> pIdentCon <*> pList_gr pPatBase
+pPatCon = pIdentCon <**> (   (Pat_Con <$$> pList_gr pPatBase <?> "con pattern")
+                         <|> ((pKey "." *> pIdentCon <* pKey "@" <**> Pat_AttrCon <$$> pIdentChild) <?> "attr con")
+                         )
         <|> pPatBase
-        <?> "con pattern"
 
 pPatBase :: AgParser Pat
 pPatBase

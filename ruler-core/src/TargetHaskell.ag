@@ -43,18 +43,30 @@ hInvNm itf nm = "invoke_" ++ show itf ++ "_" ++ show nm
 hCoInvNm itf nm = "coinvoke_" ++ show itf ++ "_" ++ show nm
 hNextNm itf nm = "next_" ++ show itf ++ "_" ++ show nm
 hCurrentNm itf nm = "current_" ++ show itf ++ "_" ++ show nm
+
+hDtNm nm = show nm
+hConNm dt nm = show dt ++ "_" ++ show nm
+hFldNm dt con nm = show nm ++ "_" ++ show dt ++ "_" ++ show con
+
+hCatch :: (PP a, PP b) => a -> b -> PP_Doc
+hCatch l r = "catchError"
+             >-< indent 2 (pp_parens (pp l))
+             >-< indent 2 (pp_parens (pp r))
+
+hThrow msg = "throwError" >#< pp_parens ("strMsg" >#< show msg)
 }
 
 
 SEM Program | Program
   loc.hpp = vlist @blocks.hpps
 
-ATTR Block Itf ItfVisit BoundCode Code Item SemVisit ClausesTop Clauses Clause Stmt Pat
+ATTR Block Itf ItfVisit Data Con Field BoundCode Code Item SemVisit ClausesTop Clauses Clause Stmt Pat
   [ | | hpp : {PP_Doc} ]
 
 SEM Block
   | Section  lhs.hpp = @code.hpp
   | Itf      lhs.hpp = @itf.hpp
+  | Data     lhs.hpp = @data.hpp
 
 SEM Itf
   | Itf      lhs.hpp = empty
@@ -126,6 +138,20 @@ stripSpacing :: String -> PP_Doc
 stripSpacing = pp_block "(" ")" " " . map text . lines
 }
 
+SEM Data | Data
+  lhs.hpp = "data" >#< hDtNm @name >-< indent 2 (vlist @cons.hpps)
+
+SEM Con | Con
+  loc.prefix = if @lhs.isFirst then "= " else "| "
+  lhs.hpp = @loc.prefix >|< hConNm @lhs.data @name >#< pp_block "{" "}" "," @fields.hpps
+
+SEM Field | Field
+  lhs.hpp = hFldNm @lhs.data @lhs.con @name >#< "::" >#< "!" >|< stripSpacing @type
+
+ATTR Cons Con [ isFirst : Bool | | ]
+SEM Data | Data  cons.isFirst = True
+SEM Cons | Cons  tl.isFirst = False
+
 SEM BoundCode
   | Code         lhs.hpp = if @bind.isFun
                            then "return" >#< "("
@@ -173,8 +199,8 @@ SEM SemVisit
   | End          lhs.hpp = pp_parens ("error" >#< show "there is no next visit")
 
 SEM Clauses
-  | Cons         lhs.hpp = pp_parens ("catch" >#< (pp_parens @hd.hpp >-< (pp_parens ("\\_ -> " >#< @tl.hpp))))
-  | Nil          lhs.hpp = pp_parens ("fail" >#< show ("no applicable clause for " ++ show (head @lhs.itf) ++ "." ++ show @lhs.visit))
+  | Cons         lhs.hpp = pp_parens (hCatch @hd.hpp ("\\_ -> " >#< @tl.hpp))
+  | Nil          lhs.hpp = pp_parens (hThrow ("no applicable clause for " ++ show (head @lhs.itf) ++ "." ++ show @lhs.visit))
 
 SEM Clause
   | Clause       loc.hChildren = hlist_sp [ hSemNm k v | (k, Just v) <- Map.assocs @lhs.myNextVisits ]
@@ -211,12 +237,11 @@ SEM Stmt
                              >-< indent 2 ( "=" >#< "do" >#< (
                                    "!" >|< ppBind (hCoItfVsNm @loc.unqualChildItf @visit >#< "!" >|< "__g") @code.hpp
                                    >-< ppBind ("!" >|< "__res@" >|< @loc.hfOuts) ("__f" >#< @loc.hfInps)
-                                   >-< "catch" >#< (   pp_parens ( "do" >#< (
+                                   >-< hCatch ("do" >#< (
                                                          "!" >|< ppBind @loc.hgOuts ("__g" >#< @loc.hgInps)
                                                          >-< "__iter" >#< "__f" >#< @loc.hfInps
                                                        ))
-                                                   >-< pp_parens (text "const (return __res)")
-                                                   )
+                                              (text "const (return __res)")
                                  ))
                  loc.hfInps = pp_parens (hInhDt @loc.unqualChildItf @visit >#< pp_block "{" "}" ","
                                 [ hInhFldNm nm @loc.unqualChildItf @visit >#< "=" >#< hOutp @name nm
@@ -252,13 +277,15 @@ SEM Mode
 
 SEM Pat
   | Con          lhs.hpp = "!" >|< pp_parens (@name >#< hlist_sp @pats.hpps)
+  | AttrCon      lhs.hpp = "!" >|< pp_parens (hConNm @dt @con >#< pp_block "{" "}" ","
+                             [ hFldNm @dt @con nm >#< "=" >#< hInp @name nm | (nm,_) <- @loc.fields ])
   | Attr         lhs.hpp = "!" >|< hOutp @child @name
   | Tup          lhs.hpp = "!" >|< pp_block "(" ")" "," @pats.hpps
   | List         lhs.hpp = "!" >|< pp_block "[" "]" "," @pats.hpps
   | Cons         lhs.hpp = "!" >|< pp_parens (@hd.hpp >#< ":" >#< pp_parens @tl.hpp)
   | Underscore   lhs.hpp = "!" >|< text "_"
 
-ATTR Blocks ItfVisits Items Stmts Pats
+ATTR Blocks ItfVisits Items Stmts Pats Cons Fields
   [ | | hpps : {[PP_Doc]} ]
 
 SEM Blocks
@@ -266,6 +293,14 @@ SEM Blocks
   | Nil   lhs.hpps = []
 
 SEM ItfVisits
+  | Cons  lhs.hpps = @hd.hpp : @tl.hpps
+  | Nil   lhs.hpps = []
+
+SEM Cons
+  | Cons  lhs.hpps = @hd.hpp : @tl.hpps
+  | Nil   lhs.hpps = []
+
+SEM Fields
   | Cons  lhs.hpps = @hd.hpp : @tl.hpps
   | Nil   lhs.hpps = []
 
