@@ -1,6 +1,8 @@
 {
-{-# LANGUAGE BangPatterns, NoMonomorphismRestriction #-}
+{-# LANGUAGE BangPatterns #-}
 module Sum where
+
+import Control.Monad.Error
 }
 
 itf S
@@ -38,12 +40,20 @@ noIter2 = cosem noIter2 : S v2
 }
 
 {
-test :: [Int] -> IO ()
+sum' :: I_S (Either String)
+noIter1 :: I_Co_S_v1_v1 (Either String)
+noIter2 :: I_Co_S_v2_v2 (Either String)
+
+test :: [Int] -> Either String Int
 test xs = do
   let inh1 = Inh_S_v1 { l_Inh_S_v1 = xs }
   syn1 <- invoke_S_v1 sum' inh1
   let inh2 = Inh_S_v2 {}
   syn2 <- invoke_S_v2 (next_S_v1 syn1) inh2
   let s = s_Syn_S_v2 syn2
-  putStrLn ("sum: " ++ show s ++ " of: " ++ show xs)
+  return s
+  -- putStrLn ("sum: " ++ show s ++ " of: " ++ show xs)
+
+main :: IO ()
+main = putStrLn (show (test [1..100000]))
 }

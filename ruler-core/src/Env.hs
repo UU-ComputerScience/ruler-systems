@@ -1,5 +1,5 @@
 module Env( emptyEnv, enterWith, splitWith, enter, leave, dups, missing
-          , extend, find, Env, split, merge, intersection, strip, push) where
+          , extend, extendTail, find, Env, split, merge, intersection, strip, push, assocs) where
 
 import Data.Map(Map)
 import qualified Data.Map as Map
@@ -75,6 +75,12 @@ extend k v (Env (mp:mps))
       Nothing        -> Env (Map.insert k (E [] [(k,v)]) mp : mps)
       Just (E ms ps) -> Env (Map.insert k (E ms ((k,v) : ps)) mp : mps)
 
+extendTail :: Ord k => k -> v -> Env k v -> Env k v
+extendTail k v (Env (mp:mps))
+  = case Map.lookup k mp of
+      Nothing        -> Env (Map.insert k (E [] [(k,v)]) mp : mps)
+      Just (E ms ps) -> Env (Map.insert k (E ms (ps ++ [(k,v)])) mp : mps)
+
 find :: Ord k => k -> v -> Env k v -> (v, Env k v)
 find k defl e@(Env mps)
   = case find' mps of
@@ -105,3 +111,8 @@ strip (Env t) = Env (map (Map.map strip') t)
 push :: Ord k => Env k v -> Env k v -> Env k v
 push (Env (m : _)) (Env (m' : t))
   = Env (Map.unionWith mergeE m m' : t)
+
+assocs :: Ord k => Env k v -> [(k,v)]
+assocs (Env ms)
+  = [ head ds | (k, E _ ds) <- acs, not (null ds) ]
+  where acs = Map.assocs $ Map.unions ms

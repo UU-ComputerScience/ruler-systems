@@ -1,0 +1,27 @@
+{
+{-# LANGUAGE BangPatterns #-}
+module Eval where
+
+import Control.Monad.Error
+}
+
+data Expr
+  con Int
+    x :: Int
+  con Plus
+    l :: Expr
+    r :: Expr
+
+
+itf Eval
+  visit eval
+    inh e :: Expr
+
+{
+eval :: I_Eval (Either String)
+eval = sem eval : Eval
+         visit eval
+           clause int
+             match Expr.Int@k = lhs.e
+             loc.z = k.x
+}
