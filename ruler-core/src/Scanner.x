@@ -24,11 +24,12 @@ tokens :-
 
   <0>    itf | visit | inh | syn                      { reserved }
   <0>    data | con                                   { reserved }
+  <0>    datasem                                      { reserved }
 
   <a>    clause | visit | chn                         { reserved }
   <a>    match | invoke | attach | detach | of        { reserved }
 
-  <0,a>  "::" | ":"                                   { reserved }
+  <0,a>  "::" | ":" | "monad"                         { reserved }
 
   <a>    "=" | "<-" | "(" | ")" | "[" | "]"           { reserved }
   <a>    "." | "@"                                    { reserved }
@@ -87,12 +88,14 @@ push sc (Reserved k pos)
   | sc == 0 && k == "itf"        = ((pos, 0) :)
   | sc == 0 && k == "data"       = ((pos, 0) :)
   | sc /= a && k == "sem"        = ((pos, a) :)
+  | sc /= a && k == "datasem"    = ((pos, a) :)
   | sc /= a && k == "cosem"      = ((pos, a) :)
   | sc /= a && k == "detach"     = ((pos, a) :)
   | sc == a && k == "="          = ((pos, h) :)
   | sc == a && k == "<-"         = ((pos, h) :)
   | sc == 0 && k == "::"         = ((pos, h) :)
   | sc == a && k == "::"         = ((pos, h) :)
+  | sc == a && k == "monad"      = ((pos, h) :)
   | sc == a && k == "visit"      = ((pos, a) :)
   | sc == a && k == "clause"     = ((pos, a) :)
 push _ _ = id

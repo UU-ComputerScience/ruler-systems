@@ -21,6 +21,7 @@ import Data.List(nub, isPrefixOf, intersect)
 import UU.Pretty
 import Opts
 import Data.Maybe
+import Data.Char
 }
 
 
@@ -34,7 +35,10 @@ transform opts prog
     inh  = Inh_Program { opts_Inh_Program = opts }
     syn  = wrap_Program sem inh
     sem  = sem_Program prog
-    errs = firstErrs [errs1_Syn_Program syn, errs2_Syn_Program syn, errs3_Syn_Program syn]
+    errs = firstErrs [ errs0_Syn_Program syn
+                     , errs1_Syn_Program syn
+                     , errs2_Syn_Program syn
+                     , errs3_Syn_Program syn ]
     
     resPretty = pretty_Syn_Program syn
     txtPretty = disp resPretty 999999 ""
@@ -66,28 +70,34 @@ ATTR Program AllCodeBlocks [ opts : Opts | | ]
 -- Collect errors
 --
 
+-- errs0: data-type/itf based checks
 -- errs1: rudamentary checks
 -- errs2: child checks
 -- errs3: attribute checks
 
-SET AllCode = Code Items Item SemVisit ClausesTop Clauses Clause Stmts Stmt BoundCode Pats Pat AttrTypePat AttrTypeCode
-SET AllCodeBlocks = Blocks Block AllCode
+SET AllCode = Code Items Item DataSem SemVisit ClausesTop Clauses Clause Stmts Stmt
+              MaybeBoundCode BoundCode Pats Pat AttrTypePat AttrTypeCode ExprFields ExprField
+              SemCons SemCon SemFields SemField
+SET AllCodeBlocks = BlocksTop Blocks Block AllCode
 
-ATTR Program AllCodeBlocks Data Cons Con [ | | errs1,errs2,errs3 USE {Seq.><} {Seq.empty} : {Errs} ]
+ATTR Program AllCodeBlocks Data Cons Con [ | | errs0,errs1,errs2,errs3 USE {Seq.><} {Seq.empty} : {Errs} ]
 
 SEM Program
-  | Program  +errs1 = addDefErrs @blocks.gathItfs
-             +errs1 = addDefErrs @blocks.gathVisits
-             +errs1 = addDefErrs @blocks.gathInhs
-             +errs1 = addDefErrs @blocks.gathSyns
+  | Program  +errs0 = addDefErrs @blocks.gathItfs
+             +errs0 = addDefErrs @blocks.gathVisits
+             +errs0 = addDefErrs @blocks.gathInhs
+             +errs0 = addDefErrs @blocks.gathSyns
              +errs1 = addDefErrs @blocks.gathNonterms
              +errs1 = addDefErrs @blocks.gathClauses
              +errs1 = addUseErrs @blocks.distItfs
              +errs1 = addUseErrs @blocks.distVisits
              +errs1 = addUseErrs @blocks.distChildDefs
-             +errs1 = addDefErrs @blocks.gathDataCons
-             +errs1 = addUseErrs @blocks.distDataCons
-             +errs1 = addDefErrs' @blocks.gathDatas
+             +errs0 = addDefErrs @blocks.gathDataCons
+             +errs0 = addUseErrs @blocks.distDataCons
+             +errs0 = addDefErrs' @blocks.gathDatas
+             +errs0 = addUseErrs' @blocks.distDatas
+             +errs0 = addDefErrs' @blocks.gathDataSems
+             +errs1 = addUseErrs' @blocks.distDataSems
              +errs3 = addDefUseErrs'' @blocks.gathDefs
 
 {
@@ -139,10 +149,9 @@ addDefUseErrs'' env = addDefErrs'' env . addUseErrs'' env
 type ItfEnv = Env QIdent ()
 }
 
-ATTR Blocks Block Itf ItfVisits ItfVisit [ | gathItfs : ItfEnv | ]
+ATTR BlocksTop Blocks Block Itf ItfVisits ItfVisit [ | gathItfs : ItfEnv | ]
 
-SEM Program
-  | Program  blocks.gathItfs = emptyEnv
+SEM Program | Program  blocks.gathItfs = emptyEnv
 
 SEM Itf | Itf         +gathItfs = extend [@name] ()
 SEM ItfVisit | Visit  +gathItfs = extend @loc.coItf ()
@@ -154,10 +163,9 @@ SEM Itf | Itf  visits.itf = [@name]
 type VisitEnv = Env QIdent ()
 }
 
-ATTR Blocks Block Itf ItfVisits ItfVisit [ | gathVisits : VisitEnv | ]
+ATTR BlocksTop Blocks Block Itf ItfVisits ItfVisit [ | gathVisits : VisitEnv | ]
 
-SEM Program
-  | Program  blocks.gathVisits = emptyEnv
+SEM Program | Program  blocks.gathVisits = emptyEnv
 
 SEM ItfVisit | Visit
   +gathVisits = extend (@name : @lhs.itf) ()
@@ -178,7 +186,7 @@ mkCoIdent itf vis = Ident ("Co_" ++ show itf ++ "_" ++ show vis) (identPos itf)
 type AttrEnv = Env QIdent String
 }
 
-ATTR Blocks Block Itf ItfVisits ItfVisit Attrs Attr [ | gathInhs, gathSyns : AttrEnv | ]
+ATTR BlocksTop Blocks Block Itf ItfVisits ItfVisit Attrs Attr [ | gathInhs, gathSyns : AttrEnv | ]
 
 SEM Program
   | Program  blocks.gathInhs = emptyEnv
@@ -194,19 +202,25 @@ ATTR VisitAttrs VisitAttr [ | gathChns : AttrEnv | ]
 
 SEM SemVisit
   | Visit  attrs.gathChns = emptyEnv
-           +errs1 = addDefErrs @attrs.gathChns
+           +errs0 = addDefErrs @attrs.gathChns
 
 SEM VisitAttr | Chn  +gathChns = extend [@name] @type
 
 {
 type NontermEnv = Env QIdent ()
 type ClausesEnv = Env QIdent ()
+type DataSemEnv = Env Ident ()
 }
 
 ATTR AllCodeBlocks [ | gathNonterms : NontermEnv gathClauses : ClausesEnv | ]
 ATTR AllCode [ nonterm : {QIdent} | | ]
 
 SEM Block | Section  code.nonterm  = [ident "<root>"]
+          | Item     item.nonterm  = [ident "<root>"]
+          | DataSem  sem.nonterm   = [ident "<root>"]
+
+SEM DataSem | Sem    clauses.nonterm   = [@tp]
+
 SEM Item | Sem CoSem
   first.nonterm = [@name]
 
@@ -220,6 +234,19 @@ SEM Item
 SEM Clause
   | Clause  +gathClauses = extend (@name : @lhs.nonterm) ()
 
+ATTR Clauses Clause [ | | gathClauseNames USE {`Set.union`} {Set.empty} : {Set Ident} ]
+SEM Clause | Clause  lhs.gathClauseNames = Set.singleton @name
+
+ATTR BlocksTop Blocks Block DataSem [ | gathDataSems : DataSemEnv | ]
+ATTR AllCodeBlocks [ | distDataSems : DataSemEnv | ]
+
+SEM Program | Program
+  blocks.gathDataSems = emptyEnv
+  blocks.distDataSems = @blocks.gathDataSems
+
+SEM DataSem | Sem
+  +gathDataSems = extend @tp ()
+
 ATTR AllCodeBlocks [ allVisits : {Set Ident} | | ]
 
 SEM Program | Program
@@ -228,16 +255,21 @@ SEM Program | Program
 SEM Item | Sem CoSem
   first.allVisits = Set.union (Set.fromList @loc.nextVisits) @lhs.allVisits
 
-SEM Stmt | Attach
+SEM DataSem | Sem
+  clauses.allVisits = Set.union (Set.fromList @loc.nextVisits) @lhs.allVisits
+
+SEM Stmt | Attach  -- check that visits and children have distinct names
   +errs1 = ( if @name `Set.member` @lhs.allVisits
              then Seq.singleton $ Err_NameClash @name
              else Seq.empty
            ) Seq.><
 
-ATTR Cons Con Fields Field [ data : Ident | | ]
-ATTR Fields Field [ con : Ident | | ]
+ATTR Cons Con Fields Field ExprFields ExprField [ data : Ident | | ]
+ATTR Fields Field ExprFields ExprField [ con : Ident | | ]
 SEM Data | Data  cons.data  = @name
 SEM Con | Con    fields.con = @name
+SEM Item | Construct fields.data = @data
+SEM Item | Construct fields.con  = @con
 
 {
 type DataEnv  = Env Ident ()
@@ -245,7 +277,7 @@ type ConEnv   = Env QIdent FieldEnv
 type FieldEnv = Env Ident String
 }
 
-ATTR Blocks Block Data Cons Con [ | gathDataCons : ConEnv | ]
+ATTR BlocksTop Blocks Block Data Cons Con [ | gathDataCons : ConEnv | ]
 ATTR AllCodeBlocks [ | distDataCons : ConEnv | ]
 
 SEM Program | Program
@@ -255,17 +287,27 @@ SEM Program | Program
 SEM Con | Con
   +gathDataCons = extend [@name, @lhs.data] @fields.gathFields
 
-ATTR Blocks Block Data [ | gathDatas : DataEnv | ]
+ATTR BlocksTop Blocks Block Data [ | gathDatas : DataEnv | ]
 SEM Program | Program  blocks.gathDatas = emptyEnv
 SEM Data | Data        +gathDatas = extend @name ()
 
 ATTR Fields Field [ | gathFields : FieldEnv | ]
 SEM Con | Con
   fields.gathFields = emptyEnv
-  +errs1 = addDefErrs' @fields.gathFields
+  +errs0 = addDefErrs' @fields.gathFields
 
 SEM Field | Field
   +gathFields = extend @name @type
+
+ATTR ExprFields ExprField [ | gathFields : FieldEnv | ]
+SEM Item | Construct
+  fields.gathFields = emptyEnv
+  loc.gathFieldEnv = foldr (\(nm,_) -> snd . find nm "") @fields.gathFields @loc.fields
+  +errs0 = addDefErrs' @loc.gathFieldEnv
+  +errs0 = addUseErrs' @loc.gathFieldEnv
+
+SEM ExprField | Field
+  +gathFields = extend @name ""
 
 --
 -- Standard usage checks
@@ -279,9 +321,20 @@ SEM Program
 SEM Item | Sem CoSem
   +distItfs = snd . find [@tp] ()
 
+SEM Stmt | Attach
+  +distItfs = snd . find [@type] ()
+
+SEM DataSem | Sem
+  +distItfs = snd . find [@tp] ()
+
 ATTR AllCode Pats Pat AttrTypePat AttrTypeCode [ itf : QIdent | | ]
 SEM Block
   | Section  code.itf = [ident "<root>"]
+  | Item     item.itf = [ident "<root>"]
+  | DataSem  sem.itf  = [ident "<root>"]
+
+SEM DataSem | Sem
+  clauses.itf  = [@tp]
 
 SEM Item
   | Sem      first.itf = [@tp]
@@ -299,14 +352,43 @@ SEM SemVisit
 SEM Stmt
   | Invoke  loc.unqualChildItf = head @loc.childItf
             loc.childVisits = Map.findWithDefault [] @loc.unqualChildItf @lhs.distVisitOrder
-  | Attach  loc.childVisits = Map.findWithDefault [] @type @lhs.distVisitOrder
-  | Invoke Attach
             +errs1 = ( if null @loc.childVisits || @visit `elem` @loc.childVisits
                        then Seq.empty else Seq.singleton (Err_UndefVisit @name @visit @loc.childVisits)) Seq.><
+  | Attach  loc.childVisits = Map.findWithDefault [] @type @lhs.distVisitOrder
+            loc.visit = if null @loc.childVisits then Ident "<unknown>" @pos else head @loc.childVisits
+            +errs1 = ( if null @loc.childVisits || @loc.visit `elem` @loc.childVisits
+                       then Seq.empty else Seq.singleton (Err_UndefVisit @name @loc.visit @loc.childVisits)) Seq.><
 
 SEM Pat | AttrCon
   (loc.fieldEnv, lhs.distDataCons) = find [@con, @dt] emptyEnv @lhs.distDataCons
   loc.fields = assocs @loc.fieldEnv
+
+SEM Item | Construct
+  (loc.fieldEnv, lhs.distDataCons) = find [@con, @data] emptyEnv @lhs.distDataCons
+  loc.fields = assocs @loc.fieldEnv
+
+SEM Stmt | Attach
+  +distDataSems = if @code.isJust
+                  then id
+                  else snd . find @type ()
+
+ATTR AllCodeBlocks [ | distDatas : DataEnv | ]
+
+SEM Program | Program
+  blocks.distDatas = @blocks.gathDatas
+
+SEM DataSem | Sem
+  +distDatas = snd . find @tp ()
+  
+  +errs2 = if Map.member astIdent $ Map.findWithDefault Map.empty @loc.firstVisit
+                                  $ Map.findWithDefault Map.empty @tp @lhs.distVisitInhAttrs
+           then id
+           else (Seq.singleton (Err_Missing [replPos @pos astIdent]) Seq.><)
+
+{
+astIdent :: Ident
+astIdent = Ident "ast" noPos
+}
 
 --
 -- Children defined
@@ -334,6 +416,19 @@ SEM Item
   | Attr    ((loc.childItf, loc.startVisit), lhs.gathChildDefs) = find [@child] (unknQIdent,unknQIdent) @lhs.gathChildDefs
   | Detach  ((loc.childItf, loc.startVisit), lhs.distChildDefs) = find [@name] (unknQIdent,unknQIdent) @lhs.distChildDefs
 
+SEM DataSem | Sem
+  clauses.gathChildDefs = extend locQIdent (locQIdent, locQIdent)
+                          $ extend visQIdent (visQIdent, visQIdent)
+                          $ extend lhsQIdent ([@tp], [@loc.firstVisit, @tp])
+                          $ enter @lhs.gathChildDefs
+  (lhs.gathChildDefs, loc.localChildDefs) = leave @clauses.gathChildDefs
+  -- don't addDefErrs on @loc.localChildDefs
+
+  clauses.distChildDefs = enterWith @loc.localChildDefs @lhs.distChildDefs
+  (lhs.distChildDefs, loc.localChildDefs') = leave @clauses.distChildDefs
+   
+  +errs1 = addUseErrs @loc.localChildDefs'
+
 SEM Clauses
   | Cons  (hd.gathChildDefs, tl.gathChildDefs)    = split @lhs.gathChildDefs
           (lhs.gathChildDefs, loc.gathLChildDefs) = merge @hd.gathChildDefs @tl.gathChildDefs
@@ -344,7 +439,7 @@ SEM Clauses
           +errs1 = addUseErrs @loc.distLChildDefs
 
 SEM Stmt
-  | Attach  +gathChildDefs = extend [@name] ([@type],[@visit,@type])
+  | Attach  +gathChildDefs = extend [@name] ([@type],[@loc.visit,@type])
   | Invoke  ((loc.childItf, loc.startVisit), code.gathChildDefs) = find [@name] (unknQIdent,unknQIdent) @lhs.gathChildDefs
 
 SEM Pat
@@ -368,11 +463,81 @@ visQIdent :: QIdent
 visQIdent = [visIdent]
 }
 
+
+--
+-- Add and check additional instructions (children, etc.) for clauses
+--
+
+ATTR SemVisit ClausesTop Clauses Clause [ clauseExtras : {Map Ident Stmts} | | ]
+
+SEM Clause | Clause   next.clauseExtras  = Map.empty
+SEM Item | Sem CoSem  first.clauseExtras = Map.empty
+
+SEM DataSem | Sem
+  clauses.clauseExtras = @cons.clauseExtras
+
+  loc.consMap = Map.findWithDefault Map.empty @tp @lhs.distDataMap
+
+  inst.cons : SemCons
+  inst.cons = [ SemCon_Con @pos (replPos @pos c)
+                  [ SemField_Field @pos (replPos @pos nm) (Ident (trim tp) @pos) | (nm,tp) <- Map.assocs fs ]
+              | (c,fs) <- Map.assocs @loc.consMap ]
+
+  cons.itf = [@tp]
+
+{
+trim :: String -> String
+trim = reverse . dropWhile isSpace . reverse . dropWhile isSpace
+}
+
+ATTR SemCons SemCon [ | | clauseExtras USE {`Map.union`} {Map.empty} : {Map Ident Stmts} ]
+ATTR SemFields SemField [ | | clauseExtras USE {++} {[]} : Stmts ]
+
+SEM SemCon | Con
+  lhs.clauseExtras = Map.singleton @name
+                       ( Stmt_Eval Mode_Match (Pat_AttrCon @name (replPos @pos locIdent) (head @lhs.itf))
+                           (BoundCode_Code Bind_Fun @pos $ Code_Code
+                              [Item_Attr @pos (replPos @pos lhsIdent) (replPos @pos astIdent) ])
+                       : @fields.clauseExtras )
+
+SEM SemField | Field
+  loc.isNonterm = Map.member @type @lhs.distDataMap
+  +distDataSems = if @loc.isNonterm
+                  then snd . find @type ()
+                  else id
+  lhs.clauseExtras = if @loc.isNonterm
+                     then [ Stmt_Attach @pos Nothing @name @type Nothing
+                          , Stmt_Eval Mode_Assert (Pat_Attr @name (replPos @pos astIdent))
+                                                  (BoundCode_Code Bind_Fun @pos (Code_Code [
+                                                    Item_Attr @pos (replPos @pos locIdent) @name ]))
+                          ]
+                     else []
+
+--
+-- Check clauses defined when having this extraMap
+--
+
+SEM ClausesTop | Top
+  +errs2 = if Map.null @lhs.clauseExtras
+           then id
+           else let reqKeys = Map.keysSet @lhs.clauseExtras
+                    impKeys = @clauses.gathClauseNames
+                    diffSet = (impKeys `Set.difference` reqKeys) `Set.union` (reqKeys `Set.difference` impKeys)
+                    diff = Set.elems diffSet
+                    errs = map (\nm -> Err_MissingClause (head @lhs.itf) nm) diff
+                in (Seq.fromList errs Seq.><)
+
+SEM Clause | Clause
+  inst.stmts : T_Stmts
+  inst.stmts = \stmts -> foldr (\s r -> sem_Stmts_Cons (sem_Stmt s) r) stmts @loc.extraStmts 
+
+  loc.extraStmts = Map.findWithDefault [] @name @lhs.clauseExtras
+
 --
 -- Visit order
 --
 
-ATTR Blocks Block Itf ItfVisits ItfVisit [ | | gathVisitOrder USE {`mappend`} {mempty} : {Map Ident [Ident]} ]
+ATTR BlocksTop Blocks Block Itf ItfVisits ItfVisit [ | | gathVisitOrder USE {`mappend`} {mempty} : {Map Ident [Ident]} ]
 ATTR ItfVisits ItfVisit [ | | gathVisitsOrder USE {++} {[]} : {[Ident]} ]
 
 SEM Itf | Itf         +gathVisitOrder = Map.insert @name @visits.gathVisitsOrder
@@ -385,6 +550,12 @@ ATTR SemVisit ClausesTop Clauses Clause [ nextVisits : {[Ident]} | | ]
 SEM Program | Program  blocks.distVisitOrder = @blocks.gathVisitOrder
 SEM Item | Sem         loc.nextVisits        = Map.findWithDefault [] @tp @lhs.distVisitOrder
          | CoSem       loc.nextVisits        = Map.findWithDefault [] @loc.coItf @lhs.distVisitOrder
+
+SEM DataSem | Sem      loc.visits            = Map.findWithDefault [] @tp @lhs.distVisitOrder
+                       loc.nextVisits        = tail @loc.visits
+                       loc.firstVisit        = case @loc.visits of
+                                                 []    -> Ident "unknown" @pos
+                                                 (x:_) -> x
 
 SEM SemVisit
   | Visit  (loc.sequenceErrs, clauses.nextVisits) = checkVisitSequence @name @lhs.nextVisits
@@ -440,12 +611,14 @@ SEM Stmts | Cons  hd.distChildSeqs = @loc.gathChildSeqs
                   hd.allChildSeqs  = @loc.gathChildSeqs `Map.union` @lhs.allChildSeqs
 
 SEM Stmt
-  | Attach  loc.allowedVisits = dropWhile (/= @visit) @loc.childVisits
+  | Attach  loc.allowedVisits = dropWhile (/= @loc.visit) @loc.childVisits
             loc.sequences = Map.findWithDefault [[]] @name @lhs.distChildSeqs
             +errs2 = Seq.fromList [ mkExpVisitErr s @loc.allowedVisits
                                   | s <- @loc.sequences, not (isPrefixOf s @loc.allowedVisits)] Seq.><
 
 {
+mkExpVisitErr (x : _) [] = Err_ExpVisit x (Ident "no visit" (identPos x))
+mkExpVisitErr [] (y : _) = Err_ExpVisit (Ident "no visit" (identPos y)) y
 mkExpVisitErr (x : xs) (y : ys)
   | x == y    = mkExpVisitErr xs ys
   | otherwise = Err_ExpVisit x y
@@ -490,8 +663,8 @@ type AttrMap = Map Ident (Map Ident String)
 type VisitAttrMap = Map Ident AttrMap
 }
 
-ATTR Blocks Block Itf ItfVisits ItfVisit [ | | gathInhAttrs, gathSynAttrs USE {`mappend`} {mempty} : AttrMap ]
-ATTR Blocks Block Itf ItfVisits ItfVisit [ | | gathVisitInhAttrs, gathVisitSynAttrs USE {`mappend`} {mempty} : VisitAttrMap ]
+ATTR BlocksTop Blocks Block Itf ItfVisits ItfVisit [ | | gathInhAttrs, gathSynAttrs USE {`mappend`} {mempty} : AttrMap ]
+ATTR BlocksTop Blocks Block Itf ItfVisits ItfVisit [ | | gathVisitInhAttrs, gathVisitSynAttrs USE {`mappend`} {mempty} : VisitAttrMap ]
 ATTR ItfVisits ItfVisit [ | | gathVisitsInhAttrs, gathVisitsSynAttrs USE {`mappend`} {mempty} : AttrMap ]
 ATTR Attrs Attr [ | | gathVisitInhAttrs, gathVisitSynAttrs USE {`mappend`} {mempty} : {Map Ident String} ]
 
@@ -504,8 +677,8 @@ SEM ItfVisit
            lhs.gathVisitsSynAttrs = Map.singleton @name @attrs.gathVisitSynAttrs
            lhs.gathVisitInhAttrs  = Map.singleton (head @loc.coItf) (Map.singleton @name @attrs.gathVisitSynAttrs)
            lhs.gathVisitSynAttrs  = Map.singleton (head @loc.coItf) (Map.singleton @name @attrs.gathVisitInhAttrs)
-           lhs.gathInhAttrs = Map.singleton (head @loc.coItf) @attrs.gathVisitSynAttrs
-           lhs.gathSynAttrs = Map.singleton (head @loc.coItf) @attrs.gathVisitInhAttrs
+           lhs.gathInhAttrs       = Map.singleton (head @loc.coItf) @attrs.gathVisitSynAttrs
+           lhs.gathSynAttrs       = Map.singleton (head @loc.coItf) @attrs.gathVisitInhAttrs
 
 SEM Itf
   | Itf    +gathVisitInhAttrs = Map.insert @name @visits.gathVisitsInhAttrs
@@ -722,6 +895,14 @@ SEM Stmt | Invoke
 
 
 --
+-- Define clauses of DataSem in terms of a visit
+--
+
+SEM DataSem | Sem
+  inst.clauses : T_SemVisit
+  inst.clauses = sem_SemVisit_Visit @pos @loc.firstVisit (sem_VisitAttrs_Nil) (sem_Stmts_Nil)
+
+--
 -- Some useful properties
 --
 
@@ -754,6 +935,88 @@ SEM SemVisit
   | Visit  lhs.mbNextVisit = Just @name
   | End    lhs.mbNextVisit = Nothing
 
+ATTR MaybeBoundCode [ | | isJust : Bool ]
+SEM MaybeBoundCode
+  | Just     lhs.isJust = True
+  | Nothing  lhs.isJust = False
+
+{
+type DataMap  = Map Ident ConMap
+type ConMap   = Map Ident FieldMap
+type FieldMap = Map Ident String
+}
+
+ATTR BlocksTop Blocks Block Data [ | | gathDataMap USE {`Map.union`} {Map.empty} : DataMap ]
+ATTR Cons Con [ | | gathConMap USE {`Map.union`} {Map.empty} : ConMap ]
+ATTR Fields Field [ | | gathFieldMap USE {`Map.union`} {Map.empty} : FieldMap ]
+
+SEM Data  | Data   lhs.gathDataMap  = Map.singleton @name @cons.gathConMap
+SEM Con   | Con    lhs.gathConMap   = Map.singleton @name @fields.gathFieldMap
+SEM Field | Field  lhs.gathFieldMap = Map.singleton @name @type
+
+ATTR AllCodeBlocks [ distDataMap : DataMap | | ]
+SEM Program | Program  blocks.distDataMap = @blocks.gathDataMap
+
+--
+-- Extra Interfaces and semantics
+--
+
+ATTR Blocks Block Data Cons Con Itf ItfVisits ItfVisit [ | | extraBlocks USE {++} {[]} : {Blocks} ]
+
+SEM BlocksTop | Top
+  inst.extra : BlocksTop
+  inst.extra = if null @blocks.extraBlocks
+               then BlocksTop_None
+               else BlocksTop_Top @blocks.extraBlocks
+
+SEM Con | Con
+  lhs.extraBlocks = [@loc.constr, @loc.deconstr, @loc.constrSem, @loc.deconstrSem]
+  loc.conItfNm    = conItf @lhs.data @name
+  loc.deconItfNm  = deconItf @lhs.data @name
+  loc.constr   = Block_Itf $
+                 Itf_Itf @pos @loc.conItfNm [ItfVisit_Visit @pos (Ident "construct" @pos)
+                   ( Attr_Syn (Ident "data" @pos) (show @lhs.data)
+                   : [ Attr_Inh k t | (k,t) <- assocs @fields.gathFields ] )]
+  loc.deconstr = Block_Itf $
+                 Itf_Itf @pos @loc.deconItfNm [ItfVisit_Visit @pos (Ident "deconstruct" @pos)
+                   ( Attr_Inh (Ident "data" @pos) (show @lhs.data)
+                   : [ Attr_Syn k t | (k,t) <- assocs @fields.gathFields ] )]
+  loc.constrSem   = Block_Item @loc.conItfNm $
+                      Item_Sem @pos @loc.conItfNm @loc.conItfNm Nothing $
+                        SemVisit_Visit @pos (Ident "construct" @pos) [] [] $ ClausesTop_Top [
+                          Clause_Clause @pos (Ident "dispatch" @pos) [
+                            Stmt_Eval Mode_Assert
+                              (Pat_Attr (Ident "lhs" @pos) (Ident "data" @pos))
+                              (BoundCode_Code Bind_Fun @pos $ Code_Code [
+                                Item_Construct @pos @lhs.data @name
+                                  [ ExprField_Field k $ Code_Code [
+                                        Item_Attr @pos (Ident "lhs" @pos) k
+                                      ]
+                                  | (k,_) <- assocs @fields.gathFields ]
+                              ] ) ] SemVisit_End ]
+  loc.deconstrSem = Block_Item @loc.deconItfNm $
+                      Item_Sem @pos @loc.deconItfNm @loc.deconItfNm Nothing $
+                        SemVisit_Visit @pos (Ident "deconstruct" @pos) [] [] $ ClausesTop_Top [
+                          Clause_Clause @pos (Ident "dispatch" @pos) [
+                            Stmt_Eval Mode_Match
+                              (Pat_AttrCon @name (Ident "lhs" @pos) @lhs.data)
+                              (BoundCode_Code Bind_Fun @pos $ Code_Code [
+                                 Item_Attr @pos (Ident "lhs" @pos) (Ident "data" @pos)])
+                            ] SemVisit_End ]
+
+{
+conItf   dt con = Ident ("Con_" ++ show dt ++ "_" ++ show con) (identPos con)
+deconItf dt con = Ident ("Decon_" ++ show dt ++ "_" ++ show con) (identPos con)
+noIterNm dt con = Ident ("NoIter_" ++ show dt ++ "_" ++ show con) (identPos con)
+}
+
+SEM ItfVisit | Visit
+  lhs.extraBlocks = [@loc.noIterSem]
+  loc.unqualItf = head @lhs.itf
+  loc.noIterNm  = noIterNm @loc.unqualItf @name
+  loc.noIterSem = Block_Item @loc.noIterNm $
+                    Item_CoSem @pos @loc.noIterNm @loc.unqualItf @name Nothing $
+                      SemVisit_Visit @pos @name [] [] $ ClausesTop_Top []
 
 --
 -- Compute the next visit of the children in scope
@@ -764,8 +1027,11 @@ ATTR SemVisit ClausesTop Clauses Clause Stmts Stmt [ | gathNextVisits : {Map Ide
 SEM Item | Sem CoSem
   first.gathNextVisits = Map.empty
 
+SEM DataSem | Sem
+  clauses.gathNextVisits = Map.empty
+
 SEM Stmt
-  | Attach  +gathNextVisits = Map.insert @name (Just @visit)
+  | Attach  +gathNextVisits = Map.insert @name (Just @loc.visit)
   | Invoke  loc.mbNextVisit = visitAfter @visit @loc.childVisits
             +gathNextVisits = Map.insert @name @loc.mbNextVisit
 
@@ -789,7 +1055,8 @@ instance PP Ident where
   pp = text . identName
 }
 
-ATTR Block Itf ItfVisit Attr Data Con Field BoundCode Code Item SemVisit VisitAttr Clause Stmt Mode Bind Pat
+ATTR Block Itf ItfVisit Attr Data Con Field DataSem MaybeBoundCode BoundCode Code Item
+     SemVisit VisitAttr Clause Stmt Mode Bind Pat ExprField
   [ | | pp : {PP_Doc} ]
 
 SEM Program
@@ -799,6 +1066,8 @@ SEM Block
   | Section      lhs.pp = "{" >-< @code.pp >-< "}"
   | Itf          lhs.pp = @itf.pp
   | Data         lhs.pp = @data.pp
+  | Item         lhs.pp = @name >#< "=" >-< indent 2 @item.pp
+  | DataSem      lhs.pp = @sem.pp
 
 SEM Itf
   | Itf          lhs.pp = "itf" >#< @name
@@ -821,8 +1090,14 @@ SEM Con | Con
 SEM Field | Field
   lhs.pp = @name >#< "::" >#< @type
 
+SEM DataSem | Sem
+  lhs.pp = "datasem" >#< show @tp >-< indent 2 @clauses.hpp
+
 SEM BoundCode
   | Code         lhs.pp = @bind.pp >#< @code.pp
+
+SEM MaybeBoundCode
+  | Nothing      lhs.pp = empty
 
 SEM Code
   | Code         lhs.pp = vlist @items.pps
@@ -838,10 +1113,14 @@ SEM Item
   | Brackets     lhs.pp = addSpaces @loc.diff (text "{")
                           >-< vlist @items.pps
                           >-< addSpaces @loc.diff2 (text "}")
+  | Construct    lhs.pp = addSpaces @loc.diff (show @data >|< "." >|< show @con >#< pp_block "{" "}" "," @fields.pps)
 
-ATTR BoundCode Code Items Item SemVisit Stmts ClausesTop Clauses Clause Stmt [ indent : Int | | ]
+ATTR Code Items Item ExprFields ExprField DataSem SemVisit Stmts ClausesTop Clauses Clause Stmt
+  [ indent : Int | | ]
 
-SEM Block | Section   code.indent = 1
+SEM Block | Section   code.indent    = 1
+          | Item      item.indent    = 1
+          | DataSem   sem.indent     = 1
 SEM BoundCode | Code  code.indent = column @pos + @bind.width
 
 SEM Item
@@ -886,7 +1165,7 @@ SEM Clause
 
 SEM Stmt
   | Eval         lhs.pp = @mode.pp >|< @pat.pp >#< @code.pp
-  | Attach       lhs.pp = "attach" >#< @name >#< "of" >#< @visit >#< ":" >#< @type >#< @code.pp
+  | Attach       lhs.pp = "attach" >#< @name >#< "of" >#< @loc.visit >#< ":" >#< @type >#< @code.pp
   | Invoke       lhs.pp = "invoke" >#< @name >#< "of" >#< @visit >#< @code.pp
 
 SEM Mode
@@ -947,8 +1226,15 @@ addParens True  = pp_parens
 addParens False = id
 }
 
-ATTR Blocks ItfVisits Attrs Items VisitAttrs ClausesTop Clauses Stmts Pats Cons Fields
+SEM ExprField | Field
+  lhs.pp = @name >-< indent 2 ("=" >#< pp_parens @code.pp)
+
+ATTR BlocksTop Blocks ItfVisits Attrs Items VisitAttrs ClausesTop Clauses Stmts Pats Cons Fields ExprFields
   [ | | pps : {[PP_Doc]} ]
+
+SEM BlocksTop
+  | Top   lhs.pps = @blocks.pps ++ @extra.pps
+  | None  lhs.pps = []
 
 SEM Blocks
   | Cons  lhs.pps = @hd.pp : @tl.pps
@@ -987,5 +1273,9 @@ SEM Stmts
   | Nil   lhs.pps = []
 
 SEM Pats
+  | Cons  lhs.pps = @hd.pp : @tl.pps
+  | Nil   lhs.pps = []
+
+SEM ExprFields
   | Cons  lhs.pps = @hd.pp : @tl.pps
   | Nil   lhs.pps = []

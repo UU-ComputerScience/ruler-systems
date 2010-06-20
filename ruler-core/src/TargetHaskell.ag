@@ -47,6 +47,7 @@ hCurrentNm itf nm = "current_" ++ show itf ++ "_" ++ show nm
 hDtNm nm = show nm
 hConNm dt nm = show dt ++ "_" ++ show nm
 hFldNm dt con nm = show nm ++ "_" ++ show dt ++ "_" ++ show con
+hDtSemNm nm = "dnt_" ++ show nm
 
 hCatch :: (PP a, PP b) => a -> b -> PP_Doc
 hCatch l r = "catchError"
@@ -60,13 +61,18 @@ hThrow msg = "throwError" >#< pp_parens ("strMsg" >#< show msg)
 SEM Program | Program
   loc.hpp = vlist @blocks.hpps
 
-ATTR Block Itf ItfVisit Data Con Field BoundCode Code Item SemVisit ClausesTop Clauses Clause Stmt Pat
+ATTR Block Itf ItfVisit Data Con Field DataSem MaybeBoundCode BoundCode Code
+     Item SemVisit ClausesTop Clauses Clause Stmt Pat ExprField
   [ | | hpp : {PP_Doc} ]
 
 SEM Block
   | Section  lhs.hpp = @code.hpp
   | Itf      lhs.hpp = @itf.hpp
   | Data     lhs.hpp = @data.hpp
+  | Item     lhs.hpp = "mk" >|< show @name >#< "::" >#< @item.hppType
+                       >-< "mk" >|< show @name >#< "="
+                       >-< indent 2 @item.hpp
+  | DataSem  lhs.hpp = @sem.hpp
 
 SEM Itf
   | Itf      lhs.hpp = empty
@@ -152,12 +158,23 @@ ATTR Cons Con [ isFirst : Bool | | ]
 SEM Data | Data  cons.isFirst = True
 SEM Cons | Cons  tl.isFirst = False
 
+SEM DataSem | Sem
+  lhs.hpp = hDtSemNm @tp >#< "::" >#< @loc.hppType
+            >-< hDtSemNm @tp >#< "="
+            >-< indent 4 @clauses.hpp
+  loc.hppType = case @mbMonad of
+                  Nothing -> "(Monad m, MonadError e m, Error e) => " >#< hItfNm @tp >#< "m"
+                  Just t  -> hItfNm @tp >#< pp_parens (stripSpacing t)
+
 SEM BoundCode
   | Code         lhs.hpp = if @bind.isFun
                            then "return" >#< "("
                                 >-< @code.hpp
                                 >-< ")"
                            else @code.hpp
+
+SEM MaybeBoundCode
+  | Nothing      lhs.hpp = empty
 
 ATTR Bind [ | | isFun : Bool ]
 SEM Bind
@@ -171,13 +188,26 @@ SEM Item
   | Plain        lhs.hpp = vlist $ modifySpacing @loc.diff @lhs.indent @txt
   | Attr         lhs.hpp = addSpaces @loc.diff (text $ hInp @child @name)
   | Sem CoSem    lhs.hpp = addSpaces @loc.diff ( pp_parens (
-                             "let" >#< hNt @name >#< "="
-                             >-< indent 5 @first.hpp
+                             "let" >#< (hNt @name >#< "::" >#< @loc.hppType)
+                             >-< indent 4 (hNt @name >#< "=")
+                             >-< indent 6 @first.hpp
                              >-< "in" >#< hNt @name ))
   | Detach       lhs.hpp = addSpaces @loc.diff (text $ hSemNm @name @visit)
   | Brackets     lhs.hpp = addSpaces @loc.diff (text "{")
                            >-< vlist @items.hpps
                            >-< addSpaces @loc.diff2 (text "}")
+  | Construct    lhs.hpp = addSpaces @loc.diff (pp_parens (hConNm @data @con >#< pp_block "{" "}" "," @fields.hpps))
+
+ATTR Item [ | | hppType : PP_Doc ]
+SEM Item
+  | Plain Attr Detach Brackets Construct
+           loc.hppType = text "{- cannot be used toplevel -}"
+  | Sem    loc.hppType = case @mbMonad of
+                           Nothing -> "(Monad m, MonadError e m, Error e) => " >#< hItfNm @tp >#< "m"
+                           Just t  -> hItfNm @tp >#< pp_parens (stripSpacing t)
+  | CoSem  loc.hppType = case @mbMonad of
+                           Nothing -> "(Monad m, MonadError e m, Error e) => " >#< hCoItfNm @tp @visit >#< "m"
+                           Just t  -> hCoItfNm @tp @visit >#< pp_parens (stripSpacing t)
 
 SEM SemVisit
   | Visit        loc.hChildren = hlist_sp [ hSemNm k v | (k, Just v) <- Map.assocs @loc.myNextVisits ]
@@ -230,12 +260,18 @@ SEM Stmt
                            then ppBind @pat.hpp @code.hpp
                            else ppBind ("!" >|< "__fresh") @code.hpp
                                 >-< "let" >#< pp_parens @pat.hpp >#< "= __fresh"
-  | Attach       lhs.hpp = ppBind (hSemNm @name @visit) @code.hpp
+  | Attach       lhs.hpp = ppBind (hSemNm @name @loc.visit) @loc.hRhsCode
+                 loc.hRhsCode = if @code.isJust
+                                then @code.hpp
+                                else "return" >#< pp_parens (text $ hDtSemNm @type)
   | Invoke       lhs.hpp   = ppBind @loc.hPat ("let" >#< @loc.hIter >-< "in" >#< @loc.hRhs)
+                 loc.hRhsCode = if @code.isJust
+                                then @code.hpp
+                                else "return" >#< pp_parens ("mk" >|< noIterNm @loc.unqualChildItf @visit)
                  loc.hIter = "__iter" >#< pp_parens (hItfVsNm @loc.unqualChildItf @visit >#< "__f")
                                       >#< @loc.hfInps
                              >-< indent 2 ( "=" >#< "do" >#< (
-                                   "!" >|< ppBind (hCoItfVsNm @loc.unqualChildItf @visit >#< "!" >|< "__g") @code.hpp
+                                   "!" >|< ppBind (hCoItfVsNm @loc.unqualChildItf @visit >#< "!" >|< "__g") @loc.hRhsCode
                                    >-< ppBind ("!" >|< "__res@" >|< @loc.hfOuts) ("__f" >#< @loc.hfInps)
                                    >-< hCatch ("do" >#< (
                                                          "!" >|< ppBind @loc.hgOuts ("__g" >#< @loc.hgInps)
@@ -278,15 +314,22 @@ SEM Mode
 SEM Pat
   | Con          lhs.hpp = "!" >|< pp_parens (@name >#< hlist_sp @pats.hpps)
   | AttrCon      lhs.hpp = "!" >|< pp_parens (hConNm @dt @con >#< pp_block "{" "}" ","
-                             [ hFldNm @dt @con nm >#< "=" >#< hInp @name nm | (nm,_) <- @loc.fields ])
+                             [ hFldNm @dt @con nm >#< "=" >#< hOutp @name nm | (nm,_) <- @loc.fields ])
   | Attr         lhs.hpp = "!" >|< hOutp @child @name
   | Tup          lhs.hpp = "!" >|< pp_block "(" ")" "," @pats.hpps
   | List         lhs.hpp = "!" >|< pp_block "[" "]" "," @pats.hpps
   | Cons         lhs.hpp = "!" >|< pp_parens (@hd.hpp >#< ":" >#< pp_parens @tl.hpp)
   | Underscore   lhs.hpp = "!" >|< text "_"
 
-ATTR Blocks ItfVisits Items Stmts Pats Cons Fields
+SEM ExprField | Field
+  lhs.hpp = hFldNm @lhs.data @lhs.con @name >#< "=" >#< pp_parens @code.hpp
+
+ATTR BlocksTop Blocks ItfVisits Items Stmts Pats Cons Fields ExprFields
   [ | | hpps : {[PP_Doc]} ]
+
+SEM BlocksTop
+  | Top   lhs.hpps = @blocks.hpps ++ @extra.hpps
+  | None  lhs.hpps = []
 
 SEM Blocks
   | Cons  lhs.hpps = @hd.hpp : @tl.hpps
@@ -313,5 +356,9 @@ SEM Stmts
   | Nil   lhs.hpps = []
 
 SEM Pats
+  | Cons  lhs.hpps = @hd.hpp : @tl.hpps
+  | Nil   lhs.hpps = []
+
+SEM ExprFields
   | Cons  lhs.hpps = @hd.hpp : @tl.hpps
   | Nil   lhs.hpps = []

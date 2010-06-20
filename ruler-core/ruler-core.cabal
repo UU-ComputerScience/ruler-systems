@@ -12,7 +12,7 @@ copyright: Arie Middelkoop
 extra-source-files: uuagc_options, src/AstAG.ag, src/TargetHaskell.ag
 
 executable ruler-core
-  build-depends: base >= 4, base < 5, uulib, uuagc>=0.9.24, filepath, directory, containers, array
+  build-depends: base >= 4, base < 5, uulib, uuagc>=0.9.26, filepath, directory, containers, array
   build-depends: haskell98
   main-is: Main.hs
   hs-source-dirs: src

@@ -1,6 +1,11 @@
 DATA Program
   | Program
+      blocks : BlocksTop
+
+DATA BlocksTop
+  | Top
       blocks : Blocks
+  | None
 
 TYPE Blocks = [Block]
 
@@ -11,6 +16,11 @@ DATA Block
       data : Data
   | Section
       code : Code
+  | Item
+      name : Ident
+      item : Item
+  | DataSem
+      sem  : DataSem
 
 DATA Itf
   | Itf
@@ -57,9 +67,34 @@ DATA Field
       name   : Ident
       type   : String
 
+DATA DataSem
+  | Sem
+      pos     : Pos
+      tp      : Ident
+      mbMonad : {Maybe String}
+      clauses : ClausesTop
+
+TYPE SemCons = [SemCon]
+
+DATA SemCon
+  | Con
+      pos     : Pos
+      name    : Ident
+      fields  : SemFields
+
+TYPE SemFields = [SemField]
+
+DATA SemField
+  | Field
+      pos     : Pos
+      name    : Ident
+      type    : Ident
+
 DATA Code
   | Code
       items : Items
+
+TYPE MaybeBoundCode = MAYBE BoundCode
 
 DATA BoundCode
   | Code
@@ -81,21 +116,35 @@ DATA Item
       pos      : Pos
       name     : Ident
       tp       : Ident
+      mbMonad  : {Maybe String}
       first    : SemVisit
   | CoSem
       pos      : Pos
       name     : Ident
       tp       : Ident
       visit    : Ident
+      mbMonad  : {Maybe String}
       first    : SemVisit
   | Detach
       pos      : Pos
       visit    : Ident
       name     : Ident
+  | Construct
+      pos      : Pos
+      data     : Ident
+      con      : Ident
+      fields   : ExprFields
   | Brackets
       pos      : Pos
       items    : Items
       posEnd   : Pos
+
+TYPE ExprFields = [ExprField]
+
+DATA ExprField
+  | Field
+      name  : Ident
+      code  : Code
 
 DATA SemVisit
   | Visit
@@ -135,15 +184,15 @@ DATA Stmt
       code    : BoundCode
   | Attach
       pos     : Pos
-      visit   : Ident
+      mbVisit : {Maybe Ident}
       name    : Ident
       type    : Ident
-      code    : BoundCode
+      code    : MaybeBoundCode
   | Invoke
       pos     : Pos
       visit   : Ident
       name    : Ident
-      code    : BoundCode
+      code    : MaybeBoundCode
 
 DATA Mode
   | Match
