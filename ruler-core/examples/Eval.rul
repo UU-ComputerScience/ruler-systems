@@ -12,16 +12,45 @@ data Expr
     l :: Expr
     r :: Expr
 
-
 itf Eval
   visit eval
     inh e :: Expr
+    syn val :: Int
 
 {
-eval :: I_Eval (Either String)
-eval = sem eval : Eval
+eval = sem eval : Eval monad IO
          visit eval
            clause int
-             match Expr.Int@k = lhs.e
-             loc.z = k.x
+             match Expr.Int@loc = lhs.e
+             lhs.val = loc.x
+
+           clause plus
+             attach m : Decon_Expr_Plus = mkDecon_Expr_Plus
+             m.data = lhs.e
+             invoke deconstruct of m
+
+             attach l : Eval = eval
+             attach r : Eval = eval
+
+             l.e = m.l
+             r.e = m.r
+
+             invoke eval of l
+             invoke eval of r
+
+             lhs.val = l.val + r.val
+}
+
+{
+test :: Expr -> IO Int
+test exp = do
+  let inh = Inh_Eval_eval { e_Inh_Eval_eval = exp }
+  syn <- invoke_Eval_eval eval inh
+  let x = val_Syn_Eval_eval syn
+  return x
+
+main :: IO ()
+main = do let exp = Expr_Plus (Expr_Int 1) (Expr_Plus (Expr_Int 2) (Expr_Int 3))
+          x <- test exp
+          putStrLn $ show x
 }

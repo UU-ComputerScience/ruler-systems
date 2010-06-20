@@ -1,0 +1,41 @@
+{
+{-# LANGUAGE BangPatterns #-}
+module Eval where
+
+import Control.Monad.Error
+}
+
+data Expr
+  con Int
+    x :: Int
+  con Plus
+    l :: Expr
+    r :: Expr
+
+itf Expr
+  visit eval
+    inh ast :: Expr
+    syn val :: Int
+
+datasem Expr monad IO
+  clause Int
+    lhs.val = loc.x
+  clause Plus
+    invoke eval of l
+    invoke eval of r
+    lhs.val = l.val + r.val
+
+
+{
+test :: Expr -> IO Int
+test exp = do
+  let inh = Inh_Expr_eval { ast_Inh_Expr_eval = exp }
+  syn <- invoke_Expr_eval dnt_Expr inh
+  let x = val_Syn_Expr_eval syn
+  return x
+
+main :: IO ()
+main = do let exp = Expr_Plus (Expr_Int 1) (Expr_Plus (Expr_Int 2) (Expr_Int 3))
+          x <- test exp
+          putStrLn $ show x
+}

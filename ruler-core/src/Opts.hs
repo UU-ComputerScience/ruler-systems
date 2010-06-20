@@ -13,6 +13,7 @@ data Opts
          , tokens :: !Bool
          , pretty :: !Bool
          , genHaskell :: !Bool
+         , forceGen :: !Bool
          }
 
 opts :: [OptDescr (Opts -> IO Opts)]
@@ -21,6 +22,7 @@ opts = [ Option "o" ["output"] (ReqArg oOutput "path") "output .hs file"
        , Option ""  ["pretty"] (NoArg oPretty) "pp AST to STDOUT"
        , Option ""  ["tokens"] (NoArg oTokens) "print tokens to STDOUT"
        , Option ""  ["haskell"] (NoArg oHaskell) "generate Haskell code (default)"
+       , Option "f" ["force"] (NoArg oForce) "force code generation"
        ]
 
 oOutput :: FilePath -> Opts -> IO Opts
@@ -38,8 +40,12 @@ oTokens o = return (o { tokens = True })
 oHaskell :: Opts -> IO Opts
 oHaskell o = return (o { genHaskell = True })
 
+oForce :: Opts -> IO Opts
+oForce o = return (o { forceGen = True })
+
 defaultOpts :: Opts
-defaultOpts = Opts { sourceFile = "", outputFile = Nothing, verbose = False, pretty = False, tokens = False, genHaskell = True }
+defaultOpts = Opts { sourceFile = "", outputFile = Nothing, verbose = False, pretty = False, tokens = False
+                   , genHaskell = True, forceGen = False }
 
 commandlineArgs :: IO Opts
 commandlineArgs

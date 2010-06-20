@@ -74,6 +74,9 @@ DATA Err
       inherited : Bool
       child     : Ident
       name      : Ident
+  | MissingClause
+      itf       : Ident
+      name      : Ident
 
 ATTR Err [ opts : Opts | | pp : {PP_Doc} ]
 
@@ -89,6 +92,7 @@ SEM Err
   | NameClash      lhs.pp = locLine @loc.pos ("name clash" >#< show @name)
   | MissingAttr    lhs.pp = locLine @loc.pos ("undefined" >#< @loc.type >#< "attr" >#< show @child >|< "." >|< show @name)
   | DupAttr        lhs.pp = locLine @loc.pos ("duplicate" >#< @loc.type >#< "attr" >#< show @child >|< "." >|< show @name)
+  | MissingClause  lhs.pp = locLine @loc.pos ("missing clause " >#< show @name >#< "of" >#< show @itf)
 
 SEM Err
   | Missing Dup
@@ -115,6 +119,8 @@ SEM Err
   | DupAttr
       loc.pos    = identPos @name
       loc.type   = if @inherited then text "inh" else text "syn"
+  | MissingClause
+      loc.pos    = identPos @name
 
 {
 locLine :: PP a => Pos -> a -> PP_Doc

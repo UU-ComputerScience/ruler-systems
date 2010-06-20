@@ -23,9 +23,10 @@ main = do opts  <- commandlineArgs
                                  exitFailure
                  Right ast -> let (errs, txtId, txtTarget) = transform opts ast
                               in do when (pretty opts) (putStrLn txtId)
-                                    if nullErrs errs
+                                    when (not $ nullErrs errs) $
+                                      hPutStrLn stderr (errsToStr opts errs)
+                                    if nullErrs errs || forceGen opts
                                       then case outputFile opts of
                                              Just name -> writeFile name txtTarget
                                              Nothing   -> return ()
-                                      else do hPutStrLn stderr (errsToStr opts errs)
-                                              exitFailure
+                                      else exitFailure

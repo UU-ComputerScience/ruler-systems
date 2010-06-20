@@ -36,12 +36,13 @@ pConstrIdent = pConIdent <?> "con ident"
 pFieldIdent  = pVarIdent <?> "field ident"
 
 pProgram :: AgParser Program
-pProgram = Program_Program <$> pList_gr pBlock
+pProgram = (Program_Program . BlocksTop_Top) <$> pList_gr pBlock
 
 pBlock :: AgParser Block
 pBlock  =  Block_Itf <$> pItf
        <|> Block_Section <$> pCurly pCode
        <|> Block_Data <$> pData
+       <|> Block_DataSem <$> pDataSem
 
 pCode :: AgParser Code
 pCode = Code_Code <$> pList_gr pItem
@@ -84,21 +85,31 @@ pCon = Con_Con <$> pKeyPos "con" <*> pConstrIdent <*> pList_gr pField <?> "con"
 pField :: AgParser Field
 pField = Field_Field <$> pFieldIdent <* pKey "::" <*> (pTextln <?> "type") <* pEnd
 
+pDataSem :: AgParser DataSem
+pDataSem
+  = DataSem_Sem <$> pKeyPos "datasem"
+                <*> pIdentItf
+                <*> opt (pKey "monad" *> (Just <$> pTextln <* pEnd <?> "monad type")) Nothing
+                <*> (ClausesTop_Top <$> pList_gr pClause)
+                <*  pEnd <?> "data sem"
+
 pItem :: AgParser Item
 pItem
   =   uncurry (flip Item_Plain) <$> (pTextlnPos <?> "code")
   <|> uncurry mkAttr <$> (pVaridPos <?> "attribute occurrence")
   <|> (Item_Sem <$> pKeyPos "sem"
-               <*> pIdentSem
-               <* pKey ":"
-               <*> pIdentItf
-               <*> pSemVisit
-               <* pEnd <?> "sem")
+                <*> pIdentSem
+                <* pKey ":"
+                <*> pIdentItf
+                <*> opt (pKey "monad" *> (Just <$> pTextln <* pEnd <?> "monad type")) Nothing
+                <*> pSemVisit
+                <* pEnd <?> "sem")
   <|> (Item_CoSem <$> pKeyPos "cosem"
                   <*> pIdentSem
                   <* pKey ":"
                   <*> pIdentItf
                   <*> pIdentVisit
+                  <*> opt (pKey "monad" *> (Just <$> pTextln <* pEnd <?> "monad type")) Nothing
                   <*> pSemVisit
                   <* pEnd <?> "cosem")
   <|> (Item_Detach <$> pKeyPos "detach" <*> pIdentVisit <* pKey "of" <*> pIdentChild <* pEnd <?> "detach item")
@@ -121,20 +132,32 @@ pChn :: AgParser VisitAttr
 pChn = VisitAttr_Chn <$ pKey "chn" <*> pVarIdent <* pKey "::" <*> (pTextln <?> "type") <* pEnd <?> "visit-local attr"
 
 pClause :: AgParser Clause
-pClause = Clause_Clause <$> pKeyPos "clause" <*> pVarIdent <*> pList_gr pStmt <*> pSemVisit <* pEnd <?> "clause"
+pClause = Clause_Clause <$> pKeyPos "clause" <*> pClauseIdent <*> pList_gr pStmt <*> pSemVisit <* pEnd <?> "clause"
+
+pClauseIdent :: AgParser Ident
+pClauseIdent
+  = pVarIdent <|> pConIdent <?> "clause name"
 
 pStmt :: AgParser Stmt
 pStmt
-  =   ( Stmt_Eval   <$> opt (Mode_Match <$ pKey "match") Mode_Assert <*> pPat <*> pBoundCode <* pEnd <?> "eval stmt" )
-  <|> ( Stmt_Invoke <$> pKeyPos "invoke" <*> pIdentVisit <* pKey "of" <*> pIdentChild <*> pBoundCode <* pEnd <?> "invoke stmt" )
-  <|> ( Stmt_Attach <$> pKeyPos "attach" <*> pIdentVisit <* pKey "of" <*> pIdentChild
-                    <* pKey ":" <*> pIdentItf <*> pBoundCode <* pEnd <?> "attach stmt" )
+  =   ( Stmt_Eval   <$> opt (Mode_Match <$ pKey "match") Mode_Assert <*> pPat <*> pBoundCode <?> "eval stmt" )
+  <|> ( Stmt_Invoke <$> pKeyPos "invoke" <*> pIdentVisit <* pKey "of" <*> pIdentChild <*> pMaybeBoundCode <?> "invoke stmt" )
+  <|> ( (\p v mb -> Stmt_Attach p (maybe Nothing (const $ Just v) mb) (maybe v id mb) )
+                    <$> pKeyPos "attach" <*> pIdentChild <*> pMbChild
+                    <* pKey ":" <*> pIdentItf <*> pMaybeBoundCode <?> "attach stmt" )
   <?> "statement"
+
+pMbChild :: AgParser (Maybe Ident)
+pMbChild = opt (Just <$ pKey "of" <*> pIdentChild) Nothing
+
+pMaybeBoundCode :: AgParser MaybeBoundCode
+pMaybeBoundCode
+  = opt (Just <$> pBoundCode) Nothing
 
 pBoundCode :: AgParser BoundCode
 pBoundCode
-  =   BoundCode_Code Bind_Fun      <$> pKeyPos "="  <*> pCode
-  <|> BoundCode_Code Bind_Monadic  <$> pKeyPos "<-" <*> pCode
+  =   BoundCode_Code Bind_Fun      <$> pKeyPos "="  <*> pCode <* pEnd
+  <|> BoundCode_Code Bind_Monadic  <$> pKeyPos "<-" <*> pCode <* pEnd
 
 pPat :: AgParser Pat
 pPat = pChainr_gr (Pat_Cons <$ pKey ":") pPatCon
