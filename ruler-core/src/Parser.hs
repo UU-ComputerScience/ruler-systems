@@ -42,6 +42,7 @@ pBlock :: AgParser Block
 pBlock  =  Block_Itf <$> pItf
        <|> Block_Section <$> pCurly pCode
        <|> Block_Data <$> pData
+       <|> Block_Type <$> pType
        <|> Block_DataSem <$> pDataSem
 
 pCode :: AgParser Code
@@ -61,11 +62,12 @@ pItfVisits
 
 pItfVisit :: AgParser ItfVisit
 pItfVisit
-   = ItfVisit_Visit
+   = (ItfVisit_Visit
        <$> pKeyPos "visit"
        <*> pIdentVisit
+       <*> opt (True <$ pKey "cyclic") False
        <*> pList_gr pAttrInhSyn
-       <?> "visit"
+       <?> "visit")
 
 pAttrInhSyn :: AgParser Attr
 pAttrInhSyn = (pAttrInh <|> pAttrSyn) <?> "attr"
@@ -83,7 +85,18 @@ pCon :: AgParser Con
 pCon = Con_Con <$> pKeyPos "con" <*> pConstrIdent <*> pList_gr pField <?> "con"
 
 pField :: AgParser Field
-pField = Field_Field <$> pFieldIdent <* pKey "::" <*> (pTextln <?> "type") <* pEnd
+pField = pFieldIdent <**> (    (\nt fld -> Field_Field fld (FieldType_Nonterm nt)) <$ pKey ":"  <*> pDataIdent
+                          <|>  (\tp fld  -> Field_Field fld (FieldType_Term tp))   <$ pKey "::" <*> (pTextln <?> "type") <* pEnd
+                          ) <?> "field" 
+
+pType :: AgParser Type
+pType = Type_Alias <$> pKeyPos "type" <*> pDataIdent <* pKey ":" <*> pAliasType <?> "type"
+
+pAliasType :: AgParser AliasType
+pAliasType
+  =   (AliasType_Prod  <$> pParens_pCommas pDataIdent <?> "product type")
+  <|> (AliasType_List  <$> pBracks pDataIdent <?> "list type")
+  <|> (AliasType_Maybe <$  pKey "Maybe" <*> pDataIdent <?> "Maybe type")
 
 pDataSem :: AgParser DataSem
 pDataSem
@@ -121,12 +134,14 @@ pItem
 
 pSemVisit :: AgParser SemVisit
 pSemVisit
-  = opt ( SemVisit_Visit <$> pKeyPos "visit" <*> pIdentVisit
+  = opt ( (\pos nm cyclic chns stmts clauses ->
+             SemVisit_Prependable pos nm (SemVisit_Visit pos nm cyclic chns stmts clauses))
+                         <$> pKeyPos "visit" <*> pIdentVisit <*> opt (True <$ pKey "cyclic") False
                          <*> pList_gr pChn <*> pList_gr pStmt
                          <*> (ClausesTop_Top <$> pList_gr pClause)
                          <* pEnd
                          <?> "visit"
-        ) SemVisit_End
+        ) SemVisit_Impl
 
 pChn :: AgParser VisitAttr
 pChn = VisitAttr_Chn <$ pKey "chn" <*> pVarIdent <* pKey "::" <*> (pTextln <?> "type") <* pEnd <?> "visit-local attr"
@@ -145,6 +160,10 @@ pStmt
   <|> ( (\p v mb -> Stmt_Attach p (maybe Nothing (const $ Just v) mb) (maybe v id mb) )
                     <$> pKeyPos "attach" <*> pIdentChild <*> pMbChild
                     <* pKey ":" <*> pIdentItf <*> pMaybeBoundCode <?> "attach stmt" )
+  <|> ((\p -> Stmt_Attach p Nothing) <$> pKeyPos "child" <*> pIdentChild
+                                     <* pKey ":" <*> pIdentItf <*> pMaybeBoundCode <?> "child stmt")
+  <|> ( Stmt_Default True  <$> pKeyPos "default" <*> pVarIdent <*> pMaybeBoundCode <?> "default stmt" )
+  <|> ( Stmt_Default False <$> pKeyPos "default1" <*> pVarIdent <*> pMaybeBoundCode <?> "default1 stmt")
   <?> "statement"
 
 pMbChild :: AgParser (Maybe Ident)
@@ -170,7 +189,7 @@ pPatCon = pIdentCon <**> (   (Pat_Con <$$> pList_gr pPatBase <?> "con pattern")
 
 pPatBase :: AgParser Pat
 pPatBase
-  =   Pat_Underscore <$ pKey "_"
+  =   Pat_Underscore <$> pKeyPos "_"
   <|> Pat_Attr <$> pIdentChild <* pKey "." <*> pIdentAttr
   <|> Pat_Tup <$> pParens_pCommas pPat
   <|> Pat_List <$> pBracks_pCommas pPat

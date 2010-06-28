@@ -5,10 +5,12 @@ PRAGMA genlinepragmas
 imports
 {
 import Common
-import UU.Pretty
+import Pretty
 import UU.Scanner.Position
 import Data.Sequence(Seq)
 import qualified Data.Sequence as Seq
+import Data.Map(Map)
+import qualified Data.Map as Map
 import Data.Foldable
 import Opts
 }
@@ -50,6 +52,10 @@ DATA Err
   | ExpVisit
       found   : Ident
       expect  : Ident
+  | MissingVisit
+      pos     : Pos
+      child   : Ident
+      visit   : Ident
   | VisitsNotImpl
       nonterm : {[Ident]}
       vs      : {[Ident]}
@@ -57,6 +63,10 @@ DATA Err
       child   : Ident
       visit   : Ident
       visits  : {[Ident]}
+  | UndeclVisit
+      pos     : Pos
+      name    : Ident
+      itf     : Ident
   | UndetachVisit
       child   : Ident
       visit   : Ident
@@ -77,6 +87,34 @@ DATA Err
   | MissingClause
       itf       : Ident
       name      : Ident
+  | AmbAttach
+      name      : Ident
+      visit     : Ident
+  | AmbDefault
+      pos       : Pos
+      name      : Ident
+  | TypeConflict
+      found     : Ident
+      expect    : Ident
+  | ChildSynUnav
+      pos       : Pos
+      child     : Ident
+      itf       : Ident
+      vis       : Ident
+      name      : Ident
+  | Cyclic
+      pos       : Pos
+      posMap    : {Map DepItem Pos}
+      comps     : {[(Reason,DepItem,[DepItem])]}
+  | MatchCyclic
+      pos       : Pos
+  | ClausesCyclic
+      pos       : Pos
+  | EffCyclic
+      pos       : Pos
+  | VisExpCyclic
+      name      : Ident
+      child     : Ident
 
 ATTR Err [ opts : Opts | | pp : {PP_Doc} ]
 
@@ -85,14 +123,25 @@ SEM Err
   | Missing        lhs.pp = locLine @loc.pos ("undefined identifier" >#< show @loc.main)
   | Dup            lhs.pp = locLine @loc.pos ("duplicate identifier" >#< show @loc.main)
   | ExpVisit       lhs.pp = locLine @loc.pos ("expecting visit" >#< show @expect >#< "found" >#< show @found)
+  | MissingVisit   lhs.pp = locLine @pos     ("missing invoke of visit " >#< show @visit >#< "of child" >#< show @child)
   | VisitsNotImpl  lhs.pp = locLine @loc.pos ("missing visit" >#< show @loc.main >#< "for" >#< show (head @nonterm))
   | UndefVisit     lhs.pp = locLine @loc.pos ("undefined visit" >#< show @visit >#< "of child" >#< show @child)
+  | UndeclVisit    lhs.pp = locLine @pos     ("undeclared visit" >#< show @name >#< "of interface" >#< show @itf)
   | UndetachVisit  lhs.pp = locLine @loc.pos ("undetachable visit" >#< show @visit >#< "of child" >#< show @child >|< ": expecting visit" >#< show @expect)
   | UndeclAttr     lhs.pp = locLine @loc.pos ("undeclared attr" >#< show @child >|< "." >|< show @name)
   | NameClash      lhs.pp = locLine @loc.pos ("name clash" >#< show @name)
   | MissingAttr    lhs.pp = locLine @loc.pos ("undefined" >#< @loc.type >#< "attr" >#< show @child >|< "." >|< show @name)
   | DupAttr        lhs.pp = locLine @loc.pos ("duplicate" >#< @loc.type >#< "attr" >#< show @child >|< "." >|< show @name)
   | MissingClause  lhs.pp = locLine @loc.pos ("missing clause " >#< show @name >#< "of" >#< show @itf)
+  | AmbAttach      lhs.pp = locLine @loc.pos ("ambiguous attach of child" >#< show @name >#< "and visit" >#< show @visit)
+  | AmbDefault     lhs.pp = locLine @pos     ("ambiguous default statement for" >#< show @name)
+  | TypeConflict   lhs.pp = locLine @loc.pos ("type" >#< show @found >#< "does not match expected type" >#< show @expect)
+  | ChildSynUnav   lhs.pp = locLine @pos     ("default for" >#< show @name >#< "requires unavailable attribute of" >#< show @child)
+  | Cyclic         lhs.pp = locLine @pos     ("cycle:" >#< hlist_sp (map (\(_,d,_) -> @loc.ppDep d) @comps) )
+  | MatchCyclic    lhs.pp = locLine @pos     ("match statement not allowed in cyclic visit")
+  | ClausesCyclic  lhs.pp = locLine @pos     ("cyclic visit must have exactly one clause")
+  | EffCyclic      lhs.pp = locLine @pos     ("effectful code not allowed for cyclic stmt")
+  | VisExpCyclic   lhs.pp = locLine @loc.pos ("visit" >#< show @name >#< "to" >#< show @child >#< "is on a cycle")
 
 SEM Err
   | Missing Dup
@@ -121,9 +170,30 @@ SEM Err
       loc.type   = if @inherited then text "inh" else text "syn"
   | MissingClause
       loc.pos    = identPos @name
+  | AmbAttach
+      loc.pos    = identPos @name
+  | TypeConflict
+      loc.pos    = identPos @found
+  | VisExpCyclic
+      loc.pos    = identPos @name
+  | Cyclic
+      loc.ppDep  = \d -> let pos = Map.findWithDefault noPos d @posMap
+                         in case d of
+                              DepMatch _               -> "@" >|< show (line pos)
+                              DepAssert _              -> "@" >|< show (line pos)
+                              DepDefault o             -> "d" >|< show o
+                              DepAttach n              -> "@" >|< show (line pos)
+                              DepInvoke (visit:name:_) -> show name >|< "." >|< show visit >|< "@" >|< show (line $ identPos name)
+                              DepInvoke _              -> text "i???"
+                              DepVisStart (visit:_)    -> ">" >|< show visit >|< "@" >|< show (line $ identPos visit)
+                              DepVisStart _            -> text ">v???"
+                              DepVisEnd  (visit:_)     -> show visit >|< "@" >|< show (line $ identPos visit) >|< "<"
+                              DepVisEnd _              -> text "<v???"
+                              DepClause (clause:_)     -> "|" >|< show clause >|< "@" >|< show (line $ identPos clause)
+                              DepClause _              -> text "|???"
 
 {
 locLine :: PP a => Pos -> a -> PP_Doc
 locLine (Pos l c f) d
-  = pp f >|< ":" >|< pp l >|< "," >|< pp c >|< ": " >|< pp d
+  = pp f >|< ":" >|< pp l >|< "," >|< pp c >|< ":error:" >#< pp d
 }

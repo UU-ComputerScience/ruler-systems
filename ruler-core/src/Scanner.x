@@ -14,24 +14,26 @@ $identChar   = [a-zA-Z0-9\'_]
 @lcIdent     = [a-z] $identChar*
 
 tokens :-
-  <0,a>   (" " | \n | \r)+                            ;                        -- ignore spaces
-  <0,a>   "--" $white .*                              ;                        -- to-end-of-line comment
-  <0,a>  "{-" ([^\-] | $white | "-" [^\}])* "-}"      ;                        -- multi-line comment (not nested)
-  <h>    "{-" ([^\-] | $white | "-" [^\}])* "-}"      { valueToken TkTextln }  -- haskell comment token
+  <0,a>     (" " | \n | \r)+                             ;                        -- ignore spaces
+  <0,a,h>   "--" $white .*                               ;                        -- to-end-of-line comment
+  <0,a>     "{-" ([^\-] | $white | "-" [^\}])* "-}"      ;                        -- multi-line comment (not nested)
+  <h>       "{-" ([^\-] | $white | "-" [^\}])* "-}"      { valueToken TkTextln }  -- haskell comment token
 
   <0,h>  "{"                                          { reserved }
   <h>    "}"                                          { reserved }
 
-  <0>    itf | visit | inh | syn                      { reserved }
-  <0>    data | con                                   { reserved }
+  <0>    itf | visit | cyclic | inh | syn             { reserved }
+  <0>    data | con | type | Maybe                    { reserved }
   <0>    datasem                                      { reserved }
 
-  <a>    clause | visit | chn                         { reserved }
-  <a>    match | invoke | attach | detach | of        { reserved }
+  <a>    clause | visit | cyclic | chn                { reserved }
+  <a>    match | invoke | of                          { reserved }
+  <a>    attach | detach | child | default | default1 { reserved }
 
   <0,a>  "::" | ":" | "monad"                         { reserved }
 
-  <a>    "=" | "<-" | "(" | ")" | "[" | "]"           { reserved }
+  <0,a>  "(" | ")" | "[" | "]" | ","                  { reserved }
+  <a>    "=" | "<-"                                   { reserved }
   <a>    "." | "@"                                    { reserved }
   <h>    cosem | sem                                  { reserved }
 

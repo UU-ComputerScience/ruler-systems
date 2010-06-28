@@ -1,5 +1,6 @@
 module Env( emptyEnv, enterWith, splitWith, enter, leave, dups, missing
-          , extend, extendTail, find, Env, split, merge, intersection, strip, push, assocs) where
+          , extend, extendTail, find, Env, split, merge, defined, findAll
+          , intersection, strip, push, assocs) where
 
 import Data.Map(Map)
 import qualified Data.Map as Map
@@ -93,6 +94,17 @@ find k defl e@(Env mps)
           Just (E _ ((_,v):_)) -> return (v, ms)
           _ -> do (v,mps') <- find' mps
                   return (v, mp : mps')
+
+findAll :: Ord k => k -> Env k v -> [v]
+findAll k (Env mps) = concatMap find' mps
+  where
+    find' mp = case Map.lookup k mp of
+                 Just (E _ defs) -> map snd defs
+                 _               -> []
+
+defined :: Ord k => k -> Env k v -> Bool
+defined k (Env mps) = foldr def' False mps
+  where def' mp r = Map.member k mp || r
 
 intersection :: Ord k => [Env k v] -> Env k v
 intersection []    = emptyEnv

@@ -1,8 +1,8 @@
 file: "src/Ast.ag"
-options: data, rename
+options: data, rename, strictdata
 
 file: "src/Transform.ag"
-options: catas, rename, semfuns, signatures
+options: catas, rename, semfuns, signatures, pretty, strictwrap
 
 file: "src/Errs.ag"
-options: data, rename, catas, semfuns, signatures, optimize
+options: data, rename, catas, semfuns, signatures, optimize, strictdata, strictwrap

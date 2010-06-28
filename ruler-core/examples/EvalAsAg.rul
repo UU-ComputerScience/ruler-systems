@@ -9,8 +9,8 @@ data Expr
   con Int
     x :: Int
   con Plus
-    l :: Expr
-    r :: Expr
+    l : Expr
+    r : Expr
 
 itf Expr
   visit eval
@@ -29,9 +29,9 @@ datasem Expr monad IO
 {
 test :: Expr -> IO Int
 test exp = do
-  let inh = Inh_Expr_eval { ast_Inh_Expr_eval = exp }
+  let inh = Inh_Expr_eval { ast_Inh_Expr = exp }
   syn <- invoke_Expr_eval dnt_Expr inh
-  let x = val_Syn_Expr_eval syn
+  let x = val_Syn_Expr syn
   return x
 
 main :: IO ()

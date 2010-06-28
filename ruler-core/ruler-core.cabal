@@ -1,7 +1,7 @@
 cabal-version: >=1.2
 build-type: Simple
 name: ruler-core
-version: 0.1
+version: 0.9
 license: LGPL
 maintainer: Arie Middelkoop <ariem@cs.uu.nl>
 homepage: http://www.cs.uu.nl/wiki/HUT/WebHome
@@ -9,7 +9,7 @@ description: Ruler-core Attribute Grammar
 category: Development
 stability: Experimental
 copyright: Arie Middelkoop
-extra-source-files: uuagc_options, src/AstAG.ag, src/TargetHaskell.ag
+extra-source-files: uuagc_options, src/AstAG.ag, src/TargetHaskell.ag, src/TargetGraph.ag
 
 executable ruler-core
   build-depends: base >= 4, base < 5, uulib, uuagc>=0.9.26, filepath, directory, containers, array
