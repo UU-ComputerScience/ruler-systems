@@ -14,6 +14,8 @@ DATA Block
       itf : Itf
   | Data
       data : Data
+  | Type
+      type : Type
   | Section
       code : Code
   | Item
@@ -34,6 +36,7 @@ DATA ItfVisit
   | Visit
       pos    : Pos
       name   : Ident
+      cyclic : Bool
       attrs  : Attrs
 
 TYPE Attrs = [Attr]
@@ -64,8 +67,23 @@ TYPE Fields = [Field]
 
 DATA Field
   | Field
+      name       : Ident
+      type       : FieldType
+
+DATA FieldType
+  | Term     type : String
+  | Nonterm  name : Ident
+
+DATA Type
+  | Alias
+      pos    : Pos
       name   : Ident
-      type   : String
+      type   : AliasType
+
+DATA AliasType
+  | Prod   fields : {[Ident]}
+  | List   type   : Ident
+  | Maybe  type   : Ident
 
 DATA DataSem
   | Sem
@@ -88,7 +106,7 @@ DATA SemField
   | Field
       pos     : Pos
       name    : Ident
-      type    : Ident
+      type    : {Either Ident String}
 
 DATA Code
   | Code
@@ -125,7 +143,7 @@ DATA Item
       visit    : Ident
       mbMonad  : {Maybe String}
       first    : SemVisit
-  | Detach
+  | Detach  -- requires visits up to but not including this visit to be invoked
       pos      : Pos
       visit    : Ident
       name     : Ident
@@ -150,9 +168,15 @@ DATA SemVisit
   | Visit
       pos      : Pos
       name     : Ident
+      cyclic   : Bool
       attrs    : VisitAttrs
       stmts    : Stmts
       clauses  : ClausesTop
+  | Impl
+  | Prependable  -- maybe prepended by other visits
+      pos      : Pos
+      name     : Ident
+      actual   : {SemVisit}
   | End
 
 TYPE VisitAttrs = [VisitAttr]
@@ -193,6 +217,11 @@ DATA Stmt
       visit   : Ident
       name    : Ident
       code    : MaybeBoundCode
+  | Default
+      allowEmpty : Bool
+      pos        : Pos
+      name       : Ident
+      mbCode     : MaybeBoundCode
 
 DATA Mode
   | Match
@@ -223,6 +252,7 @@ DATA Pat
       hd     : Pat
       tl     : Pat
   | Underscore
+      pos    : Pos
 
 DATA AttrTypePat
   | VisLocal
@@ -237,3 +267,26 @@ DATA AttrTypeCode
   | Lhs
   | Child
   | Visit
+
+TYPE ImplStmts = [ImplStmt]
+
+DATA ImplStmt
+  | Invoke
+      pos        : Pos
+      child      : Ident
+      visit      : Ident
+      itf        : Ident
+  | DefaultChild
+      pos        : Pos
+      allowEmpty : Bool
+      child      : Ident
+      name       : Ident
+      mbCodeRef  : {Maybe Int}
+  | DefaultSyn
+      pos        : Pos
+      allowEmpty : Bool
+      name       : Ident
+      mbCodeRef  : {Maybe Int}
+  | DefaultVisLocal
+      pos        : Pos
+      name       : Ident

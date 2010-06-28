@@ -1,0 +1,95 @@
+-- This file is included by Transform.ag
+-- Generates code for a dependency graph
+
+SEM Program | Program
+  loc.ppGraph   = "digraph Deps {"
+                  >-< indent 2 ( vlist
+                       [ ppgNode (Map.findWithDefault noPos d @blocks.gathStmtPosMap) d @loc.distRanks
+                       | d <- @loc.unqItems
+                       ])
+                  >-< indent 2 ( vlist
+                        [ label' from >#< "->" >#< ppgDeps (map label' [to])
+                            >|< maybe empty (\d -> "[" >|< ppgProp "label" d >|< "]") (ppgReason reason) >|< ";"
+                        | (from, (reason, tos)) <- Map.assocs @loc.unqDeps
+                        , length tos >= 1
+                        , let label' = \item -> ppgKey (Map.findWithDefault noPos item @blocks.gathStmtPosMap) item
+                        , to <- tos ]
+                      )
+                  >-< "}"
+
+{
+ppgProp :: PP a => String -> a -> PP_Doc
+ppgProp s d = s >|< "=" >|< pp_doubleQuotes (pp d)
+
+ppgNms :: QIdent -> PP_Doc
+ppgNms = hlist . map show
+
+ppgDeps :: PP a => [a] -> PP_Doc
+ppgDeps [x] = pp x
+ppgDeps xs  = pp_block "{" "}" ";" (map pp xs)
+
+ppgNode :: Pos -> DepItem -> Map DepItem (Bool,Int) -> PP_Doc
+ppgNode pos item rankMap
+  = case item of
+      DepMatch n      -> ppgKey pos item >#< pp_block "[" "]" "," [ppgProp "label" l, c] >|< ";"
+      DepAssert n     -> ppgKey pos item >#< pp_block "[" "]" "," [ppgProp "label" l, c] >|< ";"
+      DepDefault n    -> ppgKey pos item >#< pp_block "[" "]" "," [ppgProp "label" l, c] >|< ";"
+      DepAttach n     -> ppgKey pos item >#< pp_block "[" "]" "," [ppgProp "shape" "box",ppgProp "label" l, c] >|< ";"
+      DepInvoke nms   -> ppgKey pos item >#< pp_block "[" "]" "," [ppgProp "shape" "box",ppgProp "skew" ".3",ppgProp "label" l,c] >|< ";"
+      DepVisStart nms -> ppgKey pos item >#< pp_block "[" "]" "," [ppgProp "shape" "box",ppgProp "skew" ".3",ppgProp "label" l,c] >|< ";"
+      DepVisEnd nms   -> ppgKey pos item >#< pp_block "[" "]" "," [ppgProp "shape" "box",ppgProp "skew" ".3",ppgProp "label" l,c] >|< ";"
+      DepClause nms   -> ppgKey pos item >#< pp_block "[" "]" "," [ppgProp "shape" "box",ppgProp "skew" ".3",ppgProp "label" l,c] >|< ";"
+  where mbInfo = Map.lookup item rankMap
+        l = ppgLabel pos item (maybe Nothing (Just . snd) mbInfo)
+        c = ppgColor (maybe False fst mbInfo)
+
+ppgColor :: Bool -> PP_Doc
+ppgColor True  = ppgProp "color" "red4"
+ppgColor False = ppgProp "color" "black"
+
+ppgLabel :: Pos -> DepItem -> Maybe Int -> PP_Doc
+ppgLabel pos item mbRank
+  = case item of
+      DepMatch _   -> r >#< "@" >|< show (line pos)
+      DepAssert _  -> r >#< "@" >|< show (line pos)
+      DepDefault o -> r >#< "d" >|< show o
+      DepAttach n  -> r >#< "@" >|< show (line pos)
+      DepInvoke (visit:name:_) -> r >#< name >|< "." >|< visit >|< "@" >|< show (line $ identPos name)
+      DepInvoke _              -> r >#< text "i???"
+      DepVisStart (visit:_)    -> r >#< ">" >|< show visit >|< "@" >|< show (line $ identPos visit)
+      DepVisStart _            -> r >#< text ">v???"
+      DepVisEnd (visit:_)      -> r >#< show visit >|< "@" >|< show (line $ identPos visit) >|< "<"
+      DepVisEnd _              -> r >#< text "<v???"
+      DepClause (clause:_)     -> r >#< "|" >|< show clause >|< "@" >|< show (line $ identPos clause)
+      DepClause _              -> r >#< text "|???"
+  where
+    r = case mbRank of
+          Nothing -> empty
+          Just k  -> show k >|< ":"
+
+ppgKey :: Pos -> DepItem -> PP_Doc
+ppgKey pos item
+  = case item of
+      DepMatch n      -> "s"  >|< show n
+      DepAssert n     -> "s"  >|< show n
+      DepDefault n    -> "d"  >|< show n
+      DepAttach n     -> "a"  >|< show n
+      DepInvoke nms   -> "iv" >|< ppgNms nms
+      DepVisStart nms -> "vb" >|< ppgNms nms
+      DepVisEnd nms   -> "ve" >|< ppgNms nms
+      DepClause nms   -> "cl" >|< ppgNms nms
+
+ppgReason :: Reason -> Maybe PP_Doc
+ppgReason reason
+  = case reason of
+      ReasonScopeVisit i      -> Nothing -- Just ("sc-vis-pre" >#< show i)
+      ReasonScopeClause i     -> Nothing -- Just ("sc-cl" >#< show i)
+      ReasonScopeEnd i        -> Nothing -- Just ("sc-vis-end" >#< show i)
+      ReasonAttrReq chld attr -> Just (show chld >|< "." >|< show attr)
+      ReasonInvokeReq i       -> Nothing -- Just ("inv" >#< show i)
+      ReasonChildReq i        -> Nothing -- Just ("chld" >#< show i)
+      ReasonAttach i v        -> Just ("att" >#< show i >|< "." >|< show v)
+      ReasonDefault attr      -> Just $ text $ show attr
+      ReasonDetach _ _        -> Just $ text "detach"
+      ReasonError             -> Just $ text "error"
+}

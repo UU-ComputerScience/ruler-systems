@@ -29,8 +29,8 @@ eval = sem eval : Eval monad IO
              m.data = lhs.e
              invoke deconstruct of m
 
-             attach l : Eval = eval
-             attach r : Eval = eval
+             child l : Eval = eval
+             child r : Eval = eval
 
              l.e = m.l
              r.e = m.r
@@ -44,9 +44,9 @@ eval = sem eval : Eval monad IO
 {
 test :: Expr -> IO Int
 test exp = do
-  let inh = Inh_Eval_eval { e_Inh_Eval_eval = exp }
+  let inh = Inh_Eval_eval { e_Inh_Eval = exp }
   syn <- invoke_Eval_eval eval inh
-  let x = val_Syn_Eval_eval syn
+  let x = val_Syn_Eval syn
   return x
 
 main :: IO ()

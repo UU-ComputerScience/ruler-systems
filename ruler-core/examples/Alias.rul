@@ -1,0 +1,47 @@
+{
+{-# LANGUAGE BangPatterns #-}
+module Alias where
+
+import Control.Monad.Error
+}
+
+type ListX : [X]
+
+data X
+  con C
+
+itf X
+  visit v
+    inh ast :: X
+    syn x :: Int
+
+datasem X
+  clause C
+    lhs.x = 1
+
+itf ListX
+  visit v
+    inh ast :: ListX
+    syn x :: Int
+
+datasem ListX
+  clause Cons
+    invoke v of hd
+    invoke v of tl
+    lhs.x = hd.x + tl.x
+  clause Nil
+    lhs.x = 0
+
+{
+test :: ListX -> IO Int
+test xs = do
+  let inh = Inh_ListX_v { ast_Inh_ListX = xs }
+  syn <- invoke_ListX_v dnt_ListX inh
+  let x = x_Syn_ListX syn
+  return x
+
+main :: IO ()
+main = do let list = [X_C,X_C,X_C]
+          x <- test list
+          putStrLn $ show x
+}

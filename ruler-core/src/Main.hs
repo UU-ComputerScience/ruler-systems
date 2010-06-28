@@ -13,18 +13,22 @@ import System
 main :: IO ()
 main = do opts  <- commandlineArgs
           let path = sourceFile opts
+              pos  = Pos 1 1 path
           when (path /= "") $
             do str <- readFile path
                let tks  = tokenize path str
-                   pres = parseProgram opts (Pos 1 1 path) tks
+                   pres = parseProgram opts pos tks
                when (tokens opts) (putStrLn (show $ ppTokens tks))
                case pres of
                  Left err  -> do hPutStrLn stderr err
                                  exitFailure
-                 Right ast -> let (errs, txtId, txtTarget) = transform opts ast
+                 Right ast -> let (errs, txtId, txtTarget, txtGraph) = transform pos opts ast
                               in do when (pretty opts) (putStrLn txtId)
                                     when (not $ nullErrs errs) $
                                       hPutStrLn stderr (errsToStr opts errs)
+                                    case outputGraph opts of
+                                      Just name -> writeFile name txtGraph
+                                      Nothing   -> return ()
                                     if nullErrs errs || forceGen opts
                                       then case outputFile opts of
                                              Just name -> writeFile name txtTarget
