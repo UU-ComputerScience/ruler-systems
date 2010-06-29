@@ -17,7 +17,7 @@ import Data.Set(Set)
 import qualified Data.Set as Set
 import Env
 import Data.Monoid
-import Data.List(nub, isPrefixOf, intersect, sortBy, partition)
+import Data.List(nub, isPrefixOf, intersect, sortBy, partition, groupBy)
 import Pretty
 import UU.Scanner.Position
 import Opts
@@ -95,7 +95,7 @@ SET AllFinal = AllCodeBlocks ImplStmts ImplStmt
 SET AllVisFinal = AllVisitClauses ImplStmts ImplStmt Stmts Stmt Pats Pat AttrTypePat AttrTypeCode
 
 ATTR Program AllCodeBlocks Data Cons Con [ | | errs0,errs1,errs2,errs3,errs4 USE {Seq.><} {Seq.empty} : Errs ]
-ATTR ImplStmts ImplStmt [ | | errs2, errs3 USE {Seq.><} {Seq.empty} : Errs ]
+ATTR ImplStmts ImplStmt [ | | errs2, errs3, errs4 USE {Seq.><} {Seq.empty} : Errs ]
 
 SEM Program
   | Program  +errs0 = addDefErrs @blocks.gathItfs
@@ -1654,13 +1654,19 @@ type CycVisMap = Map Ident (Set Ident)
 
 ATTR BlocksTop Blocks Block Itf [ | | gathCycVisMap USE {`Map.union`} {Map.empty} : CycVisMap ]
 ATTR ItfVisits ItfVisit [ | | gathCycVisits USE {`Set.union`} {Set.empty} : {Set Ident}]
+ATTR Attrs Attr [ visCyclic : Bool | | ]
 ATTR AllFinal [ distCycVisMap : CycVisMap | | ]
 
 SEM ItfVisit | Visit   lhs.gathCycVisits = if @cyclic then Set.singleton @name else Set.empty
+                       loc.visCyclic     = @cyclic
 SEM Itf | Itf          lhs.gathCycVisMap = Map.singleton @name @visits.gathCycVisits
 SEM Program | Program  blocks.distCycVisMap = @blocks.gathCycVisMap
 
 ATTR ClausesTop Clauses Clause Stmts Stmt ImplStmts ImplStmt [ allowCycles : Bool fullCyclic : Bool | | ]
+ATTR SemVisit [ fullCyclic : Bool | | ]
+
+SEM Item | Sem CoSem  first.fullCyclic = False
+SEM DataSem | Sem     clauses.fullCyclic = False
 
 SEM SemVisit | Visit
   loc.fullCyclic  = Set.member @name (Map.findWithDefault Set.empty @loc.unqualItf @lhs.distCycVisMap)
@@ -1671,23 +1677,39 @@ SEM Stmt | Invoke
   loc.behaveCyclic = @lhs.fullCyclic || @loc.visitCyclic
 
 SEM ImplStmt | Invoke
-  loc.behaveCyclic = @lhs.fullCyclic || Set.member @visit (Map.findWithDefault Set.empty @itf @lhs.distCycVisMap)
+  loc.visitCyclic  = Set.member @visit (Map.findWithDefault Set.empty @itf @lhs.distCycVisMap)
+  loc.behaveCyclic = @lhs.fullCyclic || @loc.visitCyclic
 
 -- sanity check
-SEM Stmt | Eval
-  +errs4 = if (@lhs.fullCyclic || @loc.isOnCycle) && @mode.isMatch
-           then (Err_MatchCyclic @loc.pos Seq.<|)
-           else id
-  +errs4 = if (@lhs.fullCyclic || @loc.isOnCycle) && not @code.isFun
-           then (Err_EffCyclic @loc.pos Seq.<|)
-           else id
+SEM Stmt
+  | Eval      +errs4 = if @loc.isCyclic && @mode.isMatch
+                       then (Err_MatchCyclic @loc.pos Seq.<|)
+                       else id
+              +errs4 = if @loc.isCyclic && not @code.isFun
+                       then (Err_EffCyclic @loc.pos Seq.<|)
+                       else id
+  | Attach    +errs4 = if @loc.isCyclic && @code.isJust && not @code.isFun
+                       then (Err_EffCyclic @pos Seq.<|)
+                       else id
+  | Invoke    +errs4 = if @loc.isCyclic && @code.isJust && not @code.isFun
+                       then (Err_EffCyclic @pos Seq.<|)
+                       else id
+  | Default   +errs4 = if @loc.isCyclic && @mbCode.isJust && not @mbCode.isFun
+                       then (Err_EffCyclic @pos Seq.<|)
+                       else id
 
 SEM Stmt | Invoke
-  +errs4 = if (@lhs.fullCyclic || @loc.isOnCycle) && not @loc.visitCyclic
+  +errs4 = if @loc.isCyclic && not @loc.visitCyclic
            then (Err_VisExpCyclic @visit @name Seq.<|)
+           else id
+  +errs4 = if @code.isJust && @loc.isCyclic
+           then (Err_IterCyclic @pos Seq.<|)
            else id
 
 SEM ImplStmt | Invoke
+  +errs4 = if @loc.isCyclic && not @loc.visitCyclic
+           then (Err_VisExpCyclic @visit @child Seq.<|)
+           else id
 
 SEM SemVisit | Visit
   +errs1 = if @loc.fullCyclic && @clauses.nClauses /= 1
@@ -1699,10 +1721,12 @@ SEM Clauses
   | Cons  lhs.nClauses = @tl.nClauses + 1
   | Nil   lhs.nClauses = 0
 
-ATTR BoundCode Bind [ | | isFun : Bool ]
+ATTR MaybeBoundCode BoundCode Bind [ | | isFun : Bool ]
 SEM Bind
   | Fun       lhs.isFun = True
   | Monadic   lhs.isFun = False
+
+SEM MaybeBoundCode | Nothing  lhs.isFun = False
 
 ATTR AllFinal [ | | gathItemVisits USE {`Map.union`} {Map.empty} : {Map DepItem DepItem} ]
 SEM SemVisit | Visit +gathItemVisits = Map.insert @loc.scopeDep @loc.scopeDep
@@ -2053,18 +2077,23 @@ instance Show a => Show (SCC a) where
 }
 
 ATTR Stmt ImplStmt [ | | rank : Int ]
+ATTR Pats Pat [ isOnCycle : Bool | | ]
 
 SEM Stmt | *
   (loc.isOnCycle, loc.rank) = Map.findWithDefault (False,@loc.lexOrder) @loc.stmtSource @lhs.distRanks
+  loc.isCyclic              = @lhs.fullCyclic || @loc.isOnCycle
 
 SEM ImplStmt | *
   (loc.isOnCycle, loc.rank) = Map.findWithDefault (False,@loc.lexOrder) @loc.stmtSource @lhs.distRanks
+  loc.isCyclic              = @lhs.fullCyclic || @loc.isOnCycle
 
 SEM SemVisit | Visit
   (loc.isOnCycle, loc.rank) = Map.findWithDefault (False,@loc.lexOrder) @loc.scopeDep @lhs.distRanks
+  loc.isCyclic              = @lhs.fullCyclic || @loc.isOnCycle
 
 SEM Clause | Clause
   (loc.isOnCycle, loc.rank) = Map.findWithDefault (False,@loc.lexOrder) @loc.scopeDep @lhs.distRanks
+  loc.isCyclic              = @lhs.fullCyclic || @loc.isOnCycle
 
 -- Max rank of clauses
 ATTR AllVisitClauses [ | | minRank USE {`min`} {maxBound} : Int ]
