@@ -115,6 +115,8 @@ DATA Err
   | VisExpCyclic
       name      : Ident
       child     : Ident
+  | IterCyclic
+      pos       : Pos
 
 ATTR Err [ opts : Opts | | pp : {PP_Doc} ]
 
@@ -142,6 +144,7 @@ SEM Err
   | ClausesCyclic  lhs.pp = locLine @pos     ("cyclic visit must have exactly one clause")
   | EffCyclic      lhs.pp = locLine @pos     ("effectful code not allowed for cyclic stmt")
   | VisExpCyclic   lhs.pp = locLine @loc.pos ("visit" >#< show @name >#< "to" >#< show @child >#< "is on a cycle")
+  | IterCyclic     lhs.pp = locLine @pos     ("visit may not be iterated by cyclic stmt")
 
 SEM Err
   | Missing Dup
