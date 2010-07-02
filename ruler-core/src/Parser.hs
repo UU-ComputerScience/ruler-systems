@@ -34,6 +34,7 @@ pIdentCon    = pConIdent <?> "con ident"
 pDataIdent   = pConIdent <?> "data ident"
 pConstrIdent = pConIdent <?> "con ident"
 pFieldIdent  = pVarIdent <?> "field ident"
+pExtIdent    = pConIdent <?> "ext ident"
 
 pProgram :: AgParser Program
 pProgram = (Program_Program . BlocksTop_Top) <$> pList_gr pBlock
@@ -79,7 +80,10 @@ pAttrSyn :: AgParser Attr
 pAttrSyn = Attr_Syn <$ pKey "syn" <*> pVarIdent <* pKey "::" <*> (pTextln <?> "type") <* pEnd
 
 pData :: AgParser Data
-pData = Data_Data <$> pKeyPos "data" <*> pDataIdent <*> pList_gr pCon <* pEnd <?> "data"
+pData = Data_Data <$> pKeyPos "data" <*> pDataIdent <*> pList_gr pCon <*> pList_gr pExt <* pEnd <?> "data"
+
+pExt :: AgParser Ext
+pExt = Ext_Ext <$ pKeyPos "ext" <*> pExtIdent <?> "ext"
 
 pCon :: AgParser Con
 pCon = Con_Con <$> pKeyPos "con" <*> pConstrIdent <*> pList_gr pField <?> "con"
@@ -103,7 +107,9 @@ pDataSem
   = DataSem_Sem <$> pKeyPos "datasem"
                 <*> pIdentItf
                 <*> opt (pKey "monad" *> (Just <$> pTextln <* pEnd <?> "monad type")) Nothing
-                <*> (ClausesTop_Top <$> pList_gr pClause)
+                <*> opt (True <$ pKey "cyclic") False
+                <*> pList_gr pStmt
+                <*> (ClausesTop_Impl <$> pList_gr pClause)
                 <*  pEnd <?> "data sem"
 
 pItem :: AgParser Item
@@ -134,13 +140,20 @@ pItem
 
 pSemVisit :: AgParser SemVisit
 pSemVisit
-  = opt ( (\pos nm cyclic chns stmts clauses ->
-             SemVisit_Prependable pos nm (SemVisit_Visit pos nm cyclic chns stmts clauses))
+  = opt ( ((\pos nm cyclic chns stmts clauses ->
+              SemVisit_Prependable pos nm (SemVisit_Visit pos nm cyclic chns stmts clauses))
                          <$> pKeyPos "visit" <*> pIdentVisit <*> opt (True <$ pKey "cyclic") False
                          <*> pList_gr pChn <*> pList_gr pStmt
-                         <*> (ClausesTop_Top <$> pList_gr pClause)
+                         <*> (ClausesTop_Impl <$> pList_gr pClause)
                          <* pEnd
-                         <?> "visit"
+                         <?> "visit")
+          <|> ((\pos nm cyclic stmts clauses ->
+               SemVisit_Internal pos nm cyclic stmts clauses)
+                          <$> pKeyPos "internal" <*> pIdentVisit <*> opt (True <$ pKey "cyclic") False
+                          <*> pList_gr pStmt
+                          <*> (ClausesTop_Impl <$> pList_gr pClause)
+                          <* pEnd
+                          <?> "internal visit")
         ) SemVisit_Impl
 
 pChn :: AgParser VisitAttr
@@ -162,8 +175,8 @@ pStmt
                     <* pKey ":" <*> pIdentItf <*> pMaybeBoundCode <?> "attach stmt" )
   <|> ((\p -> Stmt_Attach p Nothing) <$> pKeyPos "child" <*> pIdentChild
                                      <* pKey ":" <*> pIdentItf <*> pMaybeBoundCode <?> "child stmt")
-  <|> ( Stmt_Default True  <$> pKeyPos "default" <*> pVarIdent <*> pMaybeBoundCode <?> "default stmt" )
-  <|> ( Stmt_Default False <$> pKeyPos "default1" <*> pVarIdent <*> pMaybeBoundCode <?> "default1 stmt")
+  <|> ( Stmt_Default True  <$> pKeyPos "default?" <*> pVarIdent <*> pMaybeBoundCode <?> "default stmt" )
+  <|> ( Stmt_Default False <$> (pKeyPos "default" <|> pKeyPos "default1") <*> pVarIdent <*> pMaybeBoundCode <?> "default1 stmt")
   <?> "statement"
 
 pMbChild :: AgParser (Maybe Ident)

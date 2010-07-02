@@ -108,13 +108,10 @@ compareNames [] [] = EQ
 compareNames [] _  = GT
 compareNames _  [] = LT
 compareNames (x:xs) (y:ys)
-  = case compare (line $ identPos x) (line $ identPos y) of
+  = case compare x y of
       LT -> GT
       GT -> LT
-      EQ -> case compare x y of
-              LT -> GT
-              GT -> LT
-              EQ -> compareNames xs ys
+      EQ -> compareNames xs ys
 
 -- Dependency reasons
 data Reason = ReasonScopeVisit !Ident
@@ -127,5 +124,6 @@ data Reason = ReasonScopeVisit !Ident
             | ReasonDefault !Ident
             | ReasonDetach !Ident !Ident
             | ReasonSink
+            | ReasonAlloc
             | ReasonError
   deriving (Eq,Ord,Show)

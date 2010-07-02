@@ -51,9 +51,16 @@ DATA Attr
 
 DATA Data
   | Data
-      pos  : Pos
-      name : Ident
-      cons : Cons
+      pos    : Pos
+      name   : Ident
+      cons   : Cons
+      exts   : Exts
+
+TYPE Exts = [Ext]
+
+DATA Ext
+  | Ext
+      name   : Ident
 
 TYPE Cons = [Con]
 
@@ -90,6 +97,8 @@ DATA DataSem
       pos     : Pos
       tp      : Ident
       mbMonad : {Maybe String}
+      cyclic  : Bool
+      stmts   : {Stmts}
       clauses : ClausesTop
 
 TYPE SemCons = [SemCon]
@@ -172,6 +181,12 @@ DATA SemVisit
       attrs    : VisitAttrs
       stmts    : Stmts
       clauses  : ClausesTop
+  | Internal
+      pos      : Pos
+      name     : Ident
+      cyclic   : Bool
+      stmts    : Stmts
+      clauses  : ClausesTop
   | Impl
   | Prependable  -- maybe prepended by other visits
       pos      : Pos
@@ -189,6 +204,8 @@ DATA VisitAttr
 DATA ClausesTop
   | Top
       clauses : Clauses
+  | Impl
+      clauses : {Clauses}
 
 TYPE Clauses = [Clause]
 

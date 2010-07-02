@@ -2,9 +2,6 @@
 -- Based on the AST of AstAG.ag
 -- Generates code for Haskell
 
--- Todo: compute for each stmt the "destination visit"
--- and determine from there if a visit is cyclic (or not)
-
 SEM Program | Program
   +pp = if genHaskell @lhs.opts
         then (@loc.hpp >-<)
@@ -94,6 +91,7 @@ SEM Itf
 
 SEM ItfVisit
   | Visit    lhs.hpp      = empty
+             loc.hCtx     = "(Monad m) => "
              loc.hMonad   = if @cyclic then empty else text "m"
              loc.hConNm   = text $ hItfVsNm @loc.itfNm @name
              loc.hCoConNm = text $ hCoItfVsNm @loc.itfNm @name
@@ -102,17 +100,21 @@ SEM ItfVisit
                                                >#< "::" >#< "!" >|< pp_parens (hItfVsNm @loc.itfNm nm >#< "m")]) @lhs.mbNextVisit
              loc.hArrTp   = hInhDt @loc.itfNm @name >#< "m" >#< "->" >#< @loc.hMonad >#< pp_parens (hSynDt @loc.itfNm @name >#< "m")
              loc.hCoArrTp = hCoInhDt @loc.itfNm @name >#< "m" >#< "->" >#< @loc.hMonad >#< pp_parens (hCoSynDt @loc.itfNm @name >#< "m")
-             +hpp = ("newtype" >#< @loc.hConNm >#< "m" >#< "=" >#< @loc.hConNm >#< pp_parens @loc.hArrTp) >-<
-             +hpp = ("newtype" >#< @loc.hCoConNm >#< "m" >#< "=" >#< @loc.hCoConNm >#< pp_parens @loc.hCoArrTp) >-<
-             +hpp = ("data" >#< hInhDt @loc.itfNm @name >#< "m" >#< "=" >#< hInhDt @loc.itfNm @name
+             +hpp = ("newtype" >#< @loc.hCtx >#< @loc.hConNm >#< "m" >#< "=" >#< @loc.hConNm >#< pp_parens @loc.hArrTp) >-<
+             +hpp = ("newtype" >#< @loc.hCtx >#< @loc.hCoConNm >#< "m" >#< "=" >#< @loc.hCoConNm >#< pp_parens @loc.hCoArrTp) >-<
+             +hpp = ("data" >#< @loc.hCtx
+                            >#< hInhDt @loc.itfNm @name >#< "m" >#< "=" >#< hInhDt @loc.itfNm @name
                             >#< pp_block "{" "}" "," @attrs.hInhDeclPPs) >-<
-             +hpp = ("data" >#< hSynDt @loc.itfNm @name >#< "m" >#< "=" >#< hSynDt @loc.itfNm @name
+             +hpp = ("data" >#< @loc.hCtx
+                            >#< hSynDt @loc.itfNm @name >#< "m" >#< "=" >#< hSynDt @loc.itfNm @name
                             >#< pp_block "{" "}" "," (@loc.hRepFld ++ @loc.hNextFld ++ @attrs.hSynDeclPPs)
                             ) >-<
-             +hpp = ("data" >#< hCoInhDt @loc.itfNm @name >#< "m" >#< "=" >#< hCoInhDt @loc.itfNm @name
-                             >#< pp_block "{" "}" "," @attrs.hCoInhDeclPPs) >-<
-             +hpp = ("data" >#< hCoSynDt @loc.itfNm @name >#< "m" >#< "=" >#< hCoSynDt @loc.itfNm @name
-                             >#< pp_block "{" "}" "," (
+             +hpp = ("data" >#< @loc.hCtx
+                            >#< hCoInhDt @loc.itfNm @name >#< "m" >#< "=" >#< hCoInhDt @loc.itfNm @name
+                            >#< pp_block "{" "}" "," @attrs.hCoInhDeclPPs) >-<
+             +hpp = ("data" >#< @loc.hCtx
+                            >#< hCoSynDt @loc.itfNm @name >#< "m" >#< "=" >#< hCoSynDt @loc.itfNm @name
+                            >#< pp_block "{" "}" "," (
                                   (hCoSynFldNmFull repIdent @loc.itfNm @name >#< "::" >#< "!" >|< pp_parens (@loc.hCoConNm >#< "m"))
                                   : @attrs.hCoSynDeclPPs)
                              ) >-<
@@ -160,7 +162,10 @@ stripSpacing = pp_block "(" ")" " " . map text . lines
 }
 
 SEM Data | Data
-  lhs.hpp = "data" >#< hDtNm @name >-< indent 2 (vlist @cons.hpps)
+  lhs.hpp   = "data" >#< hDtNm @name >-< indent 2 (vlist @cons.hpps) >-< indent 2 @loc.hExts
+  loc.hExts = if Set.null @exts.gathExts
+              then empty
+              else "deriving" >#< pp_block "(" ")" "," [ text (show i) | i <- Set.toList @exts.gathExts ]
 
 SEM Con | Con
   loc.prefix = if @lhs.isFirst then "= " else "| "
@@ -275,6 +280,8 @@ SEM SemVisit
                              >-< "in" >#< hItfVsNm @loc.itfNm @name >#<
                                    pp_parens (hVis @name >#< @loc.hChildren >#< @loc.hChnsOut)
                            )
+  | Internal     lhs.hpp = hppStmtBlock @loc.hGroupedStmts
+                           >-< @clauses.hpp
   | End          lhs.hpp = if @lhs.fullCyclic
                            then vlist @loc.hGroupedStmts  -- assume these end up in a let-block or do-block
                            else hppStmtBlock @loc.hGroupedStmts
@@ -322,16 +329,18 @@ SEM Clause
                                 >-< "in" >#< @loc.hResVal
                            else "do" >#< (
                                  hppStmtBlock @loc.hGroupedStmts
-                                 >-< vlist (map ("let" >#<) @loc.hVisLocs)
-                                 >-< "let" >#< ( "!" >|< @loc.hRestart
-                                       >-< case @next.mbNextVisit of
-                                             Nothing -> empty
-                                             Just _  -> "!" >|< "_visNext" >#< "=" >#< @next.hpp
-                                     )
-                                 >-< case @next.mbNextVisit of
-                                       Nothing -> @next.hpp
-                                       Just _  -> empty
-                                 >-< "return" >#< @loc.hResVal
+                                 >-< if @loc.isDeepest
+                                     then vlist (map ("let" >#<) @loc.hVisLocs)
+                                           >-< "let" >#< ( "!" >|< @loc.hRestart
+                                                 >-< case @next.mbNextVisit of
+                                                       Nothing -> empty
+                                                       Just _  -> "!" >|< "_visNext" >#< "=" >#< @next.hpp
+                                               )
+                                           >-< case @next.mbNextVisit of
+                                                 Nothing -> @next.hpp
+                                                 Just _  -> empty
+                                           >-< "return" >#< @loc.hResVal
+                                     else @next.hpp  -- continue with the deeper clauses
                                )
 
 {
@@ -345,29 +354,35 @@ hParensWithPos opts pos doc
 }
 
 SEM Stmt
-  | Eval         lhs.hpp = hWrapLinePragma @lhs.opts @loc.pos $
+  | Eval         loc.infoComment = "-- eval stmt:" >#< show (line @loc.pos) >#< ", rank:" >#< @loc.rank
+                                     >#< ", dest: " >#< show @loc.destVisit
+                 lhs.hpp = hWrapLinePragma @lhs.opts @loc.pos $
                            if @loc.isCyclic
-                           then ppBind @loc.isCyclic @pat.hpp @code.hpp >#< "-- rank:" >#< show @loc.rank
+                           then ppBindPos @lhs.opts @loc.pos @loc.isCyclic @pat.hpp @code.hpp >#< "-- rank:" >#< show @loc.rank
                            else if @mode.isMatch
-                                then ppBind False @pat.hpp (hppWrapRet @code.isFun @code.hpp)
-                                            >#< "-- rank:" >#< show @loc.rank
-                                else ppBind False ("!" >|< "__fresh") (hppWrapRet @code.isFun @code.hpp)
-                                     >-< "let" >#< pp_parens @pat.hpp >#< "= __fresh" >#< "-- rank:" >#< show @loc.rank
-  | Attach       lhs.hpp = ppBind @loc.isCyclic (hSemNm @name @loc.visit) @loc.hRhsCode
+                                then ppBindPos @lhs.opts @loc.pos False @pat.hpp (hppWrapRet @code.isFun @code.hpp)
+                                            >#< @loc.infoComment
+                                else ppBindPos @lhs.opts @loc.pos False ("!" >|< "__fresh") (hppWrapRet @code.isFun @code.hpp)
+                                     >-< "let" >#< pp_parens @pat.hpp >#< "= __fresh" >#< @loc.infoComment
+  | Attach       loc.infoComment = "-- attach stmt:" >#< show (line @pos) >#< ", rank:" >#< @loc.rank
+                 lhs.hpp = ppBind @loc.isCyclic (hSemNm @name @loc.visit) @loc.hRhsCode >#< @loc.infoComment
                  loc.hRhsCode = if @code.isJust
                                 then hppWrapRet @code.isFun @code.hpp
                                 else "return" >#< pp_parens (text $ hDtSemNm @type)
-  | Invoke       loc.hBang = if @loc.behaveCyclic then empty else text "!"
+  | Invoke       loc.infoComment = "-- invoke stmt:" >#< show (line @pos) >#< ", rank:" >#< @loc.rank
+                 loc.hBang = if @loc.behaveCyclic then empty else text "!"
                  lhs.hpp   = (if @loc.isCyclic
                               then vlist (concat @loc.hGroupedStmts)
                               else hppStmtBlock @loc.hGroupedStmts)
                              >-< if @code.isJust
-                                 then ppBind @loc.isCyclic @loc.hPat ("let" >#< @loc.hIter >-< "in" >#< @loc.hRhs)
+                                 then ppBind @loc.isCyclic @loc.hPat ("let" >#< @loc.hIter >-< "in" >#< @loc.hRhs) >#< @loc.infoComment
                                  else ppBind @loc.isCyclic (@loc.hBang >|< @loc.hPat)
+                                           ((\p -> if not @loc.isCyclic && @loc.behaveCyclic then "return" >#< pp_parens p else p) (
                                              ("let" >#< @loc.hBang >|< pp_parens (hItfVsNm @loc.unqualChildItf @visit
                                                                                     >#< "!" >|< "__f")
                                                     >#< "=" >#< hSemNm @name @visit
-                                              >-< "in" >#< "__f" >#< @loc.hfInps)
+                                              >-< "in" >#< "__f" >#< @loc.hfInps)))
+                                        >#< @loc.infoComment
                  loc.hRhsCode = if @code.isJust
                                 then @code.hpp
                                 else "return" >#< pp_parens ("mk" >|< noIterNm @loc.unqualChildItf @visit)
@@ -407,11 +422,12 @@ SEM Stmt
                                  [ hSynFldNm nm @loc.unqualChildItf @visit >#< "=" >#< hInp @name nm
                                  | (nm,_) <- Map.assocs @loc.synAttrMap ]
                              ))
-  | Default      lhs.hpp = if @loc.isCyclic
-                           then ppBind True (text $ hDfltNm @name @loc.codeId) @mbCode.hpp
+  | Default      loc.infoComment = "-- default stmt:" >#< show (line @pos) >#< ", rank:" >#< @loc.rank
+                 lhs.hpp = if @loc.isCyclic
+                           then ppBind True (text $ hDfltNm @name @loc.codeId) @mbCode.hpp >#< @loc.infoComment
                            else if @mbCode.isJust
-                                then ppBind @loc.isCyclic ("!" >|< "__fresh") @mbCode.hpp
-                                       >-< "let" >#< pp_parens (text $ hDfltNm @name @loc.codeId) >#< "= __fresh"
+                                then ppBindPos @lhs.opts @pos False ("!" >|< "__fresh") (hppWrapRet @mbCode.isFun @mbCode.hpp)
+                                       >-< "let" >#< pp_parens (text $ hDfltNm @name @loc.codeId) >#< "= __fresh" >#< @loc.infoComment
                                 else empty
 
 SEM ImplStmt
@@ -422,9 +438,11 @@ SEM ImplStmt
                      else hppStmtBlock @loc.hGroupedStmts)
                    >-< ppBind @loc.isCyclic
                               (@loc.hBang >|< @loc.hPat)
-                              ("let" >#< @loc.hBang >|< pp_parens (hItfVsNm @itf @visit >#< "!" >|< "__f")
+                              ((\p -> if not @loc.isCyclic && @loc.behaveCyclic then "return" >#< pp_parens p else p) (
+                              "let" >#< @loc.hBang >|< pp_parens (hItfVsNm @itf @visit >#< "!" >|< "__f")
                                      >#< "=" >#< hSemNm @child @visit
-                               >-< "in" >#< "__f" >#< @loc.hfInps) >#< "-- implicit invoke: " >#< show @child >|< "." >|< show @visit
+                               >-< "in" >#< "__f" >#< @loc.hfInps))
+                         >#< "-- implicit invoke: " >#< show @child >|< "." >|< show @visit
        loc.hfInps = pp_parens (hInhDt @itf @visit >#< pp_block "{" "}" ","
                       [ hInhFldNm nm @itf @visit >#< "=" >#<
                           hParensWithPos @lhs.opts @pos (hOutp @child nm)
@@ -438,10 +456,10 @@ SEM ImplStmt
                    ))
   
   | DefaultChild
-      lhs.hpp = @loc.hPrefix >#< hParensWithPos @lhs.opts @pos (hOutp @child @name)
+      lhs.hpp = @loc.hPrefix >|< hParensWithPos @lhs.opts @pos (hOutp @child @name)
                 >#< "=" >#< pp_parens @loc.hApp >#< "-- default rule for inh: " >#< show @child >|< "." >|< show @name
   | DefaultSyn
-      lhs.hpp = @loc.hPrefix >#< hParensWithPos @lhs.opts @pos (hOutp lhsIdent @name)
+      lhs.hpp = @loc.hPrefix >|< hParensWithPos @lhs.opts @pos (hOutp lhsIdent @name)
                 >#< "=" >#< pp_parens @loc.hApp >#< "-- default rule for syn: " >#< show lhsIdent >|< "." >|< show @name
 
   | DefaultChild DefaultSyn
@@ -462,6 +480,11 @@ SEM ImplStmt
 ppBind :: (PP a, PP b) => Bool -> a -> b -> PP_Doc
 ppBind True  pat expr = pp_parens (pp pat) >#< "="  >-< indent 2 (pp_parens (pp expr))
 ppBind False pat expr = pp_parens (pp pat) >#< "<-" >-< indent 2 (pp_parens (pp expr))
+
+ppBindPos :: (PP a, PP b) => Opts -> Pos -> Bool -> a -> b -> PP_Doc
+-- ppBindPos _ _ = ppBind
+ppBindPos opts pos True pat expr  = hWrapLinePragma opts pos (pp pat) >#< "="  >-< indent 2 (hWrapLinePragma opts pos (pp expr))
+ppBindPos opts pos False pat expr = hWrapLinePragma opts pos (pp pat) >#< "<-" >-< indent 2 (hWrapLinePragma opts pos (pp expr))
 
 hppWrapRet :: PP a => Bool -> a -> PP_Doc
 hppWrapRet True d  = "return" >#< pp_parens (pp d)
@@ -488,7 +511,7 @@ SEM Pat
   | List         lhs.hpp = @loc.hBang >|< pp_block "[" "]" "," @pats.hpps
   | Cons         lhs.hpp = @loc.hBang >|< pp_parens (@hd.hpp >#< ":" >#< pp_parens @tl.hpp)
   | Underscore   lhs.hpp = @loc.hBang >|< text "_"
-  | *            loc.hBang = if @lhs.isOnCycle then empty else text "!"
+  | *            loc.hBang = if @lhs.isCyclic then empty else text "!"
 
 SEM ExprField | Field
   lhs.hopp = (@loc.fieldIndex, pp_parens @code.hpp)
@@ -532,7 +555,7 @@ SEM Pats
 ATTR AllFinal [ hSpilledStmts : {[(Int,PP_Doc)]} | | ]
 SEM Program | Program  blocks.hSpilledStmts = []
 
-SEM SemVisit | Visit
+SEM SemVisit | Visit Internal
   (loc.hoStmts, clauses.hSpilledStmts) = partition (rankIsLower @clauses.minRank)
                                            (@lhs.hSpilledStmts ++ @impls.hopps ++ @stmts.hopps)
   loc.hGroupedStmts = groupPairs @loc.hoStmts
