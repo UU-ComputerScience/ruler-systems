@@ -13,6 +13,8 @@ import Data.Sequence(Seq)
 import qualified Data.Sequence as Seq
 import Data.Map(Map)
 import qualified Data.Map as Map
+import Data.IntMap(IntMap)
+import qualified Data.IntMap as IntMap
 import Data.Set(Set)
 import qualified Data.Set as Set
 import Env
@@ -25,6 +27,7 @@ import Data.Maybe
 import Data.Char
 import Data.Graph
 import Data.Foldable(toList)
+import DepAnalysis
 }
 
 
@@ -42,7 +45,8 @@ transform pos opts prog
                      , errs1_Syn_Program syn
                      , errs2_Syn_Program syn
                      , errs3_Syn_Program syn
-                     , errs4_Syn_Program syn ]
+                     , errs4_Syn_Program syn
+                     , errs5_Syn_Program syn ]
     
     resPretty = pretty_Syn_Program syn
     txtPretty = disp resPretty 999999 ""
@@ -94,8 +98,8 @@ SET AllVisitClauses = SemVisit ClausesTop Clauses Clause
 SET AllFinal = AllCodeBlocks ImplStmts ImplStmt
 SET AllVisFinal = AllVisitClauses ImplStmts ImplStmt Stmts Stmt Pats Pat AttrTypePat AttrTypeCode
 
-ATTR Program AllCodeBlocks Data Cons Con [ | | errs0,errs1,errs2,errs3,errs4 USE {Seq.><} {Seq.empty} : Errs ]
-ATTR ImplStmts ImplStmt [ | | errs2, errs3, errs4 USE {Seq.><} {Seq.empty} : Errs ]
+ATTR Program AllCodeBlocks Data Cons Con [ | | errs0,errs1,errs2,errs3,errs4,errs5 USE {Seq.><} {Seq.empty} : Errs ]
+ATTR ImplStmts ImplStmt [ | | errs2,errs3,errs4,errs5 USE {Seq.><} {Seq.empty} : Errs ]
 
 SEM Program
   | Program  +errs0 = addDefErrs @blocks.gathItfs
@@ -251,7 +255,7 @@ SEM Item
 SEM Clause
   | Clause  +gathClauses = extend (@name : @lhs.nonterm) ()
 
-ATTR Clauses Clause [ | | gathClauseNames USE {`Set.union`} {Set.empty} : {Set Ident} ]
+ATTR ClausesTop Clauses Clause [ | | gathClauseNames USE {`Set.union`} {Set.empty} : {Set Ident} ]
 SEM Clause | Clause  lhs.gathClauseNames = Set.singleton @name
 
 ATTR BlocksTop Blocks Block DataSem [ | gathDataSems : DataSemEnv | ]
@@ -379,8 +383,8 @@ ATTR ImplStmts ImplStmt [ distVisits : VisitEnv | | ]
 SEM Program
   | Program  blocks.distVisits = @blocks.gathVisits
 
-SEM SemVisit
-  | Visit  +distVisits = snd . find (@name : @lhs.itf) ()
+SEM SemVisit | Visit
+  +distVisits = snd . find (@name : @lhs.itf) ()
 
 SEM Stmt
   | Invoke  loc.unqualChildItf = head @loc.childItf
@@ -580,7 +584,7 @@ SEM SemField | Field
 --
 
 SEM ClausesTop | Top
-  +errs2 = if Map.null @lhs.clauseExtras
+  +errs0 = if Map.null @lhs.clauseExtras
            then id
            else let reqKeys = Map.keysSet @lhs.clauseExtras
                     impKeys = @clauses.gathClauseNames
@@ -619,7 +623,7 @@ SEM AttrTypePat | Child   loc.visitOrder     = Map.findWithDefault [] @lhs.child
 SEM AttrTypeCode | Child  loc.visitOrder     = Map.findWithDefault [] @lhs.childItf @lhs.distVisitOrder
 
 SEM DataSem | Sem      loc.visits            = Map.findWithDefault [] @tp @lhs.distVisitOrder
-                       loc.nextVisits        = tail @loc.visits
+                       loc.nextVisits        = @loc.visits
                        loc.firstVisit        = case @loc.visits of
                                                  []    -> Ident "unknown" @pos
                                                  (x:_) -> x
@@ -629,71 +633,71 @@ SEM Item | Sem         loc.doneVisits    = []
          | CoSem       loc.doneVisits    = []
 SEM DataSem | Sem      loc.doneVisits    = []
 
-SEM SemVisit | Visit  loc.doneVisits = @name : @lhs.doneVisits
+SEM SemVisit | Visit  loc.doneVisits = @name : @lhs.doneVisits  -- visits of the interface done
 
 -- Insert empty visits to match the visits actually in the AST
 SEM SemVisit
   | Visit  loc.unqualItf = head @lhs.itf
            loc.itfVisits = Map.findWithDefault [] @loc.unqualItf @lhs.distVisitOrder
-           (loc.sequenceErrs, clauses.nextVisits) = checkVisitSequence @name @lhs.nextVisits
-           +errs1 = if not (@name `elem` @loc.itfVisits)
+           (loc.sequenceErrs, clauses.nextVisits) = checkVisitSequence @pos @name @lhs.nextVisits
+           +errs0 = if not (@name `elem` @loc.itfVisits)
                     then (Err_UndeclVisit @pos @name @loc.unqualItf Seq.<|)
                     else (@loc.sequenceErrs Seq.><)
+  | Internal  -- don't eat any of the expected visits
+           loc.name      = Ident (show @name ++ "_int" ++ show @loc.lexOrder) (identPos @name)
+           loc.unqualItf = head @lhs.itf
   | Impl   inst.actual : SemVisit
-           inst.actual = prependEmptyVisits @lhs.basename Nothing SemVisit_End @lhs.nextVisits
+           inst.actual = prependEmptyVisits @lhs.basename @lhs.masterPos SemVisit_End @lhs.nextVisits
   | Prependable
-           loc.missingVisits   = takeWhile (/= @name) @lhs.nextVisits
+           loc.missingVisits   = if elem @name @lhs.nextVisits
+                                 then takeWhile (/= @name) @lhs.nextVisits
+                                 else []
            loc.remainingVisits = drop (length @loc.missingVisits) @lhs.nextVisits
            inst.visits : SemVisit
            inst.visits = if null @loc.remainingVisits || @name `elem` @lhs.doneVisits
                          then SemVisit_End
-                         else prependEmptyVisits @lhs.basename (Just @pos) @actual @loc.missingVisits
-           visits.nextVisits = @loc.remainingVisits
-           +errs1 = if null @loc.remainingVisits && not (null @lhs.nextVisits)
-                    then (Err_ExpVisit @name (head @lhs.nextVisits) Seq.<|)
+                         else prependEmptyVisits @lhs.basename @pos @actual @loc.missingVisits
+           +errs0 = if null @loc.remainingVisits && not (null @lhs.nextVisits)
+                    then (Err_ExpVisit @pos @name (head @lhs.nextVisits) Seq.<|)
                     else if @name `elem` @lhs.doneVisits
                          then (Err_Dup [@name] Seq.<|)
                          else id
-  | End    +errs1 = (if null @lhs.nextVisits then Seq.empty else Seq.singleton (Err_VisitsNotImpl @lhs.nonterm @lhs.nextVisits)) Seq.><
+  | End    +errs0 = (if null @lhs.nextVisits then Seq.empty else Seq.singleton (Err_VisitsNotImpl @lhs.nonterm @lhs.nextVisits)) Seq.><
+
+ATTR AllVisitClauses [ masterPos : Pos | | ]
+SEM Item | Sem CoSem           first.masterPos   = @pos
+SEM DataSem | Sem              clauses.masterPos = @pos
+SEM SemVisit | Visit Internal  loc.masterPos     = @pos
+SEM Clause | Clause            loc.masterPos     = @pos
 
 {
 prependEmptyVisits _ _ t [] = t
-prependEmptyVisits basename mbPos t (v:vs)
-  = let pos = maybe (identPos v) id mbPos
-    in SemVisit_Visit pos v False [] [] (ClausesTop_Top [Clause_Clause pos (mkClauseName v basename) []
-         (prependEmptyVisits basename mbPos t vs) ])
+prependEmptyVisits basename pos t (v:vs)
+  = SemVisit_Visit pos v False [] [] (ClausesTop_Top [Clause_Clause pos (mkClauseName pos v basename) []
+      (prependEmptyVisits basename pos t vs) ])
 
-mkClauseName :: Ident -> QIdent -> Ident
-mkClauseName v vs
-  = Ident (show v ++ concatMap (\v' -> "_" ++ show v') vs) (identPos v)
-}
+mkClauseName :: Pos -> Ident -> QIdent -> Ident
+mkClauseName pos v vs
+  = Ident (show v ++ concatMap (\v' -> "_" ++ show v') vs) pos
 
-{
-checkVisitSequence :: Ident -> [Ident] -> (Errs, [Ident])
-checkVisitSequence _ [] = (Seq.empty, [])  -- dont report more errors if already erroneous
-checkVisitSequence nm (nm' : nms)
+checkVisitSequence :: Pos -> Ident -> [Ident] -> (Errs, [Ident])
+checkVisitSequence _ _ [] = (Seq.empty, [])  -- dont report more errors if already erroneous
+checkVisitSequence pos nm (nm' : nms)
   | nm == nm' = (Seq.empty, nms)
-  | otherwise = (Seq.singleton $ Err_ExpVisit nm nm', [])  -- mismatch
+  | otherwise = (Seq.singleton $ Err_ExpVisit pos nm nm', [])  -- mismatch
 }
 
+-- insert dummy clause if no clauses were given
+SEM ClausesTop
+  | Impl
+      loc.pos  = @lhs.masterPos
+      loc.name = mkClauseName @loc.pos (Ident "impl" @loc.pos) @lhs.basename
+  
+      inst.actual : ClausesTop
+      inst.actual = if null @clauses
+                    then ClausesTop_Top [Clause_Clause @loc.pos @loc.name [] SemVisit_Impl ]
+                    else ClausesTop_Top @clauses
 
---
--- Compute from bottom to top: the set of possible child visit sequences.
--- For each attach: check if all of these are a prefix of the range attached.
--- Todo: remove
-
-ATTR SemVisit ClausesTop Clauses Clause Stmts Stmt [ | | gathChildSeqs USE {`unionWithPlusplus`} {Map.empty} : {Map Ident [[Ident]]} ]
-
-SEM Stmt | Invoke     lhs.gathChildSeqs = Map.singleton @name [[@visit]]
-SEM Stmts | Cons      loc.gathChildSeqs = unionWithSequential @hd.gathChildSeqs @tl.gathChildSeqs
-SEM Clause | Clause   loc.gathChildSeqs = unionWithSequential @stmts.gathChildSeqs @next.gathChildSeqs
-SEM Clauses | Cons    lhs.gathChildSeqs = if @tl.isNil then @hd.gathChildSeqs else unionWithParallel @hd.gathChildSeqs @tl.gathChildSeqs
-SEM SemVisit | Visit  lhs.gathChildSeqs = unionWithSequential @stmts.gathChildSeqs @clauses.gathChildSeqs
-
-ATTR Clauses [ | | isNil : Bool ]
-SEM Clauses
-  | Nil   lhs.isNil = True
-  | Cons  lhs.isNil = False
 
 {
 unionWithPlusplus :: Ord k => Map k [v] -> Map k [v] -> Map k [v]
@@ -711,49 +715,9 @@ unionWithUnion :: (Ord k, Monoid v) => Map k v -> Map k v -> Map k v
 unionWithUnion = Map.unionWith mappend
 }
 
-ATTR AllCodeBlocks ImplStmts ImplStmt [ allChildSeqs : {Map Ident [[Ident]]} | | ]
-ATTR Stmt Pats Pat AttrTypePat [ distChildSeqs : {Map Ident [[Ident]]} | | ]
-
-SEM Program | Program  blocks.allChildSeqs = Map.empty
-
-SEM Stmts | Cons  hd.distChildSeqs = @loc.gathChildSeqs
-                  hd.allChildSeqs  = @loc.gathChildSeqs `Map.union` @lhs.allChildSeqs
-
-SEM Stmt
-  | Attach  loc.allowedVisits = dropWhile (/= @loc.visit) @loc.childVisits
-            loc.sequences = Map.findWithDefault [[]] @name @lhs.distChildSeqs
---            +errs2 = Seq.fromList [ mkExpVisitErr s @loc.allowedVisits
---                                  | s <- @loc.sequences, not (isPrefixOf s @loc.allowedVisits)] Seq.><
-
-{
-mkExpVisitErr (x : _) [] = Err_ExpVisit x (Ident "no visit" (identPos x))
-mkExpVisitErr [] (y : _) = Err_ExpVisit (Ident "no visit" (identPos y)) y
-mkExpVisitErr (x : xs) (y : ys)
-  | x == y    = mkExpVisitErr xs ys
-  | otherwise = Err_ExpVisit x y
-}
-
---
--- Compute from top to bottom: visits that have been invoked on children
--- Used to compute if the detach is the "next" visit of all visits invoked
--- so far
--- Todo: remove
-
-ATTR AllCodeBlocks ImplStmts ImplStmt [ gathInvokedVisits : {Map Ident [Ident]} | | ]
-
-SEM Program | Program  blocks.gathInvokedVisits = Map.empty
-
-ATTR Stmt [ | | gathInvokedVisits : {Map Ident [Ident]} ]
-
-SEM Stmt | Invoke  +gathInvokedVisits = Map.insertWith (++) @name [@visit]
-
 SEM Item
-  | Detach  loc.invoked = Map.findWithDefault [] @name @lhs.gathInvokedVisits
-            loc.unqualChildItf = head @loc.childItf
+  | Detach  loc.unqualChildItf = head @loc.childItf
             loc.childVisits = Map.findWithDefault [] @loc.unqualChildItf @lhs.distVisitOrder
---            loc.visit' = nextAfterInvoked @loc.invoked @loc.childVisits
---            +errs2 = ( if @visit == @loc.visit'
---                       then Seq.empty else Seq.singleton (Err_UndetachVisit @name @visit @visit')) Seq.><
 
 {
 nextAfterInvoked :: [Ident] -> [Ident] -> Ident
@@ -762,6 +726,33 @@ nextAfterInvoked (a:as) (b:bs)
   | otherwise = b
 }
 
+
+--
+-- Check if all visits are uniquely named
+--
+
+ATTR AllVisitClauses [ | gathVisitNames : {Env Ident ()} | ]
+SEM SemVisit | Visit Internal
+  +gathVisitNames = extend @name ()
+
+SEM Item | Sem CoSem  first.gathVisitNames = emptyEnv
+                      +errs0 = addDefErrs' @first.gathVisitNames
+SEM DataSem | Sem     clauses.gathVisitNames = emptyEnv
+                      +errs0 = addDefErrs' @clauses.gathVisitNames
+
+SEM Clauses | Cons
+      (hd.gathVisitNames, tl.gathVisitNames)    = split @lhs.gathVisitNames
+      (lhs.gathVisitNames, loc.gathLVisitNames) = merge @hd.gathVisitNames @tl.gathVisitNames
+      +errs1 = addDefErrs' @loc.gathLVisitNames
+
+ATTR SemVisit [ | | isInternal : Bool ]
+SEM SemVisit
+  | Visit     lhs.isInternal = False
+  | Internal  lhs.isInternal = True
+  | End       lhs.isInternal = False
+
+SEM Clause | Clause
+  loc.isDeepest = not @next.isInternal
 
 --
 -- Attribute information: all syn/inh attrs per nonterm and per visit
@@ -811,10 +802,10 @@ ATTR AllCodeBlocks ImplStmts ImplStmt [ directVisitAttrs : {Map Ident (Map Ident
 SEM SemVisit | Visit   +gathVisitAttrs = Map.insert @name @attrs.gathVisitLocalAttrs
 SEM VisitAttr | Chn    lhs.gathVisitLocalAttrs = Map.singleton @name @type
 SEM Program | Program  blocks.directVisitAttrs = Map.empty
-SEM Item | Sem CoSem   first.directVisitAttrs = @first.gathVisitAttrs
+SEM Item | Sem CoSem   first.directVisitAttrs  = @first.gathVisitAttrs
 
 ATTR AllCodeBlocks ImplStmts ImplStmt [ directVisitLocalAttrs : {Map Ident String} | | ]
-SEM Program | Program  blocks.directVisitLocalAttrs = Map.empty
+SEM Program | Program  blocks.directVisitLocalAttrs  = Map.empty
 SEM SemVisit | Visit   stmts.directVisitLocalAttrs   = @attrs.gathVisitLocalAttrs
                        clauses.directVisitLocalAttrs = @attrs.gathVisitLocalAttrs
 
@@ -965,6 +956,7 @@ SEM SemVisit | Visit
 
       +errs3 = addDefErrs'' @loc.localVisLocalDefs
       +errs3 = addUseErrs'' @loc.localVisLocalDefs'
+-- a SemVisit | Internal is just invisible in this case (treated as a nested tree of clauses)
 
 -- collect the local additions to compute the intersection of them
 ATTR Clauses [ | | gathDefsAdds, gathVisLocalDefsAdds : {[DefsEnv]} ]
@@ -983,38 +975,43 @@ SEM Clause | Clause
   lhs.gathDefs         = @impls.gathDefs
   lhs.gathVisLocalDefs = @next.gathVisLocalDefs  -- impls can't have gathVisLocalDefs
 
--- Add chn attrs of visit and check that they are defined by all clauses
+-- Add chn attrs of visit and check that they are defined when we enter the next visit
 SEM SemVisit | Visit
       loc.ldefs2 = Map.foldWithKey (\n t -> extend (replPos @pos visIdent,replPos @pos n,True) (Just t)) @loc.ldefs1 @attrs.gathVisitLocalAttrs
 
-ATTR ClausesTop Clauses Clause [ localAttrs : {Map Ident String} | | ]
-SEM SemVisit | Visit  clauses.localAttrs = @attrs.gathVisitLocalAttrs
+ATTR ClausesTop Clauses Clause SemVisit [ localAttrs : {Map Ident String} | | ]
+SEM Item | Sem CoSem  first.localAttrs   = Map.empty
+SEM DataSem | Sem     clauses.localAttrs = Map.empty
 
-SEM Clause | Clause
-  loc.missingLocalAttrMap = Map.filterWithKey (\n _ -> not $
-                              defined (replPos @pos visIdent,replPos @pos n,False) @next.distVisLocalDefs) @lhs.localAttrs
+SEM SemVisit | Visit  clauses.localAttrs = @attrs.gathVisitLocalAttrs  -- lhs.localAttrs thus refers to the local attrs of the parent
+
+SEM Clause | Clause  -- only when the clause is deepest.
+  loc.missingLocalAttrMap = if @loc.isDeepest
+                            then Map.filterWithKey (\n _ -> not $
+                                   defined (replPos @pos visIdent,replPos @pos n,False) @next.distVisLocalDefs) @lhs.localAttrs
+                            else Map.empty  -- no default rules, maybe in deeper clause
   loc.deflLocalAttrMap = @loc.missingLocalAttrMap
-  -- always use default rules for local attributes
-  -- (loc.deflLocalAttrMap, loc.undefLocalAttrMap) = Map.partitionWithKey (\n _ ->
-  --                                                  Map.member n @loc.distDeflStmts) @loc.missingLocalAttrMap
-  -- lhs.distVisLocalDefs = Map.foldWithKey (\n _ -> snd . find (replPos @pos visIdent,replPos @pos n,False) Nothing) @next.distVisLocalDefs @loc.undefLocalAttrMap
-  loc.deflLocalAttrs = Map.keys @loc.deflLocalAttrMap
+  loc.deflLocalAttrs   = Map.keys @loc.deflLocalAttrMap  -- always use default rules for local attributes
 
 -- Add inh attrs of visit and check that that the syns are defined in the end
 SEM SemVisit | Visit
   loc.inhAttrMap = Map.findWithDefault Map.empty @name (Map.findWithDefault Map.empty (head @lhs.itf) @lhs.distVisitInhAttrs)
   stmts.gathDefs =  Map.foldWithKey (\n t -> extend (replPos @pos lhsIdent,replPos @pos n,True) (Just t)) @lhs.gathDefs @loc.inhAttrMap
 
-ATTR ClausesTop Clauses Clause [ visit : Ident | | ]
-SEM SemVisit | Visit  clauses.visit = @name
+ATTR SemVisit ClausesTop Clauses Clause [ visit : Ident | | ]
+SEM Item | Sem CoSem  first.visit   = @name  -- some dummy value
+SEM DataSem | Sem     clauses.visit = @tp    -- some dummy value
+SEM SemVisit | Visit  clauses.visit = @name  -- internal visits are not passed as name
 
-SEM Clause | Clause
+SEM Clause | Clause  -- only when clause is deepest.
   loc.synAttrMap = Map.findWithDefault Map.empty @lhs.visit (Map.findWithDefault Map.empty (head @lhs.itf) @lhs.distVisitSynAttrs)
-  loc.missingAttrMap = Map.filterWithKey (\n _ -> not $ defined (replPos @pos lhsIdent,n,False) @lhs.distDefs) @loc.synAttrMap
+  loc.missingAttrMap = if @loc.isDeepest
+                       then Map.filterWithKey (\n _ -> not $ defined (replPos @pos lhsIdent,n,False) @lhs.distDefs) @loc.synAttrMap
+                       else Map.empty
   (loc.deflAttrMap, loc.undefAttrMap) = Map.partitionWithKey (\n _ -> Map.member n @loc.distDeflStmts) @loc.missingAttrMap
   lhs.distDefs = Map.foldWithKey (\n _ -> snd . find (replPos @pos lhsIdent,replPos @pos n,False) Nothing) @impls.distDefs @loc.undefAttrMap  -- bypass inst.dflts
   loc.deflAttrs = [ (a, Map.findWithDefault (False,Nothing) a @loc.distDeflStmts) | a <- Map.keys @loc.deflAttrMap ]
---  +errs1 = (debugMsg ("pos: " ++ show @pos ++ "\nall: " ++ show @lhs.distDefs ++ "\nundef: " ++ show @loc.undefAttrMap ++ "\ndefl: " ++ show @loc.deflAttrMap ++ "\ndefs: " ++ show @loc.distDeflStmts) Seq.><)
+  -- +errs1 = (debugMsg ("pos: " ++ show @pos ++ "\nall: " ++ show @lhs.distDefs ++ "\nundef: " ++ show @loc.undefAttrMap ++ "\ndefl: " ++ show @loc.deflAttrMap ++ "\ndefs: " ++ show @loc.distDeflStmts) Seq.><)
 
 SEM AttrTypePat
   | VisLocal   +gathVisLocalDefs = extend (@lhs.child, @lhs.name, False) Nothing
@@ -1077,7 +1074,7 @@ SEM Clause | Clause
                [ ImplStmt_Invoke @pos nm s (findChild nm @lhs.distChildDefs)
                | (nm,vs) <- Map.assocs @loc.implicitInvokes, s <- Set.toList vs ]
 
-SEM SemVisit | Visit
+SEM SemVisit | Visit Internal
   inst.impls : ImplStmts
   inst.impls = [ ImplStmt_Invoke @pos nm s (findChild nm @lhs.distChildDefs)
                | (nm,vs) <- Map.assocs @loc.implicitInvokes, s <- Set.toList vs ]
@@ -1168,8 +1165,8 @@ SEM Stmt | *
 SEM ImplStmt | *
   loc.lexOrder : UNIQUEREF lexCounter
 
-SEM Clause | Clause   loc.lexOrder : UNIQUEREF lexCounter
-SEM SemVisit | Visit  loc.lexOrder : UNIQUEREF lexCounter
+SEM Clause | Clause            loc.lexOrder : UNIQUEREF lexCounter
+SEM SemVisit | Visit Internal  loc.lexOrder : UNIQUEREF lexCounter
 
 {
 nextUnique :: Int -> (Int, Int)
@@ -1194,8 +1191,8 @@ SEM Program | Program  blocks.distChildOcc  = Map.empty
 SEM Item | Sem CoSem   first.distChildOcc   = Map.empty
 SEM DataSem | Sem      clauses.distChildOcc = Map.empty
 
-SEM SemVisit | Visit  loc.distChildOcc = @stmts.gathChildOcc `unionWithMin` @lhs.distChildOcc
-SEM Clause | Clause   loc.distChildOcc = @stmts.gathChildOcc `unionWithMin` @lhs.distChildOcc
+SEM SemVisit | Visit Internal  loc.distChildOcc = @stmts.gathChildOcc `unionWithMin` @lhs.distChildOcc
+SEM Clause | Clause            loc.distChildOcc = @stmts.gathChildOcc `unionWithMin` @lhs.distChildOcc
 
 --
 -- Define clauses of DataSem in terms of a visit
@@ -1203,7 +1200,7 @@ SEM Clause | Clause   loc.distChildOcc = @stmts.gathChildOcc `unionWithMin` @lhs
 
 SEM DataSem | Sem
   inst.clauses : T_SemVisit
-  inst.clauses = sem_SemVisit_Visit @pos @loc.firstVisit False (sem_VisitAttrs_Nil) (sem_Stmts_Nil)
+  inst.clauses = sem_SemVisit_Visit @pos @loc.firstVisit @cyclic (sem_VisitAttrs_Nil) (sem_Stmts @stmts)
 
 --
 -- Some useful properties
@@ -1230,18 +1227,21 @@ SEM ItfVisits
           lhs.mbNextVisit = Just @hd.firstVisit
   | Nil   lhs.mbNextVisit = Nothing
 
-SEM SemVisit | Visit  loc.itfNm = head @lhs.itf
-SEM Clause | Clause   loc.itfNm = head @lhs.itf
+SEM SemVisit | Visit Internal  loc.itfNm = head @lhs.itf
+SEM Clause | Clause            loc.itfNm = head @lhs.itf
 
 ATTR SemVisit [ | | mbNextVisit : {Maybe Ident} ]
 SEM SemVisit
-  | Visit  lhs.mbNextVisit = Just @name
-  | End    lhs.mbNextVisit = Nothing
+  | Visit Internal  lhs.mbNextVisit = Just @name
+  | End             lhs.mbNextVisit = Nothing
 
 ATTR MaybeBoundCode [ | | isJust : Bool ]
 SEM MaybeBoundCode
   | Just     lhs.isJust = True
   | Nothing  lhs.isJust = False
+
+ATTR Exts Ext [ | | gathExts USE {`Set.union`} {Set.empty} : {Set Ident} ]
+SEM Ext | Ext  lhs.gathExts = Set.singleton @name  
 
 {
 type AttrVisMap = Map Ident (Map (Bool,Ident) Ident)
@@ -1286,6 +1286,13 @@ SEM DataSem | Sem     loc.basename    = [@tp]
                       loc.semBasename = [@tp]
 SEM Clause | Clause   loc.basename    = @name : @lhs.basename
 
+-- within the context of a cosem or not
+ATTR AllVisitClauses [ withinCoSem : Bool | | ]
+
+SEM Item | Sem     first.withinCoSem   = False
+SEM Item | CoSem   first.withinCoSem   = True
+SEM DataSem | Sem  clauses.withinCoSem = False
+
 -- mode of a Mode
 ATTR Mode [ | | isMatch : Bool ]
 SEM Mode | Match   lhs.isMatch = True
@@ -1314,18 +1321,18 @@ SEM Type | Alias  type.pos  = @pos
 
 SEM AliasType
   | Prod   lhs.data = let mkFld i nm = Field_Field (Ident ("x" ++ show i) @lhs.pos) (FieldType_Nonterm nm)
-                      in Data_Data @lhs.pos @lhs.name [Con_Con @lhs.pos (Ident "Prod" @lhs.pos) (zipWith mkFld [1..] @fields) ]
+                      in Data_Data @lhs.pos @lhs.name [Con_Con @lhs.pos (Ident "Prod" @lhs.pos) (zipWith mkFld [1..] @fields) ] []
   | List   lhs.data = Data_Data @lhs.pos @lhs.name [ Con_Con @lhs.pos (Ident "Cons" @lhs.pos) 
                                                        [ Field_Field (Ident "hd" @lhs.pos) (FieldType_Nonterm @type)
                                                        , Field_Field (Ident "tl" @lhs.pos) (FieldType_Nonterm @lhs.name)
                                                        ]
                                                    , Con_Con @lhs.pos (Ident "Nil" @lhs.pos) []
-                                                   ]
+                                                   ] []
   | Maybe  lhs.data = Data_Data @lhs.pos @lhs.name [ Con_Con @lhs.pos (Ident "Just" @lhs.pos) 
                                                        [ Field_Field (Ident "just" @lhs.pos) (FieldType_Nonterm @type)
                                                        ]
                                                    , Con_Con @lhs.pos (Ident "Nothing" @lhs.pos) []
-                                                   ]
+                                                   ] []
 
 --
 -- Extra Interfaces and semantics
@@ -1389,24 +1396,29 @@ SEM ItfVisit | Visit
                       SemVisit_Visit @pos @name False [] [] $ ClausesTop_Top []
 
 --
--- Compute the next visit of the children in scope
--- Todo: remove
+-- Compute the next visit of the (needed) children in scope
+--
 
-ATTR SemVisit ClausesTop Clauses Clause Stmts Stmt [ | gathNextVisits : {Map Ident (Maybe Ident)} | ]
+ATTR Stmts Stmt ImplStmts ImplStmt [ | gathNextVisits : {Map Ident (Maybe Ident)} | ]
+ATTR SemVisit ClausesTop Clauses Clause [ distNextVisits : {Map Ident (Maybe Ident)} | | ]
 
-SEM Item | Sem CoSem
-  first.gathNextVisits = Map.empty
+SEM Item | Sem CoSem  first.distNextVisits   = Map.empty
+SEM DataSem | Sem     clauses.distNextVisits = Map.empty
 
-SEM DataSem | Sem
-  clauses.gathNextVisits = Map.empty
+SEM Stmt | Invoke      loc.mbNextVisit = visitAfter @visit @loc.childVisits
+SEM ImplStmt | Invoke  loc.mbNextVisit = visitAfter @visit @loc.childVisits
 
-SEM Stmt
-  | Attach  +gathNextVisits = Map.insert @name (Just @loc.visit)
-  | Invoke  loc.mbNextVisit = visitAfter @visit @loc.childVisits
-            +gathNextVisits = Map.insert @name @loc.mbNextVisit
+SEM SemVisit | Visit Internal
+  stmts.gathNextVisits = Map.empty
+  clauses.distNextVisits = @impls.gathNextVisits `Map.union` @lhs.distNextVisits
+SEM Clause | Clause
+  stmts.gathNextVisits = Map.empty
+  next.distNextVisits = let ks = Map.keysSet @next.allReqInvokes
+                        in Map.filter (maybe False (`Set.member` ks))
+                                      (@impls.gathNextVisits `Map.union` @lhs.distNextVisits)
 
-SEM ImplStmt | Invoke
-  loc.mbNextVisit = visitAfter @visit @loc.childVisits
+SEM Stmt | Invoke      +gathNextVisits = Map.insertWith (laterVisit @loc.childVisits) @name @loc.mbNextVisit
+SEM ImplStmt | Invoke  +gathNextVisits = Map.insertWith (laterVisit @loc.childVisits) @child @loc.mbNextVisit
 
 {
 visitAfter :: Ident -> [Ident] -> Maybe Ident
@@ -1414,10 +1426,26 @@ visitAfter nm (a : b : nms)
   | nm == a    = Just b
   | otherwise  = visitAfter nm (b : nms)
 visitAfter _ _ = Nothing
+
+laterVisit :: [Ident] -> Maybe Ident -> Maybe Ident -> Maybe Ident
+laterVisit _ Nothing  Nothing  = Nothing
+laterVisit _ Nothing  (Just x) = Just x
+laterVisit _ (Just x) Nothing  = Just x
+laterVisit xs (Just l) (Just r) = Just $ laterVisit' xs l r
+
+laterVisit' [] _ r = r
+laterVisit' (x:xs) l r
+  | x == l    = l
+  | x == r    = r
+  | otherwise = laterVisit' xs l r
 }
 
-ATTR ClausesTop Clauses Clause [ myNextVisits : {Map Ident (Maybe Ident)} | | ]
-SEM SemVisit | Visit  loc.myNextVisits = Map.filter isJust @lhs.gathNextVisits
+ATTR SemVisit ClausesTop Clauses Clause [ myNextVisits : {Map Ident (Maybe Ident)} | | ]
+SEM Item | Sem CoSem  loc.myNextVisits = Map.empty
+SEM DataSem | Sem     loc.myNextVisits = Map.empty
+
+SEM SemVisit | Visit
+  loc.myNextVisits = Map.filter isJust @lhs.distNextVisits
 
 
 --
@@ -1439,18 +1467,22 @@ SEM DataSem | Sem      clauses.distChildMinRanges   = Map.empty
 SEM Item | Sem CoSem   first.distChildMinRanges     = Map.empty
                        first.distChildEffRanges     = Map.empty
 
-SEM Clause | Clause    loc.distChildMinRanges    = @stmts.gathChildMinRanges `unionWithPlusplus` @lhs.distChildMinRanges
-                       loc.distAllChildMinRanges = @stmts.gathChildMinRanges `Map.union` @lhs.distAllChildMinRanges -- shadows
-                       loc.distChildEffRanges    = @stmts.gathChildEffRanges `unionWithUnion` @lhs.distChildEffRanges
-                       next.distChildEffRanges   = @loc.distChildEffRanges `diffInside` @loc.availInvokes
-                       loc.introChildren         = Map.keysSet (Map.difference @stmts.gathChildMinRanges @lhs.distChildMinRanges)
-SEM SemVisit | Visit   loc.distChildMinRanges    = @stmts.gathChildMinRanges `unionWithPlusplus` @lhs.distChildMinRanges
-                       loc.distAllChildMinRanges = @stmts.gathChildMinRanges `Map.union` @lhs.distChildMinRanges  -- shadows
-                       loc.distChildEffRanges    = @stmts.gathChildEffRanges `unionWithUnion` @lhs.distChildEffRanges
-                       loc.introChildren         = Map.keysSet (Map.difference @stmts.gathChildMinRanges @lhs.distAllChildMinRanges)
+SEM Clause | Clause
+  loc.distChildMinRanges    = @stmts.gathChildMinRanges `unionWithPlusplus` @lhs.distChildMinRanges
+  loc.distAllChildMinRanges = @stmts.gathChildMinRanges `Map.union` @lhs.distAllChildMinRanges -- shadows
+  loc.distChildEffRanges    = @stmts.gathChildEffRanges `unionWithUnion` @lhs.distChildEffRanges
+  next.distChildEffRanges   = @loc.distChildEffRanges `diffInside` @loc.availInvokes
+  loc.introChildren         = Map.keysSet (Map.difference @stmts.gathChildMinRanges @lhs.distChildMinRanges)
 
-SEM Stmt | Attach      lhs.gathChildMinRanges = Map.singleton @name [@visit]
-                       lhs.gathChildEffRanges = Map.singleton @name (Set.fromList $ dropWhile (/= @loc.visit) @loc.childVisits)
+SEM SemVisit | Visit Internal
+  loc.distChildMinRanges    = @stmts.gathChildMinRanges `unionWithPlusplus` @lhs.distChildMinRanges
+  loc.distAllChildMinRanges = @stmts.gathChildMinRanges `Map.union` @lhs.distChildMinRanges  -- shadows
+  loc.distChildEffRanges    = @stmts.gathChildEffRanges `unionWithUnion` @lhs.distChildEffRanges
+  loc.introChildren         = Map.keysSet (Map.difference @stmts.gathChildMinRanges @lhs.distAllChildMinRanges)
+
+SEM Stmt | Attach
+  lhs.gathChildMinRanges = Map.singleton @name [@visit]
+  lhs.gathChildEffRanges = Map.singleton @name (Set.fromList $ dropWhile (/= @loc.visit) @loc.childVisits)
 
 -- detect ambiguous child attachments
 -- there may not be two attach-stmts in a scope simultaneously with the same start visit
@@ -1467,8 +1499,9 @@ SEM Stmt | Attach
 ATTR AllVisitClauses Stmts Stmt [ | | bannedInvokes USE {`unionWithUnion`} {Map.empty} : {Map Ident (Set Ident)} ]
 ATTR Clauses Clause Stmts Stmt [ | | explInvokes USE {`unionWithUnion`} {Map.empty} : {Map Ident (Set Ident)} ]
 
-SEM Stmt | Invoke     lhs.explInvokes = Map.singleton @name (Set.singleton @visit)
-SEM ClausesTop | Top  +bannedInvokes  = @clauses.explInvokes `unionWithUnion`
+SEM Stmt | Invoke              lhs.explInvokes = Map.singleton @name (Set.singleton @visit)
+SEM ClausesTop | Top           +bannedInvokes  = @clauses.explInvokes `unionWithUnion`
+SEM SemVisit | Visit Internal  +bannedInvokes  = @stmts.explInvokes `unionWithUnion`
 
 -- invokes needed on children
 ATTR AllCodeBlocks [ | | minReqInvokes, allReqInvokes USE {`unionWithUnion`} {Map.empty} : {Map Ident (Set Ident)} ]
@@ -1493,7 +1526,7 @@ SEM Clause | Clause
   loc.minReqInvokes  = Map.filterWithKey (\k _ -> not (Set.member k @loc.introChildren)) @loc.minReqInvokes1
   loc.allReqInvokes  = Map.filterWithKey (\k _ -> not (Set.member k @loc.introChildren)) @loc.allReqInvokes1
 
-SEM SemVisit | Visit
+SEM SemVisit | Visit Internal
   loc.minReqInvokes1 = @stmts.minReqInvokes `unionWithUnion` @clauses.minReqInvokes
   loc.allReqInvokes1 = @stmts.allReqInvokes `unionWithUnion` @clauses.allReqInvokes
   loc.minReqInvokes  = Map.filterWithKey (\k _ -> not (Set.member k @loc.introChildren)) @loc.minReqInvokes1
@@ -1570,7 +1603,7 @@ SEM Program | Program  blocks.availInvokes    = Map.empty
 SEM DataSem | Sem     clauses.availInvokes    = Map.empty
 SEM Item | Sem CoSem  first.availInvokes      = Map.empty
 
-SEM SemVisit | Visit
+SEM SemVisit | Visit Internal
   loc.implicitInvokes   = @loc.minReqInvokes1 `diffInside` @lhs.availInvokes
                                               `diffInside` @stmts.explInvokes
                                               `diffInside` @clauses.bannedInvokes
@@ -1578,6 +1611,7 @@ SEM SemVisit | Visit
   loc.availInvokes      = @loc.additionalInvokes `unionWithUnion` @lhs.availInvokes
   loc.allAvailInvokes   = @loc.additionalInvokes `unionWithUnion` (
                             Map.filterWithKey (notIn @loc.introChildren) @lhs.allAvailInvokes )
+--  +errs1 = debugMsg ("visit: " ++ show @name ++ "\n impl: " ++ show @loc.implicitInvokes ++"\n banned: " ++ show @clauses.bannedInvokes) Seq.><
 
 SEM Clause | Clause
   loc.implicitInvokes   = @loc.minReqInvokes1 `diffInside` @lhs.availInvokes
@@ -1587,6 +1621,8 @@ SEM Clause | Clause
   loc.availInvokes      = @loc.additionalInvokes `unionWithUnion` @lhs.availInvokes
   loc.allAvailInvokes   = @loc.additionalInvokes `unionWithUnion` (
                             Map.filterWithKey (notIn @loc.introChildren) @lhs.allAvailInvokes )
+  
+--  +errs1 = debugMsg ("clause: " ++ show @name ++ "\n impl: " ++ show @loc.implicitInvokes ++"\n banned: " ++ show @next.bannedInvokes) Seq.><
 
 {
 notIn :: Ord a => Set a -> a -> b -> Bool
@@ -1611,7 +1647,7 @@ SEM AttrTypeCode | Child
   lhs.gathMissingInvokes = Set.fromList [ (k, v) | (k,vs) <- Map.assocs (@loc.invokeReqs `diffInside` @lhs.allAvailInvokes)
                                         , v <- Set.toList vs ]
 
-SEM SemVisit | Visit
+SEM SemVisit | Visit Internal
   loc.missingInvokes = Set.toList (@stmts.gathMissingInvokes `Set.difference` @clauses.gathMissingInvokes)
   +errs2 = Seq.fromList (map (\(nm,vs) -> Err_MissingVisit @pos nm vs) @loc.missingInvokes) Seq.><
 
@@ -1630,11 +1666,11 @@ SEM Program | Program  blocks.distDeflStmts  = Map.empty
 SEM Item | Sem CoSem   first.distDeflStmts   = Map.empty
 SEM DataSem | Sem      clauses.distDeflStmts = Map.empty
 
-SEM Stmt | Default     loc.codeId : UNIQUEREF codeIdCounter
-                       loc.mbCodeId = if @mbCode.isJust then Just @loc.codeId else Nothing
-                       lhs.gathDeflStmts = Map.singleton @name (@allowEmpty,@mbCodeId)
-SEM SemVisit | Visit   loc.distDeflStmts = @stmts.gathDeflStmts `Map.union` @lhs.distDeflStmts
-SEM Clause | Clause    loc.distDeflStmts = @stmts.gathDeflStmts `Map.union` @lhs.distDeflStmts
+SEM Stmt | Default             loc.codeId : UNIQUEREF codeIdCounter
+                               loc.mbCodeId = if @mbCode.isJust then Just @loc.codeId else Nothing
+                               lhs.gathDeflStmts = Map.singleton @name (@allowEmpty,@mbCodeId)
+SEM SemVisit | Visit Internal  loc.distDeflStmts = @stmts.gathDeflStmts `Map.union` @lhs.distDeflStmts
+SEM Clause | Clause            loc.distDeflStmts = @stmts.gathDeflStmts `Map.union` @lhs.distDeflStmts
 
 ATTR AllCodeBlocks [ | codeIdCounter : Int | ]
 SEM Program | Program  blocks.codeIdCounter = 1
@@ -1643,6 +1679,40 @@ SEM Stmt | Default
   +errs1 = if Map.findWithDefault (@allowEmpty,@mbCodeId) @name @lhs.distDeflStmts /= (@allowEmpty,@mbCodeId)
            then (Err_AmbDefault @pos @name Seq.<|)
            else id
+
+--
+-- Gather visit starts and ends in lexical order
+--
+
+ATTR AllCodeBlocks [ | | gathVisitStarts, gathVisitEnds USE {Seq.><} {Seq.empty} : {Seq DepItem} ]
+SEM SemVisit | Visit Internal
+  +gathVisitStarts = @loc.scopeDep   Seq.<|
+  +gathVisitEnds   = @loc.visitEndDep Seq.<|
+
+
+--
+-- Determine visit start rank
+--
+
+ATTR AllVisitClauses [ | | gathVisRankMap USE {`mappend`} {mempty} : {IntMap Ident} ]
+ATTR AllVisitClauses Stmts Stmt ImplStmts ImplStmt [ distVisRankMap : {IntMap Ident} | | ]
+
+SEM SemVisit | Visit Internal
+  +gathVisRankMap = IntMap.insert @loc.rank @name
+
+SEM Item | Sem CoSem  first.distVisRankMap   = @first.gathVisRankMap
+SEM DataSem | Sem     clauses.distVisRankMap = @clauses.gathVisRankMap
+
+SEM Stmt | *      loc.destVisit = getDestVisit @loc.rank @lhs.distVisRankMap
+SEM ImplStmt | *  loc.destVisit = getDestVisit @loc.rank @lhs.distVisRankMap
+
+{
+getDestVisit :: Int -> IntMap Ident -> Ident
+getDestVisit  rank ranks
+  = maybe (ident "unknownDestVisit") fst mbMax
+  where (smaller, _) = IntMap.split rank ranks
+        mbMax        = IntMap.maxView smaller
+}
 
 --
 -- Cyclic visit information
@@ -1662,63 +1732,86 @@ SEM ItfVisit | Visit   lhs.gathCycVisits = if @cyclic then Set.singleton @name e
 SEM Itf | Itf          lhs.gathCycVisMap = Map.singleton @name @visits.gathCycVisits
 SEM Program | Program  blocks.distCycVisMap = @blocks.gathCycVisMap
 
-ATTR ClausesTop Clauses Clause Stmts Stmt ImplStmts ImplStmt [ allowCycles : Bool fullCyclic : Bool | | ]
-ATTR SemVisit [ fullCyclic : Bool | | ]
+ATTR SemVisit ClausesTop Clauses Clause Stmts Stmt ImplStmts ImplStmt [ fullCyclicVisits : {Set Ident} | | ]
+ATTR SemVisit ClausesTop Clauses Clause [ fullCyclic : Bool | | ]
 
-SEM Item | Sem CoSem  first.fullCyclic = False
-SEM DataSem | Sem     clauses.fullCyclic = False
+SEM Item | Sem CoSem  first.fullCyclicVisits   = Map.findWithDefault Set.empty @tp @lhs.distCycVisMap
+                      first.fullCyclic         = False
+SEM DataSem | Sem     clauses.fullCyclicVisits = Map.findWithDefault Set.empty @tp @lhs.distCycVisMap
+                      clauses.fullCyclic       = False
 
 SEM SemVisit | Visit
-  loc.fullCyclic  = Set.member @name (Map.findWithDefault Set.empty @loc.unqualItf @lhs.distCycVisMap)
-  loc.allowCycles = @cyclic || @loc.fullCyclic
+  loc.fullCyclic  = Set.member @name @lhs.fullCyclicVisits
+  loc.allowCycles = @cyclic || @lhs.fullCyclic
+
+SEM SemVisit | Internal  -- may not occur in a full cyclic visit
+  loc.fullCyclic  = False
+  loc.allowCycles = @cyclic
+  +errs3 = if @lhs.fullCyclic
+           then (Err_InternalInCyclic @pos @name Seq.<|)
+           else id
+
+ATTR SemVisit ClausesTop Clauses Clause [ | | gathAllowCycVisits USE {`mappend`} {mempty} : {Set Ident} ]
+ATTR SemVisit ClausesTop Clauses Clause Stmts Stmt ImplStmts ImplStmt [ allowCycVisits : {Set Ident} | | ]
+
+SEM Item | Sem CoSem    first.allowCycVisits   = @first.gathAllowCycVisits
+SEM DataSem | Sem       clauses.allowCycVisits = @clauses.gathAllowCycVisits
+SEM SemVisit | Visit    +gathAllowCycVisits    = if @loc.allowCycles then Set.insert @name else id
+             | Internal +gathAllowCycVisits    = if @loc.allowCycles then Set.insert @loc.name else id
+
+SEM Stmt | *      loc.fullCyclic  = Set.member @loc.destVisit @lhs.fullCyclicVisits  
+                  loc.allowCycles = Set.member @loc.destVisit @lhs.allowCycVisits
+SEM ImplStmt | *  loc.fullCyclic  = Set.member @loc.destVisit @lhs.fullCyclicVisits
+                  loc.allowCycles = Set.member @loc.destVisit @lhs.allowCycVisits
 
 SEM Stmt | Invoke
   loc.visitCyclic  = Set.member @visit (Map.findWithDefault Set.empty @loc.unqualChildItf @lhs.distCycVisMap)
-  loc.behaveCyclic = @lhs.fullCyclic || @loc.visitCyclic
+  loc.behaveCyclic = @loc.fullCyclic || @loc.visitCyclic
 
 SEM ImplStmt | Invoke
   loc.visitCyclic  = Set.member @visit (Map.findWithDefault Set.empty @itf @lhs.distCycVisMap)
-  loc.behaveCyclic = @lhs.fullCyclic || @loc.visitCyclic
+  loc.behaveCyclic = @loc.fullCyclic || @loc.visitCyclic
 
 -- sanity check
 SEM Stmt
-  | Eval      +errs4 = if @loc.isCyclic && @mode.isMatch
+  | Eval      +errs5 = if @loc.isCyclic && @mode.isMatch
                        then (Err_MatchCyclic @loc.pos Seq.<|)
                        else id
-              +errs4 = if @loc.isCyclic && not @code.isFun
+              +errs5 = if @loc.isCyclic && not @code.isFun
                        then (Err_EffCyclic @loc.pos Seq.<|)
                        else id
-  | Attach    +errs4 = if @loc.isCyclic && @code.isJust && not @code.isFun
+  | Attach    +errs5 = if @loc.isCyclic && @code.isJust && not @code.isFun
                        then (Err_EffCyclic @pos Seq.<|)
                        else id
-  | Invoke    +errs4 = if @loc.isCyclic && @code.isJust && not @code.isFun
+  | Invoke    +errs5 = if @loc.isCyclic && @code.isJust && not @code.isFun
                        then (Err_EffCyclic @pos Seq.<|)
                        else id
-  | Default   +errs4 = if @loc.isCyclic && @mbCode.isJust && not @mbCode.isFun
+  | Default   +errs5 = if @loc.isCyclic && @mbCode.isJust && not @mbCode.isFun
                        then (Err_EffCyclic @pos Seq.<|)
                        else id
 
 SEM Stmt | Invoke
-  +errs4 = if @loc.isCyclic && not @loc.visitCyclic
+  +errs5 = if @loc.isCyclic && not @loc.visitCyclic
            then (Err_VisExpCyclic @visit @name Seq.<|)
            else id
-  +errs4 = if @code.isJust && @loc.isCyclic
+  +errs5 = if @code.isJust && @loc.isCyclic
            then (Err_IterCyclic @pos Seq.<|)
            else id
 
 SEM ImplStmt | Invoke
-  +errs4 = if @loc.isCyclic && not @loc.visitCyclic
+  +errs5 = if @loc.isCyclic && not @loc.visitCyclic
            then (Err_VisExpCyclic @visit @child Seq.<|)
            else id
 
-SEM SemVisit | Visit
-  +errs1 = if @loc.fullCyclic && @clauses.nClauses /= 1
-           then (Err_ClausesCyclic @pos Seq.<|)
+SEM SemVisit | Visit Internal
+  loc.nClauses = Set.size @clauses.gathClauseNames
+  +errs1 = if @loc.fullCyclic && @loc.nClauses /= 1 && not @lhs.withinCoSem
+           then (Err_ClausesCyclic @pos @name @loc.nClauses Seq.<|)
            else id
 
 ATTR ClausesTop Clauses [ | | nClauses : Int ]
 SEM Clauses
-  | Cons  lhs.nClauses = @tl.nClauses + 1
+  | Cons  +nClauses    = (+1)
   | Nil   lhs.nClauses = 0
 
 ATTR MaybeBoundCode BoundCode Bind [ | | isFun : Bool ]
@@ -1728,15 +1821,23 @@ SEM Bind
 
 SEM MaybeBoundCode | Nothing  lhs.isFun = False
 
+-- Visits to avoid
+ATTR AllCodeBlocks [ | | gathAvoidVisits USE {`Set.union`} {Set.empty} : {Set DepItem} ]
+SEM SemVisit | Visit
+  +gathAvoidVisits = if @loc.fullCyclic
+                     then Set.insert @loc.visitEndDep
+                     else id
+
+-- What item belongs to what visit
 ATTR AllFinal [ | | gathItemVisits USE {`Map.union`} {Map.empty} : {Map DepItem DepItem} ]
-SEM SemVisit | Visit +gathItemVisits = Map.insert @loc.scopeDep @loc.scopeDep
-SEM Clause | Clause  +gathItemVisits = Map.insert @loc.scopeDep @lhs.visitBeginDep
-SEM Stmt | *         +gathItemVisits = Map.insert @loc.stmtSource @lhs.visitBeginDep
-SEM ImplStmt | *     +gathItemVisits = Map.insert @loc.stmtSource @lhs.visitBeginDep
+SEM SemVisit | Visit Internal  +gathItemVisits = Map.insert @loc.scopeDep @loc.scopeDep
+SEM Clause | Clause            +gathItemVisits = Map.insert @loc.scopeDep @lhs.visitBeginDep
+SEM Stmt | *                   +gathItemVisits = Map.insert @loc.stmtSource @lhs.visitBeginDep
+SEM ImplStmt | *               +gathItemVisits = Map.insert @loc.stmtSource @lhs.visitBeginDep
 
 ATTR AllFinal [ | | gathLegalCycStmts USE {`Set.union`} {Set.empty} : {Set DepItem} ]
-SEM Stmt | *      +gathLegalCycStmts = if @lhs.allowCycles then Set.insert @loc.stmtSource else id
-SEM ImplStmt | *  +gathLegalCycStmts = if @lhs.allowCycles then Set.insert @loc.stmtSource else id
+SEM Stmt | *      +gathLegalCycStmts = if @loc.allowCycles then Set.insert @loc.stmtSource else id
+SEM ImplStmt | *  +gathLegalCycStmts = if @loc.allowCycles then Set.insert @loc.stmtSource else id
 
 
 --
@@ -1795,6 +1896,8 @@ SEM SemVisit | Visit    loc.distAttrSource = Map.unions [ @loc.gathChnAttrSource
                                                         , @stmts.gathAttrSource
                                                         , @loc.gathVisAttrSource
                                                         , @lhs.distAttrSource ]
+SEM SemVisit | Internal loc.distAttrSource = Map.unions [ @stmts.gathAttrSource
+                                                        , @lhs.distAttrSource ]
 SEM Clause | Clause     loc.distAttrSource = Map.unions [ @stmts.gathAttrSource
                                                         , @deflts.gathAttrSource
                                                         , @impls.gathAttrSource
@@ -1846,7 +1949,7 @@ ATTR AllFinal [ distChildSource : ChildSourceMap | | ]
 ATTR AllVisFinal [ | | gathChildSource USE {`unionWithUnion`} {Map.empty} : ChildSourceMap ]
 
 SEM Program | Program   blocks.distChildSource = Map.empty
-SEM SemVisit  | Visit
+SEM SemVisit  | Visit Internal
   loc.distChildSource = Map.unionsWith mappend [ @stmts.gathChildSource
                                                , Map.filterWithKey (notIn @loc.introChildren) @lhs.distChildSource ]
 SEM Clause | Clause
@@ -1865,7 +1968,7 @@ ATTR AllFinal [ distVisitSource : VisitSourceMap | | ]
 ATTR AllVisFinal [ | | gathVisitSource USE {`unionWithUnion`} {Map.empty} : VisitSourceMap ]
 
 SEM Program | Program   blocks.distVisitSource = Map.empty
-SEM SemVisit  | Visit
+SEM SemVisit  | Visit Internal
   loc.distVisitSource = Map.unionsWith mappend [ @stmts.gathVisitSource
                                                , Map.filterWithKey (notIn @loc.introChildren) @lhs.distVisitSource ]
 
@@ -1893,7 +1996,14 @@ SEM SemVisit | Visit
   loc.scopeReason       = ReasonScopeVisit @name
   loc.scopeDep          = DepVisStart (@name : @lhs.semBasename)
   loc.visitBeginDep     = DepVisStart (@name : @lhs.semBasename)
-  loc.visitEndDep       = DepVisEnd (@name : @lhs.semBasename)
+  loc.visitEndDep       = DepVisEnd   (@name : @lhs.semBasename)
+  loc.visitEndReason    = ReasonScopeEnd @name
+
+SEM SemVisit | Internal
+  loc.scopeReason       = ReasonScopeVisit @name
+  loc.scopeDep          = DepVisStart (@loc.name : @lhs.semBasename)
+  loc.visitBeginDep     = DepVisStart (@loc.name : @lhs.semBasename)
+  loc.visitEndDep       = DepVisEnd   (@loc.name : @lhs.semBasename)
   loc.visitEndReason    = ReasonScopeEnd @name
 
 SEM Clause | Clause
@@ -2014,6 +2124,10 @@ SEM SemVisit | Visit  -- depends on end of prev visit, end depends on begin
 
   +gathDeps = addDep @loc.visitEndDep (ReasonScopeVisit @name) [@loc.scopeDep]
 
+SEM SemVisit | Internal  -- depends on end of prev visit, end depends on begin
+  +gathDeps = addDep @loc.scopeDep @lhs.visitEndReason [@lhs.visitEndDep]
+  +gathDeps = addDep @loc.visitEndDep (ReasonScopeVisit @name) [@loc.scopeDep]
+
 SEM Clause | Clause  -- should be in between visit start and end
   +gathDeps = addDep @loc.scopeDep @lhs.scopeReason [@lhs.scopeDep]
   +gathDeps = addDep @lhs.visitEndDep @lhs.visitEndReason [@loc.scopeDep]
@@ -2044,20 +2158,20 @@ SEM Program | Program
                    `Map.union`
                      (Map.fromList [ (i, (ReasonSink,[])) | i <- @loc.unqItems ])
   loc.unqItems   = Set.toList $ Set.fromList $ concatMap (\(Dep from _ tos) -> from : tos) $ toList @blocks.gathDeps
-  loc.components = stronglyConnCompR $ map (\(from,(reason,tos)) -> (reason,from,tos)) $ Map.assocs @unqDeps
-  loc.distRanks  = let merge rank (AcyclicSCC (_,d,_)) = [(d,(False,rank))]
-                       merge rank (CyclicSCC ps)       = zip (map (\(_,d,_) -> d) ps) (repeat (True,rank))
+  loc.components = analyze (toList @blocks.gathVisitStarts) (toList @blocks.gathVisitEnds) @blocks.gathAvoidVisits $
+                     map (\(from,(reason,tos)) -> (reason,from,tos)) $ Map.assocs @unqDeps
+  loc.distRanks  = let merge rank (AcyclicSCC d) = [(d,(False,rank))]
+                       merge rank (CyclicSCC ps) = zip ps (repeat (True,rank))
                    in  Map.fromList $ concat $ zipWith merge [1..] @loc.components
   
   loc.cyclicComps = let isCyclicSCC (CyclicSCC _)    = True
                         isCyclicSCC _                = False
                         fromCyclicSCC (CyclicSCC xs) = xs
                     in [ fromCyclicSCC c | c <- @loc.components, isCyclicSCC c ]
-  loc.cyclicItems = Set.fromList $ concatMap (concatMap (\(_, f, ts) -> f : ts)) @loc.cyclicComps
-  loc.cyclicErrComps = let isLegalComp cmp
+  loc.cyclicItems = Set.fromList $ concat @loc.cyclicComps
+  loc.cyclicErrComps = let isLegalComp items
                              = length vis <= 1 && all isLegal items && any isInvoke items
-                             where items = map (\(_,from,_) -> from) cmp
-                                   vis   = nub [ Map.findWithDefault item item @blocks.gathItemVisits | item <- items ]
+                             where vis   = nub [ Map.findWithDefault item item @blocks.gathItemVisits | item <- items ]
                            
                            isLegal (DepClause _)   = True
                            isLegal (DepVisStart _) = True
@@ -2077,19 +2191,19 @@ instance Show a => Show (SCC a) where
 }
 
 ATTR Stmt ImplStmt [ | | rank : Int ]
-ATTR Pats Pat [ isOnCycle : Bool | | ]
+ATTR Pats Pat [ isCyclic : Bool | | ]
 
 SEM Stmt | *
   (loc.isOnCycle, loc.rank) = Map.findWithDefault (False,@loc.lexOrder) @loc.stmtSource @lhs.distRanks
-  loc.isCyclic              = @lhs.fullCyclic || @loc.isOnCycle
+  loc.isCyclic              = @loc.fullCyclic || @loc.isOnCycle
 
 SEM ImplStmt | *
   (loc.isOnCycle, loc.rank) = Map.findWithDefault (False,@loc.lexOrder) @loc.stmtSource @lhs.distRanks
-  loc.isCyclic              = @lhs.fullCyclic || @loc.isOnCycle
+  loc.isCyclic              = @loc.fullCyclic || @loc.isOnCycle
 
-SEM SemVisit | Visit
+SEM SemVisit | Visit Internal
   (loc.isOnCycle, loc.rank) = Map.findWithDefault (False,@loc.lexOrder) @loc.scopeDep @lhs.distRanks
-  loc.isCyclic              = @lhs.fullCyclic || @loc.isOnCycle
+  loc.isCyclic              = @loc.fullCyclic || @loc.isOnCycle
 
 SEM Clause | Clause
   (loc.isOnCycle, loc.rank) = Map.findWithDefault (False,@loc.lexOrder) @loc.scopeDep @lhs.distRanks
@@ -2098,11 +2212,11 @@ SEM Clause | Clause
 -- Max rank of clauses
 ATTR AllVisitClauses [ | | minRank USE {`min`} {maxBound} : Int ]
 
-SEM Clause | Clause   lhs.minRank = @loc.rank
-SEM SemVisit | Visit  lhs.minRank = @loc.rank
+SEM Clause | Clause            lhs.minRank = @loc.rank
+SEM SemVisit | Visit Internal  lhs.minRank = @loc.rank
 
 --
--- The identity-transformation: pretty-print of the AST
+-- Pretty-print of the AST
 --
 
 {
@@ -2111,7 +2225,7 @@ instance PP Ident where
 }
 
 ATTR Block Itf ItfVisit Attr Data Type AliasType Con Field FieldType DataSem MaybeBoundCode BoundCode Code Item
-     SemVisit VisitAttr Clause Stmt Mode Bind Pat ExprField
+     SemVisit VisitAttr Clause Stmt ImplStmt Mode Bind Pat ExprField
   [ | | pp : {PP_Doc} ]
 
 SEM Program
@@ -2130,7 +2244,7 @@ SEM Itf
                           >-< indent 2 (vlist @visits.pps)
 
 SEM ItfVisit
-  | Visit        lhs.pp = "visit" >#< @name
+  | Visit        lhs.pp = "visit" >#< @name >#< (if @cyclic then text "cyclic" else empty)
                           >-< indent 2 (vlist @attrs.pps)   
 
 SEM Attr
@@ -2218,6 +2332,11 @@ SEM SemVisit
   | Visit        lhs.pp = "visit" >#< @name
                           >-< indent 2 (   vlist @attrs.pps
                                        >-< vlist @stmts.pps
+                                       >-< vlist @impls.pps
+                                       >-< vlist @clauses.pps
+                                       )
+  | Internal     lhs.pp = "internal" >#< @name
+                          >-< indent 2 (   vlist @stmts.pps
                                        >-< vlist @clauses.pps
                                        )
   | End          lhs.pp = empty
@@ -2228,14 +2347,25 @@ SEM VisitAttr
 SEM Clause
   | Clause       lhs.pp = "clause" >#< @name
                           >-< indent 2 (   vlist @stmts.pps
+                                       >-< vlist @impls.pps
+                                       >-< vlist @deflts.pps
                                        >-< @next.pp
                                        )
 
 SEM Stmt
   | Eval         lhs.pp = @mode.pp >|< @pat.pp >#< @code.pp
   | Attach       lhs.pp = "attach" >#< @loc.visit >#< "of" >#< @name >#< ":" >#< @type >#< @code.pp
-  | Invoke       lhs.pp = "invoke" >#< @visit >#< "of" >#< @name >#< @code.pp
+  | Invoke       lhs.pp = vlist @deflts.pps
+                          >-< "invoke" >#< @visit >#< "of" >#< @name >#< @code.pp
   | Default      lhs.pp = "default" >#< @name >#< "..."
+
+SEM ImplStmt
+  | Invoke       lhs.pp = vlist @deflts.pps
+                          >-< "invoke" >#< show @visit >#< "of" >#< show @child >#< "-- implicit"
+  | DefaultChild lhs.pp = "default" >#< show @child >|< "." >|< show @name
+  | DefaultSyn   lhs.pp = "default lhs." >|< show @name
+  | DefaultVisLocal
+                 lhs.pp = "default local." >|< show @name
 
 SEM Mode
   | Match        lhs.pp = text "match "
@@ -2298,7 +2428,7 @@ addParens False = id
 SEM ExprField | Field
   lhs.pp = @name >-< indent 2 ("=" >#< pp_parens @code.pp)
 
-ATTR BlocksTop Blocks ItfVisits Attrs Items VisitAttrs ClausesTop Clauses Stmts Pats Cons Fields ExprFields
+ATTR BlocksTop Blocks ItfVisits Attrs Items VisitAttrs ClausesTop Clauses Stmts ImplStmts Pats Cons Fields ExprFields
   [ | | pps : {[PP_Doc]} ]
 
 SEM BlocksTop
@@ -2338,6 +2468,10 @@ SEM Clauses
   | Nil   lhs.pps = []
 
 SEM Stmts
+  | Cons  lhs.pps = @hd.pp : @tl.pps
+  | Nil   lhs.pps = []
+
+SEM ImplStmts
   | Cons  lhs.pps = @hd.pp : @tl.pps
   | Nil   lhs.pps = []
 

@@ -60,7 +60,7 @@ oNoLinePragmas o = return (o { hNoLinePragmas = True })
 
 defaultOpts :: Opts
 defaultOpts = Opts { sourceFile = "", outputFile = Nothing, verbose = False, pretty = False, tokens = False
-                   , genHaskell = True, forceGen = False, noDataGen = False, outputGraph = Nothing, hNoLinePragmas = True }
+                   , genHaskell = True, forceGen = False, noDataGen = False, outputGraph = Nothing, hNoLinePragmas = False }
 
 commandlineArgs :: IO Opts
 commandlineArgs

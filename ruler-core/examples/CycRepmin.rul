@@ -1,0 +1,62 @@
+{
+{-# LANGUAGE BangPatterns #-}
+module CycRepmin where
+
+import Control.Monad.Error
+}
+
+data Tree
+  con Leaf
+    x :: Int
+  con Bin
+    l : Tree
+    r : Tree
+  ext Show
+
+data Root
+  con Root
+    t : Tree
+
+itf Root
+  visit dispatch
+    inh ast :: Root
+    syn t :: Tree
+
+itf Tree
+  visit dispatch
+    inh ast :: Tree
+  visit compdist cyclic
+    inh g :: Int
+    syn m :: Int
+  visit result
+    syn t :: Tree
+
+datasem Root monad IO
+  cyclic  -- reminder: turn on cycle checking
+  clause Root
+    t.g   = t.m
+    lhs.t = t.t
+
+datasem Tree monad IO
+  clause Leaf
+    lhs.t = Tree_Leaf lhs.g
+    lhs.m = loc.x
+
+  clause Bin
+    default g = last
+    lhs.m = l.m `min` r.m
+    lhs.t = Tree_Bin l.t r.t
+
+{
+test :: Tree -> IO Tree
+test t = do
+  let inh = Inh_Root_dispatch { ast_Inh_Root = Root_Root t }
+  syn <- invoke_Root_dispatch dnt_Root inh
+  let t = t_Syn_Root syn
+  return t
+
+main :: IO ()
+main = do let exp = Tree_Bin (Tree_Leaf 1) (Tree_Bin (Tree_Leaf 2) (Tree_Leaf 3))
+          x <- test exp
+          putStrLn $ show x
+}

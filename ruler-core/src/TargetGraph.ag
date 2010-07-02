@@ -9,7 +9,10 @@ SEM Program | Program
                        ])
                   >-< indent 2 ( vlist
                         [ label' from >#< "->" >#< ppgDeps (map label' [to])
-                            >|< maybe empty (\d -> "[" >|< ppgProp "label" d >|< "]") (ppgReason reason) >|< ";"
+                            >#< pp_block "[" "]" "," ( ppgColor (isOnCycle from @loc.distRanks && isOnCycle to @loc.distRanks)
+                                                     : maybe [] (\d -> [ppgProp "label" d]) (ppgReason reason))
+                            
+                            >|< ";"
                         | (from, (reason, tos)) <- Map.assocs @loc.unqDeps
                         , length tos >= 1
                         , let label' = \item -> ppgKey (Map.findWithDefault noPos item @blocks.gathStmtPosMap) item
@@ -18,6 +21,12 @@ SEM Program | Program
                   >-< "}"
 
 {
+isOnCycle :: DepItem -> Map DepItem (Bool,Int) -> Bool
+isOnCycle d mp
+  = case Map.lookup d mp of
+      Nothing    -> False
+      Just (b,_) -> b
+
 ppgProp :: PP a => String -> a -> PP_Doc
 ppgProp s d = s >|< "=" >|< pp_doubleQuotes (pp d)
 

@@ -23,12 +23,13 @@ tokens :-
   <h>    "}"                                          { reserved }
 
   <0>    itf | visit | cyclic | inh | syn             { reserved }
-  <0>    data | con | type | Maybe                    { reserved }
+  <0>    data | con | type | Maybe | ext              { reserved }
   <0>    datasem                                      { reserved }
 
-  <a>    clause | visit | cyclic | chn                { reserved }
+  <a>    clause | visit | cyclic | chn | internal     { reserved }
   <a>    match | invoke | of                          { reserved }
-  <a>    attach | detach | child | default | default1 { reserved }
+  <a>    attach | detach | child                      { reserved }
+  <a>    default | default1 | "default?"              { reserved }
 
   <0,a>  "::" | ":" | "monad"                         { reserved }
 
@@ -99,6 +100,7 @@ push sc (Reserved k pos)
   | sc == a && k == "::"         = ((pos, h) :)
   | sc == a && k == "monad"      = ((pos, h) :)
   | sc == a && k == "visit"      = ((pos, a) :)
+  | sc == a && k == "internal"   = ((pos, a) :)
   | sc == a && k == "clause"     = ((pos, a) :)
 push _ _ = id
 
