@@ -68,7 +68,7 @@ SEM Program | Program
   loc.hpp = vlist @blocks.hpps
 
 ATTR Block Itf ItfVisit Data Con Field Type AliasType DataSem MaybeBoundCode BoundCode Code
-     Item SemVisit ClausesTop Clauses Clause Stmt Pat ImplStmt
+     Item SemVisit ClausesTop Clauses Clause Stmt Pat ImplStmt Var
   [ | | hpp : {PP_Doc} ]
 
 ATTR ExprField [ | | hopp : {(Int,PP_Doc)} ]
@@ -162,14 +162,17 @@ stripSpacing = pp_block "(" ")" " " . map text . lines
 }
 
 SEM Data | Data
-  lhs.hpp   = "data" >#< hDtNm @name >-< indent 2 (vlist @cons.hpps) >-< indent 2 @loc.hExts
+  lhs.hpp   = "data" >#< hDtNm @name >#< hlist_sp @vars.hpps >-< indent 2 (vlist @cons.hpps) >-< indent 2 @loc.hExts
   loc.hExts = if Set.null @exts.gathExts
               then empty
               else "deriving" >#< pp_block "(" ")" "," [ text (show i) | i <- Set.toList @exts.gathExts ]
 
 SEM Con | Con
-  loc.prefix = if @lhs.isFirst then "= " else "| "
-  lhs.hpp    = @loc.prefix >|< hConNm @lhs.data @name >#< pp_block "{" "}" "," @fields.hpps
+  loc.prefix  = if @lhs.isFirst then "=" else "|"
+  lhs.hpp     = @loc.prefix >#< @loc.hVarsPP >#< hConNm @lhs.data @name >#< pp_block "{" "}" "," @fields.hpps
+  loc.hVarsPP = if null @vars.vars
+                then empty
+                else "forall" >#< hlist_sp (map (text .show) @vars.vars) >#< "."
 
 SEM Field | Field
   loc.txtTp = either show id @type.fldType
@@ -180,7 +183,7 @@ SEM Data | Data  cons.isFirst = True
 SEM Cons | Cons  tl.isFirst = False
 
 SEM Type | Alias
-  lhs.hpp = "type" >#< @name >#< "=" >#< @type.hpp
+  lhs.hpp = "type" >#< @name >#< hlist_sp @vars.hpps >#< "=" >#< @type.hpp
 
 SEM AliasType
   | Prod   lhs.hpp = pp_block "(" ")" "," (map (text . show) @fields)
@@ -264,21 +267,27 @@ SEM SemVisit
                  loc.hInhPPs   = [ hInhFldNm nm @loc.itfNm @name >#< "=" >#< hParensWithPos @lhs.opts @pos (hInp lhsIdent nm)
                                  | (nm,_) <- Map.assocs @loc.inhAttrMap ]
                  loc.hMatch    = pp_parens (hInhDt @loc.itfNm @name >#< pp_block "{" "}" "," @loc.hInhPPs)
+                 loc.hVisType  = if @lhs.withinCoSem
+                                 then text (hCoItfVsNm @lhs.coItf @name)
+                                 else text (hItfVsNm @loc.itfNm @name)
                  lhs.hpp = pp_parens (
-                             "let" >#< ( hVis @name >#< @loc.hChildren >#< @loc.hChns >#< @loc.hMatch
-                                       >-< indent 2 (
-                                         "=" >#< ( if @loc.fullCyclic
-                                                   then "let" >#< vlist (concat @loc.hGroupedStmts)
-                                                        >-< "in" >#< @clauses.hpp
-                                                   else "do" >#< (
-                                                          hppStmtBlock @loc.hGroupedStmts
-                                                          >-< @clauses.hpp
-                                                        )
-                                                 )
+                             "let -- __vis ::" >#< @loc.hVisType 
+                             >-< "    __vis =" >#< (
+                               "let" >#< ( hVis @name >#< @loc.hChildren >#< @loc.hChns >#< @loc.hMatch
+                                         >-< indent 2 (
+                                           "=" >#< ( if @loc.fullCyclic
+                                                     then "let" >#< vlist (concat @loc.hGroupedStmts)
+                                                          >-< "in" >#< @clauses.hpp
+                                                     else "do" >#< (
+                                                            hppStmtBlock @loc.hGroupedStmts
+                                                            >-< @clauses.hpp
+                                                          )
+                                                   )
+                                           )
                                          )
-                                       )
-                             >-< "in" >#< hItfVsNm @loc.itfNm @name >#<
-                                   pp_parens (hVis @name >#< @loc.hChildren >#< @loc.hChnsOut)
+                               >-< "in" >#< hItfVsNm @loc.itfNm @name >#<
+                                     pp_parens (hVis @name >#< @loc.hChildren >#< @loc.hChnsOut)
+                             ) >-< "in __vis"
                            )
   | Internal     lhs.hpp = hppStmtBlock @loc.hGroupedStmts
                            >-< @clauses.hpp
@@ -516,7 +525,11 @@ SEM Pat
 SEM ExprField | Field
   lhs.hopp = (@loc.fieldIndex, pp_parens @code.hpp)
 
-ATTR BlocksTop Blocks ItfVisits Items Pats Cons Fields
+SEM Var | Var
+  lhs.hpp = text (show @name)
+
+
+ATTR BlocksTop Blocks ItfVisits Items Pats Cons Fields Vars
   [ | | hpps : {[PP_Doc]} ]
 
 SEM BlocksTop
@@ -544,6 +557,10 @@ SEM Items
   | Nil   lhs.hpps = []
 
 SEM Pats
+  | Cons  lhs.hpps = @hd.hpp : @tl.hpps
+  | Nil   lhs.hpps = []
+
+SEM Vars
   | Cons  lhs.hpps = @hd.hpp : @tl.hpps
   | Nil   lhs.hpps = []
 

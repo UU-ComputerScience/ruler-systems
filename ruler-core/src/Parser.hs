@@ -35,6 +35,7 @@ pDataIdent   = pConIdent <?> "data ident"
 pConstrIdent = pConIdent <?> "con ident"
 pFieldIdent  = pVarIdent <?> "field ident"
 pExtIdent    = pConIdent <?> "ext ident"
+pTyVarIdent  = pVarIdent <?> "var ident"
 
 pProgram :: AgParser Program
 pProgram = (Program_Program . BlocksTop_Top) <$> pList_gr pBlock
@@ -53,6 +54,7 @@ pItf :: AgParser Itf
 pItf = Itf_Itf
         <$> pKeyPos "itf"
         <*> pIdentItf
+        <*> pList_gr pVar
         <*> pItfVisits
         <*  pEnd
         <?> "itf"
@@ -67,6 +69,7 @@ pItfVisit
        <$> pKeyPos "visit"
        <*> pIdentVisit
        <*> opt (True <$ pKey "cyclic") False
+       <*> pList_gr pVar
        <*> pList_gr pAttrInhSyn
        <?> "visit")
 
@@ -80,13 +83,16 @@ pAttrSyn :: AgParser Attr
 pAttrSyn = Attr_Syn <$ pKey "syn" <*> pVarIdent <* pKey "::" <*> (pTextln <?> "type") <* pEnd
 
 pData :: AgParser Data
-pData = Data_Data <$> pKeyPos "data" <*> pDataIdent <*> pList_gr pCon <*> pList_gr pExt <* pEnd <?> "data"
+pData = Data_Data <$> pKeyPos "data" <*> pDataIdent <*> pList_gr pVar <*> pList_gr pCon <*> pList_gr pExt <* pEnd <?> "data"
+
+pVar :: AgParser Var
+pVar = Var_Var <$ pKeyPos "var" <*> pTyVarIdent <?> "var"
 
 pExt :: AgParser Ext
 pExt = Ext_Ext <$ pKeyPos "ext" <*> pExtIdent <?> "ext"
 
 pCon :: AgParser Con
-pCon = Con_Con <$> pKeyPos "con" <*> pConstrIdent <*> pList_gr pField <?> "con"
+pCon = Con_Con <$> pKeyPos "con" <*> pConstrIdent <*> pList_gr pVar <*> pList_gr pField <?> "con"
 
 pField :: AgParser Field
 pField = pFieldIdent <**> (    (\nt fld -> Field_Field fld (FieldType_Nonterm nt)) <$ pKey ":"  <*> pDataIdent
@@ -94,7 +100,7 @@ pField = pFieldIdent <**> (    (\nt fld -> Field_Field fld (FieldType_Nonterm nt
                           ) <?> "field" 
 
 pType :: AgParser Type
-pType = Type_Alias <$> pKeyPos "type" <*> pDataIdent <* pKey ":" <*> pAliasType <?> "type"
+pType = Type_Alias <$> pKeyPos "type" <*> pDataIdent <* pKey ":" <*> pAliasType <*> pList_gr pVar <?> "type"
 
 pAliasType :: AgParser AliasType
 pAliasType
@@ -106,6 +112,7 @@ pDataSem :: AgParser DataSem
 pDataSem
   = DataSem_Sem <$> pKeyPos "datasem"
                 <*> pIdentItf
+                <*> pList_gr pVar
                 <*> opt (pKey "monad" *> (Just <$> pTextln <* pEnd <?> "monad type")) Nothing
                 <*> opt (True <$ pKey "cyclic") False
                 <*> pList_gr pStmt
@@ -120,6 +127,7 @@ pItem
                 <*> pIdentSem
                 <* pKey ":"
                 <*> pIdentItf
+                <*> pList_gr pVar
                 <*> opt (pKey "monad" *> (Just <$> pTextln <* pEnd <?> "monad type")) Nothing
                 <*> pSemVisit
                 <* pEnd <?> "sem")
@@ -128,6 +136,7 @@ pItem
                   <* pKey ":"
                   <*> pIdentItf
                   <*> pIdentVisit
+                  <*> pList_gr pVar
                   <*> opt (pKey "monad" *> (Just <$> pTextln <* pEnd <?> "monad type")) Nothing
                   <*> pSemVisit
                   <* pEnd <?> "cosem")
