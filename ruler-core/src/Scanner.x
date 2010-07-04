@@ -32,6 +32,7 @@ tokens :-
   <a>    default | default1 | "default?"              { reserved }
 
   <0,a>  "::" | ":" | "monad"                         { reserved }
+  <0,a>  var                                          { reserved }
 
   <0,a>  "(" | ")" | "[" | "]" | ","                  { reserved }
   <a>    "=" | "<-"                                   { reserved }

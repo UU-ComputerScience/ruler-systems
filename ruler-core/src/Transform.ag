@@ -19,7 +19,7 @@ import Data.Set(Set)
 import qualified Data.Set as Set
 import Env
 import Data.Monoid
-import Data.List(nub, isPrefixOf, intersect, sortBy, partition, groupBy)
+import Data.List(nub, isPrefixOf, intersect, sortBy, partition, groupBy, sort)
 import Pretty
 import UU.Scanner.Position
 import Opts
@@ -98,7 +98,8 @@ SET AllVisitClauses = SemVisit ClausesTop Clauses Clause
 SET AllFinal = AllCodeBlocks ImplStmts ImplStmt
 SET AllVisFinal = AllVisitClauses ImplStmts ImplStmt Stmts Stmt Pats Pat AttrTypePat AttrTypeCode
 
-ATTR Program AllCodeBlocks Data Cons Con [ | | errs0,errs1,errs2,errs3,errs4,errs5 USE {Seq.><} {Seq.empty} : Errs ]
+ATTR Program AllCodeBlocks Data Type Cons Con Itf ItfVisits ItfVisit
+  [ | | errs0,errs1,errs2,errs3,errs4,errs5 USE {Seq.><} {Seq.empty} : Errs ]
 ATTR ImplStmts ImplStmt [ | | errs2,errs3,errs4,errs5 USE {Seq.><} {Seq.empty} : Errs ]
 
 SEM Program
@@ -344,6 +345,44 @@ SEM ExprField | Field
   +gathFields    = extend @name (0,Right "")
   loc.fieldIndex = Map.findWithDefault 0 @name @lhs.fieldOrder
 
+{
+type VarsEnv = Env Ident ()
+}
+
+ATTR Vars Var Cons Con ItfVisits ItfVisit [ | gathVarsEnv : VarsEnv | ]
+SEM Var | Var
+  +gathVarsEnv = extend @name ()
+
+SEM Type | Alias
+  vars.gathVarsEnv = emptyEnv
+  +errs1 = addDefErrs' @vars.gathVarsEnv
+
+SEM Data | Data
+  vars.gathVarsEnv = emptyEnv
+  +errs1 = addDefErrs' @cons.gathVarsEnv
+
+SEM Cons | Cons
+  (hd.gathVarsEnv, tl.gathVarsEnv) = split @lhs.gathVarsEnv
+  (lhs.gathVarsEnv, loc.locGathVarsEnv) = merge @hd.gathVarsEnv @tl.gathVarsEnv
+  +errs1 = addDefErrs' @loc.locGathVarsEnv
+
+SEM Itf | Itf
+  vars.gathVarsEnv = emptyEnv
+  +errs1 = addDefErrs' @visits.gathVarsEnv
+
+SEM ItfVisits | Cons
+  (hd.gathVarsEnv, tl.gathVarsEnv) = split @lhs.gathVarsEnv
+  (lhs.gathVarsEnv, loc.locGathVarsEnv) = merge @hd.gathVarsEnv @tl.gathVarsEnv
+  +errs1 = addDefErrs' @loc.locGathVarsEnv
+
+SEM Item | Sem CoSem
+  vars.gathVarsEnv = emptyEnv
+  +errs1 = addDefErrs' @vars.gathVarsEnv
+
+SEM DataSem | Sem
+  vars.gathVarsEnv = emptyEnv
+  +errs1 = addDefErrs' @vars.gathVarsEnv
+
 --
 -- Standard usage checks
 --
@@ -363,11 +402,10 @@ SEM Stmt | Attach
 SEM DataSem | Sem
   +distItfs = snd . find [@tp] ()
 
-ATTR AllCode Pats Pat AttrTypePat AttrTypeCode ImplStmts ImplStmt [ itf : QIdent | | ]
-SEM Block
-  | Section  code.itf = [ident "<root>"]
-  | Item     item.itf = [ident "<root>"]
-  | DataSem  sem.itf  = [ident "<root>"]
+ATTR AllCode Pats Pat AttrTypePat AttrTypeCode ImplStmts ImplStmt [ itf : QIdent coItf : Ident | | ]
+SEM Block | Section Item DataSem
+  loc.itf   = [ident "<root>"]
+  loc.coItf = ident "<root>"
 
 SEM DataSem | Sem
   clauses.itf  = [@tp]
@@ -376,6 +414,7 @@ SEM Item
   | Sem      first.itf = [@tp]
   | CoSem    first.itf = [@loc.coItf]
              loc.coItf = mkCoIdent @tp @visit
+             first.coItf = @tp
 
 ATTR AllCodeBlocks [ | distVisits : VisitEnv | ]
 ATTR ImplStmts ImplStmt [ distVisits : VisitEnv | | ]
@@ -1315,24 +1354,38 @@ SEM Type | Alias
 inst.data : Data
 inst.data = @type.data
 
-ATTR AliasType [ pos : Pos name : Ident | | data : {Data} ]
+ATTR AliasType [ pos : Pos name : Ident vars : Vars | | data : {Data} ]
 SEM Type | Alias  type.pos  = @pos
                   type.name = @name
+                  type.vars = @vars.self
 
 SEM AliasType
   | Prod   lhs.data = let mkFld i nm = Field_Field (Ident ("x" ++ show i) @lhs.pos) (FieldType_Nonterm nm)
-                      in Data_Data @lhs.pos @lhs.name [Con_Con @lhs.pos (Ident "Prod" @lhs.pos) (zipWith mkFld [1..] @fields) ] []
-  | List   lhs.data = Data_Data @lhs.pos @lhs.name [ Con_Con @lhs.pos (Ident "Cons" @lhs.pos) 
-                                                       [ Field_Field (Ident "hd" @lhs.pos) (FieldType_Nonterm @type)
-                                                       , Field_Field (Ident "tl" @lhs.pos) (FieldType_Nonterm @lhs.name)
-                                                       ]
-                                                   , Con_Con @lhs.pos (Ident "Nil" @lhs.pos) []
-                                                   ] []
-  | Maybe  lhs.data = Data_Data @lhs.pos @lhs.name [ Con_Con @lhs.pos (Ident "Just" @lhs.pos) 
-                                                       [ Field_Field (Ident "just" @lhs.pos) (FieldType_Nonterm @type)
-                                                       ]
-                                                   , Con_Con @lhs.pos (Ident "Nothing" @lhs.pos) []
-                                                   ] []
+                      in Data_Data @lhs.pos @lhs.name @lhs.vars
+                           [Con_Con @lhs.pos (Ident "Prod" @lhs.pos) [] (zipWith mkFld [1..] @fields) ] []
+  | List   lhs.data = Data_Data @lhs.pos @lhs.name @lhs.vars
+                        [ Con_Con @lhs.pos (Ident "Cons" @lhs.pos) []
+                            [ Field_Field (Ident "hd" @lhs.pos) (FieldType_Nonterm @type)
+                            , Field_Field (Ident "tl" @lhs.pos) (FieldType_Nonterm @lhs.name)
+                            ]
+                        , Con_Con @lhs.pos (Ident "Nil" @lhs.pos) [] []
+                        ] []
+  | Maybe  lhs.data = Data_Data @lhs.pos @lhs.name @lhs.vars
+                        [ Con_Con @lhs.pos (Ident "Just" @lhs.pos) []
+                            [ Field_Field (Ident "just" @lhs.pos) (FieldType_Nonterm @type)
+                            ]
+                        , Con_Con @lhs.pos (Ident "Nothing" @lhs.pos) [] []
+                        ] []
+
+ATTR Vars Var [ | | self : SELF vars USE {++} {[]} : {[Ident]} ]
+SEM Var | Var  lhs.vars = [@name]
+
+--
+-- Deal with type variables
+--
+
+-- todo
+ATTR ItfVisits ItfVisit Cons Con [ vars : {[Ident]} | | ]
 
 --
 -- Extra Interfaces and semantics
@@ -1350,16 +1403,18 @@ SEM Con | Con
   lhs.extraBlocks = [@loc.constr, @loc.deconstr, @loc.constrSem, @loc.deconstrSem]
   loc.conItfNm    = conItf @lhs.data @name
   loc.deconItfNm  = deconItf @lhs.data @name
+  loc.allVarNms   = sort (@lhs.vars ++ @vars.vars)
+  loc.allVars     = map Var_Var @loc.allVarNms
   loc.constr   = Block_Itf $
-                 Itf_Itf @pos @loc.conItfNm [ItfVisit_Visit @pos (Ident "construct" @pos) False
+                 Itf_Itf @pos @loc.conItfNm @loc.allVars [ItfVisit_Visit @pos (Ident "construct" @pos) False []
                    ( Attr_Syn (Ident "data" @pos) (show @lhs.data)
                    : [ Attr_Inh k (either show id t) | (k,t) <- sortAssocs $ assocs @fields.gathFields ] )]
   loc.deconstr = Block_Itf $
-                 Itf_Itf @pos @loc.deconItfNm [ItfVisit_Visit @pos (Ident "deconstruct" @pos) False
+                 Itf_Itf @pos @loc.deconItfNm @loc.allVars [ItfVisit_Visit @pos (Ident "deconstruct" @pos) False []
                    ( Attr_Inh (Ident "data" @pos) (show @lhs.data)
                    : [ Attr_Syn k (either show id t) | (k,t) <- sortAssocs $ assocs @fields.gathFields ] )]
   loc.constrSem   = Block_Item @loc.conItfNm $
-                      Item_Sem @pos @loc.conItfNm @loc.conItfNm Nothing $
+                      Item_Sem @pos @loc.conItfNm @loc.conItfNm [] Nothing $
                         SemVisit_Visit @pos (Ident "construct" @pos) False [] [] $ ClausesTop_Top [
                           Clause_Clause @pos (Ident "dispatch" @pos) [
                             Stmt_Eval Mode_Assert
@@ -1372,7 +1427,7 @@ SEM Con | Con
                                   | (k,_) <- assocs @fields.gathFields ]
                               ] ) ] SemVisit_End ]
   loc.deconstrSem = Block_Item @loc.deconItfNm $
-                      Item_Sem @pos @loc.deconItfNm @loc.deconItfNm Nothing $
+                      Item_Sem @pos @loc.deconItfNm @loc.deconItfNm [] Nothing $
                         SemVisit_Visit @pos (Ident "deconstruct" @pos) False [] [] $ ClausesTop_Top [
                           Clause_Clause @pos (Ident "dispatch" @pos) [
                             Stmt_Eval Mode_Match
@@ -1392,7 +1447,7 @@ SEM ItfVisit | Visit
   loc.unqualItf = head @lhs.itf
   loc.noIterNm  = noIterNm @loc.unqualItf @name
   loc.noIterSem = Block_Item @loc.noIterNm $
-                    Item_CoSem @pos @loc.noIterNm @loc.unqualItf @name Nothing $
+                    Item_CoSem @pos @loc.noIterNm @loc.unqualItf @name [] Nothing $
                       SemVisit_Visit @pos @name False [] [] $ ClausesTop_Top []
 
 --
