@@ -13,6 +13,7 @@ data Opts
          , tokens      :: !Bool
          , pretty      :: !Bool
          , genHaskell  :: !Bool
+         , genJs       :: !Bool
          , forceGen    :: !Bool
          , noDataGen   :: !Bool
          , outputGraph :: !(Maybe FilePath)
@@ -25,6 +26,7 @@ opts = [ Option "o" ["output"]  (ReqArg oOutput "path") "output .hs file"
        , Option ""  ["pretty"]  (NoArg oPretty) "pp AST to STDOUT"
        , Option ""  ["tokens"]  (NoArg oTokens) "print tokens to STDOUT"
        , Option ""  ["haskell"] (NoArg oHaskell) "generate Haskell code (default)"
+       , Option ""  ["js"]      (NoArg oJs)      "generate Javascript code"
        , Option "f" ["force"]   (NoArg oForce) "force code generation"
        , Option ""  ["nodata"]  (NoArg oNoData) "do not generate data types"
        , Option ""  ["graph"]   (ReqArg oGraph "path") "output .dot file"
@@ -47,7 +49,10 @@ oTokens :: Opts -> IO Opts
 oTokens o = return (o { tokens = True })
 
 oHaskell :: Opts -> IO Opts
-oHaskell o = return (o { genHaskell = True })
+oHaskell o = return (o { genHaskell = True, genJs = False })
+
+oJs :: Opts -> IO Opts
+oJs o = return (o { genJs = True, genHaskell = False })
 
 oForce :: Opts -> IO Opts
 oForce o = return (o { forceGen = True })
@@ -60,7 +65,8 @@ oNoLinePragmas o = return (o { hNoLinePragmas = True })
 
 defaultOpts :: Opts
 defaultOpts = Opts { sourceFile = "", outputFile = Nothing, verbose = False, pretty = False, tokens = False
-                   , genHaskell = True, forceGen = False, noDataGen = False, outputGraph = Nothing, hNoLinePragmas = False }
+                   , genHaskell = True, genJs = False
+                   , forceGen = False, noDataGen = False, outputGraph = Nothing, hNoLinePragmas = False }
 
 commandlineArgs :: IO Opts
 commandlineArgs

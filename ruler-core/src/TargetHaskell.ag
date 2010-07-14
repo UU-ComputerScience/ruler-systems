@@ -217,6 +217,7 @@ SEM Item
                              >-< indent 4 (hNt @name >#< "=")
                              >-< indent 6 @first.hpp
                              >-< "in" >#< hNt @name ))
+  | DataSem      lhs.hpp = @sem.hpp
   | Detach       lhs.hpp = addSpaces @loc.diff (text $ hSemNm @name @visit)
   | Brackets     lhs.hpp = addSpaces @loc.diff (text "{")
                            >-< vlist @items.hpps
@@ -259,6 +260,8 @@ SEM Item
   | CoSem  loc.hppType = case @mbMonad of
                            Nothing -> "(Monad m, MonadError e m, Error e) => " >#< hCoItfNm @tp @visit >#< "m"
                            Just t  -> hCoItfNm @tp @visit >#< pp_parens (stripSpacing t)
+  | DataSem
+           loc.hppType = text "{- no type signature for nested datatype semantics -}"
 
 SEM SemVisit
   | Visit        loc.hChildren = hlist_sp [ hSemNm k v | (k, Just v) <- Map.assocs @loc.myNextVisits ]

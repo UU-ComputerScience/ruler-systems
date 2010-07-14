@@ -9,7 +9,7 @@ description: Ruler-core Attribute Grammar
 category: Development
 stability: Experimental
 copyright: Arie Middelkoop
-extra-source-files: uuagc_options, src/AstAG.ag, src/TargetHaskell.ag, src/TargetGraph.ag
+extra-source-files: uuagc_options, src/AstAG.ag, src/TargetHaskell.ag, src/TargetGraph.ag, src/TargetJs.ag
 
 executable ruler-core
   build-depends: base >= 4, base < 5, uulib, uuagc>=0.9.26, filepath, directory, containers, array, mtl

@@ -16,7 +16,7 @@ main = do opts  <- commandlineArgs
               pos  = Pos 1 1 path
           when (path /= "") $
             do str <- readFile path
-               let tks  = tokenize path str
+               let tks  = tokenize opts path str
                    pres = parseProgram opts pos tks
                when (tokens opts) (putStrLn (show $ ppTokens tks))
                case pres of

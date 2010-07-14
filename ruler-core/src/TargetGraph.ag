@@ -60,7 +60,7 @@ ppgLabel :: Pos -> DepItem -> Maybe Int -> PP_Doc
 ppgLabel pos item mbRank
   = case item of
       DepMatch _   -> r >#< "@" >|< show (line pos)
-      DepAssert _  -> r >#< "@" >|< show (line pos)
+      DepAssert n  -> r >#< show n >|< "@" >|< show (line pos)
       DepDefault o -> r >#< "d" >|< show o
       DepAttach n  -> r >#< "@" >|< show (line pos)
       DepInvoke (visit:name:_) -> r >#< name >|< "." >|< visit >|< "@" >|< show (line $ identPos name)
@@ -95,10 +95,10 @@ ppgReason reason
       ReasonScopeClause i     -> Nothing -- Just ("sc-cl" >#< show i)
       ReasonScopeEnd i        -> Nothing -- Just ("sc-vis-end" >#< show i)
       ReasonAttrReq chld attr -> Just (show chld >|< "." >|< show attr)
-      ReasonInvokeReq i       -> Nothing -- Just ("inv" >#< show i)
+      ReasonInvokeReq i       -> Just ("inv" >#< show i)
       ReasonChildReq i        -> Nothing -- Just ("chld" >#< show i)
       ReasonAttach i v        -> Just ("att" >#< show i >|< "." >|< show v)
-      ReasonDefault attr      -> Just $ text $ show attr
-      ReasonDetach _ _        -> Just $ text "detach"
+      ReasonDefault attr      -> Nothing -- Just ("def." >|< show attr)
+      ReasonDetach _ _        -> Nothing -- Just $ text "detach"
       ReasonError             -> Just $ text "error"
 }

@@ -1,0 +1,126 @@
+data Root
+  con Root
+    root : Menu
+
+data Menu
+  con Menu
+    name :: 
+    cs : Menus
+
+type Menus : [Menu]
+
+itf Root
+  visit perform
+    inh ast ::
+
+itf Menu
+  visit gather
+    inh ast     ::
+    inh depth   ::
+    syn gathMax ::
+  visit layout
+    inh finMax  ::
+    inh count   ::
+    syn count   ::
+
+itf Menus
+  visit gather
+    inh ast     ::
+    inh depth   ::
+    syn gathMax ::
+  visit layout
+    inh finMax  ::
+    inh count   ::
+    syn count   ::
+
+{
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+<html>
+<head>
+<title>Visitor example</title>
+
+<script type="text/javascript">
+
+var  root = new Root_Root(
+  new Menu_Menu("a", [
+    new Menu_Menu("b", [
+          new Menu_Menu("c", [])
+       ,  new Menu_Menu("d", []) ]) ]));
+
+function align(root, anchor) {
+  datasem Root
+    clause Root
+      root:depth   = 0
+      root:count   = 0
+      root:finMax  = root:gathMax
+      invoke layout of root
+
+  datasem Menu
+    clause Menu
+      cs:finMax    = lhs:finMax
+      cs:depth     = 1 + lhs:depth
+      cs:count     = 1 + lhs:count
+      lhs:count    = cs:count
+
+      match loc:elem  = document.getElementById(loc:name)
+      loc:offset      = lhs:depth * 20
+      loc:width       = loc:offset + loc:elem.clientWidth
+      lhs:gathMax     = Math.max(cs:gathMax, loc:width)
+
+      visit layout
+        match _     =  (function () {
+                          loc:elem.style.left    = (anchor.offsetLeft + loc:offset) + ".px";
+                          loc:elem.style.right   = (anchor.offsetTop + lhs:count * 30) + ".px";
+                          loc:elem.style.width   = (lhs:finMax - loc:offset) + ".px";
+                          loc:elem.style.height  = 30 + ".px";
+                       }) ()
+
+  datasem Menus
+    default depth    = function(depths)  { return depths[depths.length-1]; }
+    default finMax   = function(maxs)    { return maxs[maxs.length-1]; }
+    default gathMax  = function(maxs)    { return Math.max.apply(Math, maxs); }
+    default count    = function(counts)  { return counts[0]; }
+    clause Cons
+    clause Nil
+
+  var inhs  = new Inh_Root_perform();
+  inhs.ast  = root
+  eval_Root_perform(s_Root, inhs);
+}
+
+</script>
+
+<style type="text/css">
+  #a { background-color: red; position: absolute; display: block; width: auto; }
+  #b { background-color: green; position: absolute; display: block; width: auto; }
+  #c { background-color: blue; position: absolute; display: block; width: auto; }
+  #d { background-color: yellow; position: absolute; display: block; width: auto; }
+</style>
+
+</head>
+<body onLoad="align(root, document.getElementById('anchor'));">
+  
+<div id="a">
+  item a
+</div>
+
+<div id="b">
+  very big item b
+</div>
+
+<div id="c">
+  not so big c
+</div>
+
+<div id="d">
+  tiny
+</div>
+
+<div id="anchor" style="position: absolute; display: block; left: 200px; right: 50px;">
+</div>
+
+</body>
+</html>
+}

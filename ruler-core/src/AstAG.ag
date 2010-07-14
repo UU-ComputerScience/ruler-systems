@@ -166,6 +166,8 @@ DATA Item
       vars     : Vars
       mbMonad  : {Maybe String}
       first    : SemVisit
+  | DataSem
+      sem      : DataSem
   | Detach  -- requires visits up to but not including this visit to be invoked
       pos      : Pos
       visit    : Ident
