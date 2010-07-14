@@ -1,0 +1,12 @@
+-- This file is included by Transform.ag
+-- Based on the AST of AstAG.ag
+-- Generates code for Javascript
+
+SEM Program | Program
+  +pp = if genJs @lhs.opts
+        then (@loc.jspp >-<)
+        else id
+
+
+SEM Program | Program
+  loc.jspp = empty -- vlist @blocks.jspps

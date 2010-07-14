@@ -140,11 +140,12 @@ pItem
                   <*> opt (pKey "monad" *> (Just <$> pTextln <* pEnd <?> "monad type")) Nothing
                   <*> pSemVisit
                   <* pEnd <?> "cosem")
+  <|> Item_DataSem <$> pDataSem
   <|> (Item_Detach <$> pKeyPos "detach" <*> pIdentVisit <* pKey "of" <*> pIdentChild <* pEnd <?> "detach item")
   <|> (Item_Brackets <$> pKeyPos "{" <*> pList_gr pItem <*> pKeyPos"}" <?> "brackets")
   <?> "code item"
   where
-    mkAttr s p = let (i,t) = break (== '.') s
+    mkAttr s p = let (i,t) = break (\c -> c == '.' || c == ':') s
                  in Item_Attr p (Ident i p) (Ident (tail t) p)
 
 pSemVisit :: AgParser SemVisit
@@ -213,6 +214,7 @@ pPatBase :: AgParser Pat
 pPatBase
   =   Pat_Underscore <$> pKeyPos "_"
   <|> Pat_Attr <$> pIdentChild <* pKey "." <*> pIdentAttr
+  <|> Pat_Attr <$> pIdentChild <* pKey ":" <*> pIdentAttr  -- should actually check to only parse these in case of javascript
   <|> Pat_Tup <$> pParens_pCommas pPat
   <|> Pat_List <$> pBracks_pCommas pPat
   <?> "simple pattern"
