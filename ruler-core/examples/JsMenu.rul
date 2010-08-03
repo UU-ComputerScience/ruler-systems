@@ -1,3 +1,17 @@
+{
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+<html>
+<head>
+<title>Visitor example</title>
+
+<script type="text/javascript">
+var eEval  = new Object();
+var eAbort = new Object();
+
+}
+
 data Root
   con Root
     root : Menu
@@ -34,15 +48,6 @@ itf Menus
     syn count   ::
 
 {
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
-"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
-
-<html>
-<head>
-<title>Visitor example</title>
-
-<script type="text/javascript">
-
 var  root = new Root_Root(
   new Menu_Menu("a", [
     new Menu_Menu("b", [
@@ -71,10 +76,10 @@ function align(root, anchor) {
 
       visit layout
         match _     =  (function () {
-                          loc:elem.style.left    = (anchor.offsetLeft + loc:offset) + ".px";
-                          loc:elem.style.right   = (anchor.offsetTop + lhs:count * 30) + ".px";
-                          loc:elem.style.width   = (lhs:finMax - loc:offset) + ".px";
-                          loc:elem.style.height  = 30 + ".px";
+                          loc:elem.style.left    = (anchor.offsetLeft + loc:offset) + "px";
+                          loc:elem.style.top     = (anchor.offsetTop + lhs:count * 30) + "px";
+                          loc:elem.style.width   = (lhs:finMax - loc:offset) + "px";
+                          loc:elem.style.height  = 30 + "px";
                        }) ()
 
   datasem Menus
@@ -84,10 +89,10 @@ function align(root, anchor) {
     default count    = function(counts)  { return counts[0]; }
     clause Cons
     clause Nil
-
-  var inhs  = new Inh_Root_perform();
-  inhs.ast  = root
-  eval_Root_perform(s_Root, inhs);
+  
+  var inps = new Inh_Root_perform();
+  inps.ast = root;
+  dnt_Root()(inps);
 }
 
 </script>

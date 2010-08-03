@@ -1354,13 +1354,14 @@ SEM Item | DataSem  loc.pos = @sem.pos
 
 ATTR AliasType [ | | alias : SELF ]
 ATTR BlocksTop Blocks Block Type [ | | gathAliasses USE {`Map.union`} {Map.empty} : {Map Ident AliasType} ]
-ATTR AllCodeBlocks ImplStmts ImplStmt [ distAliasses : {Map Ident AliasType} | | ]
+ATTR AllCodeBlocks ImplStmts ImplStmt Data Cons Con Fields Field FieldType Type [ distAliasses : {Map Ident AliasType} | | ]
 
 SEM Type | Alias       lhs.gathAliasses = Map.singleton @name @type.alias
 SEM Program | Program  blocks.distAliasses = @blocks.gathAliasses
 
-SEM Pat  | AttrCon    loc.mbAlias = Map.lookup @dt @lhs.distAliasses
-SEM Item | Construct  loc.mbAlias = Map.lookup @data @lhs.distAliasses
+SEM Pat  | AttrCon       loc.mbAlias = Map.lookup @dt @lhs.distAliasses
+SEM Item | Construct     loc.mbAlias = Map.lookup @data @lhs.distAliasses
+SEM FieldType | Nonterm  loc.mbAlias = Map.lookup @name @lhs.distAliasses
 
 SEM Type | Alias
 inst.data : Data

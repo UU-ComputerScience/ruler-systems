@@ -9,7 +9,6 @@ itf S
   visit v1
     inh l :: [Int]
   visit v2
-    inh z :: Int   -- dummy attr to make things more interesting...
     syn s :: Int
 
 {
@@ -21,7 +20,6 @@ sum' = sem sum : S monad Either String
 
            clause sumCons
              tl.l = loc.xs
-             default1 z
              lhs.s = loc.x + tl.s
              match (loc.x : loc.xs) = lhs.l
              attach v1 of tl : S = sum'

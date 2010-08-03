@@ -228,7 +228,7 @@ SEM Item
                              Nothing    -> hConNm @data @con >#< hlist_sp @loc.hFldsPPs
                              Just alias -> case alias of
                                              AliasType_Prod _  -> pp_block "(" ")" "," @loc.hFldsPPs
-                                             AliasType_List _  -> if @con == ident "Just"
+                                             AliasType_List _  -> if @con == ident "Cons"
                                                                   then "(:)" >#< hlist_sp @loc.hFldsPPs
                                                                   else text "[]"
                                              AliasType_Maybe _ -> if @con == ident "Nothing"
@@ -516,8 +516,8 @@ SEM Pat
                                                                   then "(:)" >#< hlist_sp @loc.hBangFldsPPs
                                                                   else text "[]"
                                              AliasType_Maybe _ -> if @con == ident "Nothing"
-                                                                  then "Just" >#< hlist_sp @loc.hBangFldsPPs
-                                                                  else text "Nothing"
+                                                                  then text "Nothing"
+                                                                  else "Just" >#< hlist_sp @loc.hBangFldsPPs
   | Attr         lhs.hpp = @loc.hBang >|< hParensWithPos @lhs.opts (identPos @child) (hOutp @child @name)
   | Tup          lhs.hpp = @loc.hBang >|< pp_block "(" ")" "," @pats.hpps
   | List         lhs.hpp = @loc.hBang >|< pp_block "[" "]" "," @pats.hpps
