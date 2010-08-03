@@ -1,0 +1,66 @@
+Ruler-core
+
+Ruler-core is an attribute grammar preprocessor, with a number of extensions to deal with (inference)-rule based systems.
+
+How to get it to run:
+
+1) checkout the repository or obtain the sources in another way
+2) run cabal-install of ruler-core. This will install the dependencies, but will fail to build ruler-core itself.
+3) run the cabal-files manually. The following is a trace:
+
+$ runghc Setup.hs configure --user
+Configuring ruler-core-0.9...
+
+
+$ runghc Setup.hs build
+Preprocessing executables for ruler-core-0.9...
+"processing: src/Ast.ag"
+"processing: src/Transform.ag"
+"processing: src/Errs.ag"
+Building ruler-core-0.9...
+[ 1 of 11] Compiling Env              ( src/Env.hs, dist/build/ruler-core/ruler-core-tmp/Env.o )
+[ 2 of 11] Compiling Pretty           ( src/Pretty.hs, dist/build/ruler-core/ruler-core-tmp/Pretty.o )
+[ 3 of 11] Compiling Common           ( src/Common.hs, dist/build/ruler-core/ruler-core-tmp/Common.o )
+[ 4 of 11] Compiling Ast              ( dist/build/ruler-core/ruler-core-tmp/Ast.hs, dist/build/ruler-core/ruler-core-tmp/Ast.o )
+[ 5 of 11] Compiling DepAnalysis      ( src/DepAnalysis.hs, dist/build/ruler-core/ruler-core-tmp/DepAnalysis.o )
+[ 6 of 11] Compiling Opts             ( src/Opts.hs, dist/build/ruler-core/ruler-core-tmp/Opts.o )
+[ 7 of 11] Compiling Errs             ( dist/build/ruler-core/ruler-core-tmp/Errs.hs, dist/build/ruler-core/ruler-core-tmp/Errs.o )
+[ 8 of 11] Compiling Transform        ( dist/build/ruler-core/ruler-core-tmp/Transform.hs, dist/build/ruler-core/ruler-core-tmp/Transform.o )
+[ 9 of 11] Compiling Parser           ( src/Parser.hs, dist/build/ruler-core/ruler-core-tmp/Parser.o )
+[10 of 11] Compiling Scanner          ( dist/build/ruler-core/ruler-core-tmp/Scanner.hs, dist/build/ruler-core/ruler-core-tmp/Scanner.o )
+[11 of 11] Compiling Main             ( src/Main.hs, dist/build/ruler-core/ruler-core-tmp/Main.o )
+Linking dist/build/ruler-core/ruler-core ...
+
+
+To see a list of command-line options:
+$ ./dist/build/ruler-core/ruler-core 
+No AG source file specified.
+Usage: imp-visits <OPTION ...> <ag-file> ...
+  -o path  --output=path  output .hs file
+  -v       --verbose      verbose output
+           --pretty       pp AST to STDOUT
+           --tokens       print tokens to STDOUT
+           --haskell      generate Haskell code (default)
+           --js           generate Javascript code
+  -f       --force        force code generation
+           --nodata       do not generate data types
+           --graph=path   output .dot file
+           --noline       do not generate LINE pragmas
+
+
+Try an example:
+$ ./dist/build/ruler-core/ruler-core examples/CycRepmin.rul -o test.hs
+$ ghci test.hs
+GHCi, version 6.12.1: http://www.haskell.org/ghc/  :? for help
+Loading package ghc-prim ... linking ... done.
+Loading package integer-gmp ... linking ... done.
+Loading package base ... linking ... done.
+Loading package ffi-1.0 ... linking ... done.
+[1 of 1] Compiling CycRepmin        ( test.hs, interpreted )
+Ok, modules loaded: CycRepmin.
+*CycRepmin> main
+Loading package syb-0.1.0.2 ... linking ... done.
+Loading package base-3.0.3.2 ... linking ... done.
+Loading package mtl-1.1.0.2 ... linking ... done.
+Tree_Bin {l_Tree_Bin = Tree_Leaf {x_Tree_Leaf = 1}, r_Tree_Bin = Tree_Bin {l_Tree_Bin = Tree_Leaf {x_Tree_Leaf = 1}, r_Tree_Bin = Tree_Leaf {x_Tree_Leaf = 1}}}
+*CycRepmin>
