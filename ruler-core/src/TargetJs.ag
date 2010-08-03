@@ -7,6 +7,416 @@ SEM Program | Program
         then (@loc.jspp >-<)
         else id
 
+{
+jsInp child name
+  | show child == "loc" = show child ++ "L" ++ show name
+  | show child == "lhs" = show child ++ "I" ++ show name
+  | show child == "vis" = show child ++ "I" ++ show name
+  | otherwise           = show child ++ "S" ++ show name
+
+jsOutp child name
+  | show child == "loc" = show child ++ "L" ++ show name
+  | show child == "lhs" = show child ++ "S" ++ show name
+  | show child == "vis" = show child ++ "S" ++ show name
+  | otherwise           = show child ++ "I" ++ show name
+
+jsDtSemNm nm = "dnt_" ++ show nm
+
+jsVis nm vis = "vis_" ++ show nm ++ "_" ++ show vis
+
+jsConNm dt nm = show dt ++ "_" ++ show nm
+}
 
 SEM Program | Program
-  loc.jspp = empty -- vlist @blocks.jspps
+  loc.jspp = vlist @blocks.jspps
+
+ATTR Block Itf ItfVisit Data Con Field Type AliasType DataSem MaybeBoundCode BoundCode Code
+     Item SemVisit ClausesTop Clauses Clause Stmt Pat ImplStmt Var
+  [ | | jspp : {PP_Doc} ]
+
+ATTR ExprField [ | | jsopp : {(Int,PP_Doc)} ]
+
+SEM Block
+  | Section  lhs.jspp = @code.jspp
+  | Itf      lhs.jspp = @itf.jspp
+  | Data     lhs.jspp = @data.jspp
+  | Type     lhs.jspp = empty
+  | Item     lhs.jspp = "var mk" >|< show @name >#< "=" >-< indent 2 @item.jspp
+  | DataSem  lhs.jspp = @sem.jspp
+
+SEM Itf
+  | Itf      lhs.jspp = vlist @visits.jspps
+
+SEM ItfVisit
+  | Visit    lhs.jspp = empty
+             loc.jsInhNm = "Inh_" >|< jsConNm @loc.itfNm @name
+             loc.jsSynNm = "Syn_" >|< jsConNm @loc.itfNm @name
+             +jspp = ("function" >#< @loc.jsInhNm >#< "() {}"
+                     >-< @loc.jsInhNm >|< ".prototype.check = function()"
+                     >-< indent 2 (pp_braces (
+                           vlist [ jsTpCheck nm tp | (nm,tp) <- Map.assocs @attrs.gathVisitInhAttrs ]
+                         ))
+                     >-< "function" >#< @loc.jsSynNm >#< "() {}"
+                      >-< @loc.jsSynNm >|< ".prototype.check = function()"
+                      >-< indent 2 (pp_braces (
+                            vlist [ jsTpCheck nm tp | (nm,tp) <- Map.assocs @attrs.gathVisitSynAttrs ]
+                          ))
+                     ) >-<
+
+{
+jsTpCheck nm tp
+  = "var _val = this." >|< show nm >|< ";"
+    >-< "if (_val === undefined) { throw \"Undefined attribute: " >|< show nm >|< "\"; }"
+    >-< if all isSpace tp
+        then empty
+        else "var _assert =" >#< tp >#< ";"
+             >-< "if (!_assert) { throw \"Assert function undefined\"; }"
+             >-< "var _outcome = _assert(_val);"
+             >-< "if (!_outcome) { throw \"Attribute fails predicate: " >|< show nm >|< "\"; }"
+}
+
+SEM Data | Data
+  lhs.jspp = "function" >#< show @name >#< "() {}"
+             >-< vlist @cons.jspps
+
+SEM Con | Con
+  lhs.jspp = "function" >#<  jsConNm @lhs.data @name
+                 >#< pp_block "(" ")" "," @fields.jspps
+             >-< pp_braces (
+                   vlist [ "this." >|< nmPP >#< "=" >#< nmPP >|< ";" | nmPP <- @fields.jspps ]
+                   >-< vlist @fields.jsChecksPPs
+                 )
+             >-< jsConNm @lhs.data @name >|< ".prototype = new " >#< show @lhs.data >|< "();"
+             >-< jsConNm @lhs.data @name >|< ".prototype.constructor =" >#< jsConNm @lhs.data @name >|< ";"
+
+ATTR Fields Field [ | | jsChecksPPs USE {++} {[]} : {[PP_Doc]} ]
+ATTR FieldType [ | | jsCheckPP : {Maybe PP_Doc} ]
+
+SEM Field | Field
+  lhs.jspp = text $ show @name
+  lhs.jsChecksPPs = [ "var _val = " >#< show @name >|< ";"
+                      >-< "if (_val === undefined) { throw \"Field undefined: " >|< show @name >|< "\";}"
+                      >-< case @type.jsCheckPP of
+                            Nothing -> text "_outcome = true;"
+                            Just p  -> p
+                      >-< "if" >#< pp_parens ("!_outcome")
+                      >#< pp_braces ("throw \"Field fails predicate: " >|< show @name >|< "\";") ]
+
+SEM FieldType
+  | Term     lhs.jsCheckPP = if all isSpace @type
+                             then Nothing
+                             else Just ("var _assert =" >#< @type >|< ";"
+                                  >-< "if (!_assert) { throw \"assert function undefined\"; }"
+                                  >-< "var _outcome = _assert(_val);")
+  | Nonterm  lhs.jsCheckPP = case @loc.mbAlias of
+                               Nothing -> Just ("var _outcome = _val instanceof" >#< show @name >|< ";")
+                               Just alias -> case alias of
+                                                AliasType_Prod _  -> Just $ text ("var _outcome = _val instanceof Tuple;")
+                                                AliasType_List _  -> Just $ text ("var _outcome = _val instanceof Array;")
+                                                AliasType_Maybe _ -> Just $ text ("var _outcome = _val instanceof Maybe;")
+
+SEM Type | Alias
+  lhs.jspp = empty
+
+SEM AliasType
+  | Prod   lhs.jspp = empty
+  | List   lhs.jspp = empty
+  | Maybe  lhs.jspp = empty
+
+SEM DataSem | Sem
+  lhs.jspp = "var dnt_" >|< show @tp >#< "="
+             >#< pp_parens ( "function ()"
+                         >-< pp_braces (
+                               "var" >#< "nt" >|< show @tp >#< "=" >#< @clauses.jspp >|< ";"
+                                >-< "return" >#< "nt" >|< show @tp >|< ";"
+                         )) >|< ";"
+
+SEM BoundCode
+  | Code         lhs.jspp = @code.jspp  -- deal with binder etc in parent
+
+SEM MaybeBoundCode
+  | Nothing      lhs.jspp = empty
+
+SEM Code
+  | Code         lhs.jspp = vlist @items.jspps
+
+SEM Item
+  | Plain        lhs.jspp = if all isSpace @txt
+                            then empty
+                            else vlist $ modifySpacing @loc.diff @lhs.indent @txt
+  | Attr         lhs.jspp = addSpaces @loc.diff $ text $ jsInp @child @name
+  | Sem CoSem    lhs.jspp = addSpaces @loc.diff (pp_parens (
+                              "function ()"
+                              >-< pp_braces (
+                                    "var" >#< "nt" >|< show @name >#< "=" >#< @first.jspp >|< ";"
+                                    >-< "return" >#< "nt" >|< show @name >|< ";"
+                                  )
+                            ))
+  | DataSem      lhs.jspp = @sem.jspp
+  | Detach       lhs.jspp = addSpaces @loc.diff empty
+  | Brackets     lhs.jspp = addSpaces @loc.diff (text "{")
+                            >-< vlist @items.jspps
+                            >-< addSpaces @loc.diff2 (text "}")
+  | Construct    lhs.jspp      = addSpaces @loc.diff (pp_parens @loc.jspp)
+                 loc.jspp      = case @mbAlias of
+                                   Nothing    -> empty
+                                   Just alias -> case alias of
+                                                   AliasType_Prod _  -> empty
+                                                   AliasType_List _  -> empty
+                                                   AliasType_Maybe _ -> empty
+
+SEM SemVisit
+  | Visit        lhs.jspp = "function (_inps)" 
+                            >-< pp_braces (
+                                  "_inps.check();"
+                                  >-< vlist [ "var" >#< jsInp lhsIdent nm >#< "=" >#< "_inps." >|< show nm >|< ";"
+                                            | (nm,_) <- Map.assocs @loc.inhAttrMap ]
+                                  >-< jsppStmtBlock @loc.jsGroupedStmts
+                                  >-< @clauses.jspp
+                                )
+  | Internal     lhs.jspp = jsppStmtBlock @loc.jsGroupedStmts
+                            >-< @clauses.jspp
+  | End          lhs.jspp = if @lhs.fullCyclic
+                            then vlist @loc.jsGroupedStmts
+                            else jsppStmtBlock @loc.jsGroupedStmts
+
+{
+jsppStmtBlock :: PP a => [[a]] -> PP_Doc
+jsppStmtBlock = vlist . map ppComp
+  where ppComp []  = empty
+        ppComp [x] = pp x
+        ppComp xs  = vlist (map pp xs)
+}
+
+SEM Clauses
+  | Cons         lhs.jspp = if @lhs.fullCyclic
+                            then @hd.jspp  -- only one clause
+                            else "try" >#< pp_braces (
+                                    @hd.jspp
+                                 ) >-< "catch (err)" >#< pp_braces (
+                                   "if (err == eEval)"
+                                   >-< pp_braces (
+                                     @tl.jspp
+                                   ) >-< "else" >#< pp_braces (
+                                     text "throw err;"
+                                   )
+                                 )
+  | Nil          lhs.jspp = text "throw eEval;"
+
+SEM Clause
+  | Clause       lhs.jspp = jsppStmtBlock @loc.jsGroupedStmts
+                            >-< if @loc.isDeepest
+                                then "var _outs = new Syn_" >|< jsConNm (head @lhs.itf) @lhs.visit >|< "();"
+                                     >-< case @next.mbNextVisit of
+                                           Just _  -> "_outs._next = " >#< @next.jspp >|< ";"
+                                           Nothing -> @next.jspp
+                                     >-< vlist [ "_outs." >|< show nm >#< "=" >#< jsOutp lhsIdent nm >|< ";"
+                                               | (nm,_) <- Map.assocs @loc.synAttrMap ]
+                                     >-< "return _outs;"
+                                else @next.jspp
+
+SEM Stmt
+  | Eval         lhs.jspp = ( if not @mode.isMatch
+                              then "var _res; try" >#< pp_braces ("_res =" >#< @code.jspp >|< ";")
+                                    >-< "catch(err) { if (err == eEval) { throw eAbort; } else { throw err; } }"
+                              else "var _res = " >#< @code.jspp
+                            ) >|< ";" >-< @pat.jspp
+                 pat.isMatch = @mode.isMatch
+  | Attach       lhs.jspp = "var _semantics =" >#< @loc.jsRhsCode >|< ";"
+                            >-< "if (!_semantics) { throw \"Undefined semantics: " >|< show @name >|< "\"; }"
+                            >-< "var" >#< jsVis @name @visit >#< "= _semantics();"
+                            >-< "if (!" >|< jsVis @name @visit >|< ") { throw \"Undefined attached semantics: " >|< show @name >|< "\"; }"
+                 loc.jsRhsCode = if @code.isJust
+                                 then @code.hpp
+                                 else text $ jsDtSemNm @type
+  | Invoke       lhs.jspp = jsppStmtBlock @loc.jsGroupedStmts
+                            >-< "var _args = new Inh_" >|< jsConNm @loc.unqualChildItf @visit >|< "();"
+                            >-< vlist [ "_args." >|< show nm >#< "=" >#< jsOutp @name nm >|< ";"
+                                      | (nm,_) <- Map.assocs @loc.inhAttrMap ]
+                            >-< "if (!" >|< jsVis @name @visit >|< ") { throw \"uninitialized semantics: ">|< jsVis @name @visit >#< "(expl)\"; }"
+                            >-< "var _res =" >#< jsVis @name @visit >#< pp_parens (text "_args") >|< ";"
+                            >-< "_res.check();"
+                            >-< vlist [ "var" >#< (jsInp @name nm) >#< "=" >#< "_res." >|< show nm >|< ";"
+                                      | (nm,_) <- Map.assocs @loc.synAttrMap ]
+                            >-< case @loc.mbNextVisit of
+                                  Nothing   -> empty
+                                  Just next -> "var" >#< jsVis @name next >#< "= _res._next;"
+  
+  | Default      lhs.jspp = if @mbCode.isJust
+                            then "var _def" >|< show @loc.codeId >#< "=" >#< @mbCode.jspp >|< ";"
+                            else empty
+
+SEM ImplStmt
+  | Invoke
+       lhs.jspp = jsppStmtBlock @loc.jsGroupedStmts
+                  >-< "var _args = new Inh_" >|< jsConNm @itf @visit >|< "();"
+                  >-< vlist [ "_args." >|< show nm >#< "=" >#< jsOutp @child nm >|< ";"
+                            | (nm,_) <- Map.assocs @loc.inhAttrMap ]
+                  >-< "if (!" >|< jsVis @child @visit >|< ") { throw \"uninitialized semantics: ">|< jsVis @child @visit >#< " (impl)\"; }"
+                  >-< "var _res =" >#< jsVis @child @visit >#< pp_parens (text "_args") >|< ";"
+                  >-< "_res.check();"
+                  >-< vlist [ "var" >#< (jsInp @child nm) >#< "=" >#< "_res." >|< show nm >|< ";"
+                            | (nm,_) <- Map.assocs @loc.synAttrMap ]
+                  >-< case @loc.mbNextVisit of
+                        Nothing   -> empty
+                        Just next -> "var" >#< jsVis @child next >#< "= _res._next;"
+                  
+                  
+  
+  | DefaultChild
+      lhs.jspp = "var" >#< hOutp @child @name >#< "=" >#< @loc.jsApp >|< ";"
+  | DefaultSyn
+      lhs.jspp = "var" >#< hOutp lhsIdent @name >#< "=" >#< @loc.jsApp >|< ";"
+  
+  | DefaultChild DefaultSyn
+      loc.jsApp = case @mbCodeRef of
+                    Nothing  -> @loc.jsArr >|< "[0]"
+                    Just ref -> "_def" >|< show ref >#< pp_parens @loc.jsArr
+      loc.jsArr = pp_block "[" "]" "," (reverse @loc.jsInps)
+      loc.jsInps = (if @loc.lhsHasAttr then [text $ jsInp lhsIdent @name] else []) ++ map (\(c,_,_) -> text $ jsInp c @name) @loc.children
+
+  | DefaultVisLocal
+      lhs.jspp = empty
+
+ATTR Pat Pats [ isMatch : Bool | | ]
+
+SEM Pat
+  | Con          lhs.jspp = "if (!(_res instanceof" >#< show @name >|< "))" >#< @loc.jsThrow
+                            >-< "var _con = _res;"
+                            >-< vlist [ "var _res = _con[" >|< show i >|< "];"
+                                        >-< jspp
+                                      | (i, jspp) <- zip [0..] @pats.jspps ]
+  | AttrCon      lhs.jspp = case @mbAlias of
+                              Nothing    -> "if (!(_res instanceof" >#< jsConNm @dt @con >|< "))" >#< @loc.jsThrow
+                                            >-< "var _val = _res;"
+                                            >-< vlist @loc.jsFieldPPs
+                              Just alias -> case alias of
+                                              AliasType_Prod _  -> "if (!(_res instanceof Tuple))" >#< @loc.jsThrow
+                                                                   >-< "if (_res.length != " >|< (show $ length @loc.fields) >|< ")" >#< @loc.jsThrow
+                                                                   >-< "var _val = _res;"
+                                                                   >-< vlist @loc.jsFieldPPs
+                                              AliasType_List _  -> if @con == ident "Cons"
+                                                                   then "if (!(_res instanceof Array))" >#< @loc.jsThrow
+                                                                        >-< "if (_res.length < 1)" >#< @loc.jsThrow
+                                                                        >-< "var" >#< hOutp @name (ident "hd") >#< "= _res[0];"
+                                                                        >-< "var" >#< hOutp @name (ident "tl") >#< "= _res.slice(1);"
+                                                                   else "if (!(_res instanceof Array))" >#< @loc.jsThrow
+                                                                        >-< "if (_res.length != 0)" >#< @loc.jsThrow
+                                              AliasType_Maybe _ -> if @con == ident "Nothing"
+                                                                   then "if (!(_res instanceof Maybe_Nothing))" >#< @loc.jsThrow
+                                                                   else "if (!(_res instanceof Maybe_Just))" >#< @loc.jsThrow
+                                                                        >-< "var _val = _res;"
+                                                                        >-< vlist @loc.jsFieldPPs
+                 loc.jsFieldPPs = [ "var" >#< hOutp @name nm >#< "= _val." >|< show nm >|< ";" | (nm,_) <- @loc.fields ]
+  | Attr         lhs.jspp = "var" >#< jsOutp @child @name >#< "=" >#< "_res;"
+  | Tup          lhs.jspp = "var _tuple = _res;"
+                            >-< "if (_tuple.length !=" >#< length (@pats.jspps) >|< ")" >#< @loc.jsThrow
+                            >-< vlist [ "var _res = _tuple[" >|< show i >|< "];"
+                                        >-< jspp
+                                      | (i, jspp) <- zip [0..] @pats.jspps ]
+  | List         lhs.jspp = "var _arr = _res;"
+                            >-< "if (_tuple.length !=" >#< length (@pats.jspps) >|< ")" >#< @loc.jsThrow
+                            >-< vlist [ "var _res = _arr[" >|< show i >|< "];"
+                                        >-< jspp
+                                      | (i, jspp) <- zip [0..] @pats.jspps ]
+  | Cons         lhs.jspp = "var _arr = _res;"
+                            >-< "if (_arr.length < 1)" >#< @loc.jsThrow
+                            >-< "var _res = _arr[0];"
+                            >-< @hd.jspp
+                            >-< "var _res = _arr.slice(1);"
+                            >-< @tl.jspp
+  | Underscore   lhs.jspp = empty
+  
+  | Tup List Cons Con AttrCon
+      loc.jsThrow = if @lhs.isMatch
+                    then "throw eEval;"
+                    else "throw eAbort;"
+
+SEM ExprField | Field
+  lhs.jsopp = (@loc.fieldIndex, pp_parens @code.jspp)
+
+SEM Var | Var
+  lhs.jspp = text (show @name)
+
+
+ATTR BlocksTop Blocks ItfVisits Items Pats Cons Fields Vars
+  [ | | jspps : {[PP_Doc]} ]
+
+SEM BlocksTop
+  | Top   lhs.jspps = @blocks.jspps
+  | None  lhs.jspps = []
+
+SEM Blocks
+  | Cons  lhs.jspps = @hd.jspp : @tl.jspps
+  | Nil   lhs.jspps = []
+
+SEM ItfVisits
+  | Cons  lhs.jspps = @hd.jspp : @tl.jspps
+  | Nil   lhs.jspps = []
+
+SEM Cons
+  | Cons  lhs.jspps = @hd.jspp : @tl.jspps
+  | Nil   lhs.jspps = []
+
+SEM Fields
+  | Cons  lhs.jspps = @hd.jspp : @tl.jspps
+  | Nil   lhs.jspps = []
+
+SEM Items
+  | Cons  lhs.jspps = @hd.jspp : @tl.jspps
+  | Nil   lhs.jspps = []
+
+SEM Pats
+  | Cons  lhs.jspps = @hd.jspp : @tl.jspps
+  | Nil   lhs.jspps = []
+
+SEM Vars
+  | Cons  lhs.jspps = @hd.jspp : @tl.jspps
+  | Nil   lhs.jspps = []
+
+
+--
+-- Compute spread of stmts
+--
+
+ATTR AllFinal [ jsSpilledStmts : {[(Int,PP_Doc)]} | | ]
+SEM Program | Program  blocks.jsSpilledStmts = []
+
+SEM SemVisit | Visit Internal
+  (loc.jsoStmts, clauses.jsSpilledStmts) = partition (rankIsLower @clauses.minRank)
+                                             (@lhs.jsSpilledStmts ++ @impls.jsopps ++ @stmts.jsopps)
+  loc.jsGroupedStmts = groupPairs @loc.jsoStmts
+
+SEM SemVisit | End
+  loc.jsGroupedStmts = groupPairs @lhs.jsSpilledStmts
+
+SEM Clause | Clause
+  (loc.jsoStmts, next.jsSpilledStmts) = partition (rankIsLower @next.minRank)
+                                          (@lhs.jsSpilledStmts ++ @deflts.jsopps ++ @impls.jsopps ++ @stmts.jsopps)
+
+  loc.jsGroupedStmts = groupPairs @loc.jsoStmts
+
+SEM Stmt | Invoke      loc.jsGroupedStmts = groupPairs @deflts.jsopps
+SEM ImplStmt | Invoke  loc.jsGroupedStmts = groupPairs @deflts.jsopps
+
+--
+-- Certain fields need to be ordered
+--
+
+ATTR Stmts ImplStmts
+  [ | | jsopps : {[(Int, PP_Doc)]} ]
+
+SEM ImplStmts
+  | Cons  lhs.jsopps = (@hd.rank, @hd.jspp) : @tl.jsopps
+  | Nil   lhs.jsopps = []
+
+SEM Stmts
+  | Cons  lhs.jsopps = (@hd.rank, @hd.jspp) : @tl.jsopps
+  | Nil   lhs.jsopps = []
+
+ATTR ExprFields
+  [ | | jsopps : {[(Int,PP_Doc)]} ]
+
+SEM ExprFields
+  | Cons  lhs.jsopps = @hd.jsopp : @tl.jsopps
+  | Nil   lhs.jsopps = []
