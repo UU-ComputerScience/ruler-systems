@@ -187,7 +187,11 @@ pStmt
                                      <* pKey ":" <*> pIdentItf <*> pMaybeBoundCode <?> "child stmt")
   <|> ( Stmt_Default True  <$> pKeyPos "default?" <*> pVarIdent <*> pMaybeBoundCode <?> "default stmt" )
   <|> ( Stmt_Default False <$> (pKeyPos "default" <|> pKeyPos "default1") <*> pVarIdent <*> pMaybeBoundCode <?> "default1 stmt")
+  <|> ( Stmt_Rename <$> pKeyPos "rename" <*> pIdentChild <*> pList_gr pRename <?> "rename stmt")
   <?> "statement"
+
+pRename :: AgParser Rename
+pRename = Rename_Rename <$> pIdentAttr <* pKey "to" <*> pIdentAttr
 
 pMbChild :: AgParser (Maybe Ident)
 pMbChild = opt (Just <$ pKey "of" <*> pIdentChild) Nothing

@@ -568,6 +568,47 @@ visQIdent = [visIdent]
 
 
 --
+-- Compute renames for each clause/visit
+--
+-- unchecked: source name must be in interface of child
+-- unchecked: duplicate renames
+-- unchecked: new name not in interface of child
+--
+
+{
+type RenameMap = Map Ident (Map Ident Ident)
+}
+
+ATTR Stmts Stmt [ | | gathRenames USE {`unionWithUnion`} {mempty} : RenameMap ]
+SEM Stmt | Rename
+  lhs.gathRenames = Map.singleton @child @subst.gathRenames
+
+ATTR Renames Rename [ | | gathRenames USE {`mappend`} {mempty} : {Map Ident Ident} ]
+SEM Rename | Rename
+  lhs.gathRenames = Map.fromList [ (@source, @dest), (@dest, @source) ]
+
+ATTR AllFinal [ distRenames : RenameMap | | ]
+
+SEM Program | Program  blocks.distRenames  = Map.empty
+SEM DataSem | Sem      clauses.distRenames = Map.empty
+SEM Item | Sem CoSem   first.distRenames   = Map.empty
+
+SEM Clause | Clause      loc.distRenames = @stmts.gathRenames `unionWithUnion` @lhs.distRenames
+SEM SemVisit | Visit     loc.distRenames = @stmts.gathRenames `unionWithUnion` @lhs.distRenames
+SEM SemVisit | Internal  loc.distRenames = @stmts.gathRenames `unionWithUnion` @lhs.distRenames
+
+{
+renameAttr :: RenameMap -> Ident -> Ident -> Ident
+renameAttr mp child nm = Map.findWithDefault nm nm $ Map.findWithDefault Map.empty child mp
+renameAttrFwd = renameAttr
+renameAttrBwd = renameAttr
+}
+
+SEM Item | Attr  loc.origName = renameAttrBwd @lhs.distRenames @child @name
+SEM Pat | Attr   loc.origName = renameAttrBwd @lhs.distRenames @child @name
+
+
+--
 -- Add and check additional instructions (children, etc.) for clauses
 --
 
@@ -864,7 +905,7 @@ SEM Pat | Attr
                     | @child `Set.member` @lhs.allVisits -> AttrTypePat_Visit
                     | otherwise                          -> AttrTypePat_Child
       tp.child    = @child
-      tp.name     = @name
+      tp.name     = @loc.origName
       tp.childItf = head @loc.childItf
 
 SEM Item | Attr
@@ -876,7 +917,7 @@ SEM Item | Attr
                     | @child `Set.member` @lhs.allVisits -> AttrTypeCode_Visit
                     | otherwise                          -> AttrTypeCode_Child
       tp.child    = @child
-      tp.name     = @name
+      tp.name     = @loc.origName
       tp.childItf = head @loc.childItf
 
 -- computation of defineable attributes
@@ -1147,10 +1188,11 @@ SEM ImplStmt | Invoke
 
 SEM ImplStmt | DefaultChild DefaultSyn
   loc.childrenOrdered  = map fst $ sortBy (\(_,a) (_,b) -> a `compare` b) (Map.assocs @lhs.distChildOcc)
-  loc.availChildren    = [ (c,itf, findVisitOfAttr @name itf @lhs.distAttrVisMap)
+  loc.availChildren    = [ (c,itf, findVisitOfAttr nm itf @lhs.distAttrVisMap)
                          | c <- @loc.childrenOrdered
                          , let ([itf], _) = fst $ find [c] (unknQIdent,unknQIdent) @lhs.distChildDefs
-                         , hasSynAttr @name itf @lhs.distSynAttrs
+                               nm = renameAttrFwd @lhs.distRenames c @name
+                         , hasSynAttr nm itf @lhs.distSynAttrs
                          ]
 
 SEM ImplStmt | DefaultChild  loc.candidateChildren = takeWhile (\(nm,_,_) -> nm /= @child) @loc.availChildren
@@ -1162,6 +1204,7 @@ SEM ImplStmt | DefaultChild
 SEM ImplStmt | DefaultChild DefaultSyn
   (loc.children, loc.errChildren) = partition (\(c,itf,vis) -> visAvailable c itf vis @lhs.availInvokes @lhs.distVisitOrder)
                                       @loc.candidateChildren
+  loc.childAttrs = map (\(c,_,_) -> (c, renameAttrFwd @lhs.distRenames c @name)) @loc.children
   +errs2 = \es -> foldr (\(c,itf,vis) -> (Err_ChildSynUnav @pos c itf vis @name Seq.<|)) es @loc.errChildren
 
 SEM ImplStmt | DefaultChild
@@ -1624,7 +1667,8 @@ SEM Stmt | Default
                           childVisits = Map.findWithDefault [] itf @lhs.distVisitOrder
                           minRanges   = Set.fromList $ Map.findWithDefault [] child @lhs.distChildMinRanges
                           range       = dropWhile (\v -> not (v `Set.member` minRanges)) childVisits
-                          mbVis       = Map.lookup (False,@name) attrVisits
+                          mbVis       = Map.lookup (False,nm) attrVisits
+                          nm          = renameAttrFwd @lhs.distRenames child @name
                     , isJust mbVis
                     ]
   loc.invokeReqs    = Map.unionsWith Set.union @loc.visitReqs
@@ -1653,7 +1697,8 @@ rangeUpTo vis (x:xs)
 }
 
 SEM AttrTypeCode | Child
-  loc.visitOfAttr   = Map.findWithDefault unknIdent (False,@lhs.name) (Map.findWithDefault Map.empty @lhs.childItf @lhs.distAttrVisMap)
+  loc.visitOfAttr   = Map.findWithDefault unknIdent (False,@lhs.name)
+                        (Map.findWithDefault Map.empty @lhs.childItf @lhs.distAttrVisMap)
   loc.minRanges     = Set.fromList $ Map.findWithDefault [] @lhs.child @lhs.distAllChildMinRanges
   loc.potentialReqs = dropWhile (/= @loc.visitOfAttr) $ reverse @loc.visitOrder
   loc.actualReqs    = take (1 + length (takeWhile (\x -> not $ Set.member x @loc.minRanges) @loc.potentialReqs)) @loc.potentialReqs
@@ -1927,6 +1972,7 @@ SEM Stmt
   | Default  loc.stmtSource = DepDefault @loc.codeId
   | Attach   loc.stmtSource = DepAttach @loc.lexOrder
   | Invoke   loc.stmtSource = DepInvoke (@visit : @name : @lhs.basename)
+  | Rename   loc.stmtSource = DepAssert @loc.lexOrder
 
 SEM ImplStmt
   | Invoke   loc.stmtSource = DepInvoke (@visit : @child : @lhs.basename)
@@ -2216,9 +2262,9 @@ SEM ImplStmt -- depend on children + inh attrs
                   then addDep @loc.stmtSource (ReasonAttrReq lhsIdent @name)
                          [Map.findWithDefault unknDepItem (True,lhsIdent,@name) @lhs.distAttrSource]
                   else id
-      +gathDeps = Seq.fromList [ Dep @loc.stmtSource (ReasonAttrReq c @name)
-                                   [Map.findWithDefault unknDepItem (False,c,@name) @lhs.distAttrSource]
-                               | (c,_,_) <- @loc.children ] Seq.><
+      +gathDeps = Seq.fromList [ Dep @loc.stmtSource (ReasonAttrReq c a)
+                                   [Map.findWithDefault unknDepItem (False,c,a) @lhs.distAttrSource]
+                               | (c,a) <- @loc.childAttrs ] Seq.><
       -- +errs2 = debugMsg ("dependencies: " ++ show @loc.stmtSource ++ ", attr: " ++ show @name ++ ", children: " ++ show @loc.children) Seq.><
 
 ATTR AllFinal [ distRanks : {Map DepItem (Bool,Int)} | | ]
@@ -2434,6 +2480,7 @@ SEM Stmt
   | Invoke       lhs.pp = vlist @deflts.pps
                           >-< "invoke" >#< @visit >#< "of" >#< @name >#< @code.pp
   | Default      lhs.pp = "default" >#< @name >#< "..."
+  | Rename       lhs.pp = empty
 
 SEM ImplStmt
   | Invoke       lhs.pp = vlist @deflts.pps

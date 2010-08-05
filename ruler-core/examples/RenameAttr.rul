@@ -1,0 +1,40 @@
+{
+{-# LANGUAGE BangPatterns #-}
+module RenameAttr where
+
+import Control.Monad.Error
+}
+
+data X
+  con X
+    chld : Y
+  con X2
+    c1 : Y
+    c2 : Y
+
+data Y
+  con Y
+
+itf X
+  visit v
+    inh ast :: X
+    syn x :: Int
+
+itf Y
+  visit v
+    inh ast :: Y
+    syn z :: Int
+
+datasem X
+  clause X
+    rename chld z to x
+    invoke v of chld
+    lhs.x = chld.x
+  clause X2
+    rename c1 z to x
+    rename c2 z to x
+    default x = sum
+
+datasem Y
+  clause Y
+    lhs.z = 3

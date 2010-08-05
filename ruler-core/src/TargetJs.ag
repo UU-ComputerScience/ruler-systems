@@ -31,7 +31,7 @@ SEM Program | Program
   loc.jspp = vlist @blocks.jspps
 
 ATTR Block Itf ItfVisit Data Con Field Type AliasType DataSem MaybeBoundCode BoundCode Code
-     Item SemVisit ClausesTop Clauses Clause Stmt Pat ImplStmt Var
+     Item SemVisit ClausesTop Clauses Clause Stmt Pat ImplStmt Var AttrTypePat AttrTypeCode
   [ | | jspp : {PP_Doc} ]
 
 ATTR ExprField [ | | jsopp : {(Int,PP_Doc)} ]
@@ -144,7 +144,7 @@ SEM Item
   | Plain        lhs.jspp = if all isSpace @txt
                             then empty
                             else vlist $ modifySpacing @loc.diff @lhs.indent @txt
-  | Attr         lhs.jspp = addSpaces @loc.diff $ text $ jsInp @child @name
+  | Attr         lhs.jspp = addSpaces @loc.diff @tp.jspp
   | Sem CoSem    lhs.jspp = addSpaces @loc.diff (pp_parens (
                               "function ()"
                               >-< pp_braces (
@@ -245,6 +245,7 @@ SEM Stmt
   | Default      lhs.jspp = if @mbCode.isJust
                             then "var _def" >|< show @loc.codeId >#< "=" >#< @mbCode.jspp >|< ";"
                             else empty
+  | Rename       lhs.jspp = empty
 
 SEM ImplStmt
   | Invoke
@@ -273,7 +274,7 @@ SEM ImplStmt
                     Nothing  -> @loc.jsArr >|< "[0]"
                     Just ref -> "_def" >|< show ref >#< pp_parens @loc.jsArr
       loc.jsArr = pp_block "[" "]" "," (reverse @loc.jsInps)
-      loc.jsInps = (if @loc.lhsHasAttr then [text $ jsInp lhsIdent @name] else []) ++ map (\(c,_,_) -> text $ jsInp c @name) @loc.children
+      loc.jsInps = (if @loc.lhsHasAttr then [text $ jsInp lhsIdent @name] else []) ++ map (\(c,a) -> text $ jsInp c a) @loc.childAttrs
 
   | DefaultVisLocal
       lhs.jspp = empty
@@ -308,7 +309,7 @@ SEM Pat
                                                                         >-< "var _val = _res;"
                                                                         >-< vlist @loc.jsFieldPPs
                  loc.jsFieldPPs = [ "var" >#< hOutp @name nm >#< "= _val." >|< show nm >|< ";" | (nm,_) <- @loc.fields ]
-  | Attr         lhs.jspp = "var" >#< jsOutp @child @name >#< "=" >#< "_res;"
+  | Attr         lhs.jspp = "var" >#< @tp.jspp >#< "=" >#< "_res;"
   | Tup          lhs.jspp = "var _tuple = _res;"
                             >-< "if (_tuple.length !=" >#< length (@pats.jspps) >|< ")" >#< @loc.jsThrow
                             >-< vlist [ "var _res = _tuple[" >|< show i >|< "];"
@@ -338,6 +339,8 @@ SEM ExprField | Field
 SEM Var | Var
   lhs.jspp = text (show @name)
 
+SEM AttrTypePat  | *   lhs.jspp = text $ jsOutp @lhs.child @lhs.name
+SEM AttrTypeCode | *   lhs.jspp = text $ jsInp  @lhs.child @lhs.name
 
 ATTR BlocksTop Blocks ItfVisits Items Pats Cons Fields Vars
   [ | | jspps : {[PP_Doc]} ]
