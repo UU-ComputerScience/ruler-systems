@@ -68,7 +68,7 @@ SEM Program | Program
   loc.hpp = vlist @blocks.hpps
 
 ATTR Block Itf ItfVisit Data Con Field Type AliasType DataSem MaybeBoundCode BoundCode Code
-     Item SemVisit ClausesTop Clauses Clause Stmt Pat ImplStmt Var
+     Item SemVisit ClausesTop Clauses Clause Stmt Pat ImplStmt Var AttrTypePat AttrTypeCode
   [ | | hpp : {PP_Doc} ]
 
 ATTR ExprField [ | | hopp : {(Int,PP_Doc)} ]
@@ -211,7 +211,7 @@ SEM Item
   | Plain        lhs.hpp = if all isSpace @txt
                            then empty
                            else hWrapLinePragma @lhs.opts @pos $ vlist $ modifySpacing @loc.diff @lhs.indent @txt
-  | Attr         lhs.hpp = addSpaces @loc.diff (text $ hInp @child @name)
+  | Attr         lhs.hpp = addSpaces @loc.diff $ hParensWithPos @lhs.opts (identPos @child) @tp.hpp
   | Sem CoSem    lhs.hpp = addSpaces @loc.diff ( pp_parens (
                              "let" >#< (hNt @name >#< "::" >#< @loc.hppType)
                              >-< indent 4 (hNt @name >#< "=")
@@ -441,6 +441,7 @@ SEM Stmt
                                 then ppBindPos @lhs.opts @pos False ("!" >|< "__fresh") (hppWrapRet @mbCode.isFun @mbCode.hpp)
                                        >-< "let" >#< pp_parens (text $ hDfltNm @name @loc.codeId) >#< "= __fresh" >#< @loc.infoComment
                                 else empty
+  | Rename       lhs.hpp = empty
 
 SEM ImplStmt
   | Invoke
@@ -476,7 +477,7 @@ SEM ImplStmt
 
   | DefaultChild DefaultSyn
       loc.hApp  = @loc.hFun >#< pp_block "[" "]" "," (reverse @loc.hInps)
-      loc.hInps = (if @loc.lhsHasAttr then [text $ hInp lhsIdent @name] else []) ++ map (\(c,_,_) -> text $ hInp c @name) @loc.children
+      loc.hInps = (if @loc.lhsHasAttr then [text $ hInp lhsIdent @name] else []) ++ map (\(c,a) -> text $ hInp c a) @loc.childAttrs
       loc.hFun  = case @mbCodeRef of
                     Nothing  -> text "head"
                     Just ref -> hParensWithPos @lhs.opts @pos $ hDfltNm @name ref
@@ -518,7 +519,7 @@ SEM Pat
                                              AliasType_Maybe _ -> if @con == ident "Nothing"
                                                                   then text "Nothing"
                                                                   else "Just" >#< hlist_sp @loc.hBangFldsPPs
-  | Attr         lhs.hpp = @loc.hBang >|< hParensWithPos @lhs.opts (identPos @child) (hOutp @child @name)
+  | Attr         lhs.hpp = @loc.hBang >|< hParensWithPos @lhs.opts (identPos @child) @tp.hpp
   | Tup          lhs.hpp = @loc.hBang >|< pp_block "(" ")" "," @pats.hpps
   | List         lhs.hpp = @loc.hBang >|< pp_block "[" "]" "," @pats.hpps
   | Cons         lhs.hpp = @loc.hBang >|< pp_parens (@hd.hpp >#< ":" >#< pp_parens @tl.hpp)
@@ -530,6 +531,10 @@ SEM ExprField | Field
 
 SEM Var | Var
   lhs.hpp = text (show @name)
+
+
+SEM AttrTypePat  | *   lhs.hpp = text $ hOutp @lhs.child @lhs.name
+SEM AttrTypeCode | *   lhs.hpp = text $ hInp  @lhs.child @lhs.name
 
 
 ATTR BlocksTop Blocks ItfVisits Items Pats Cons Fields Vars

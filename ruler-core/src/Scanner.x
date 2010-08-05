@@ -28,8 +28,8 @@ tokens :-
   <0>    datasem                                      { reserved }
 
   <a>    clause | visit | cyclic | chn | internal     { reserved }
-  <a>    match | invoke | of                          { reserved }
-  <a>    attach | detach | child                      { reserved }
+  <a>    match | invoke | of | to                     { reserved }
+  <a>    attach | detach | child | rename             { reserved }
   <a>    default | default1 | "default?"              { reserved }
 
   <0,a>  "::" | ":" | "monad"                         { reserved }

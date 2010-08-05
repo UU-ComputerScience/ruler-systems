@@ -255,6 +255,15 @@ DATA Stmt
       pos        : Pos
       name       : Ident
       mbCode     : MaybeBoundCode
+  | Rename
+      pos        : Pos
+      child      : Ident
+      subst      : Renames
+
+TYPE Renames = [Rename]
+DATA Rename | Rename
+  source : Ident
+  dest   : Ident
 
 DATA Mode
   | Match

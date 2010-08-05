@@ -144,7 +144,7 @@ SEM Err
   | AmbAttach      lhs.pp = locLine @loc.pos ("ambiguous attach of child" >#< show @name >#< "and visit" >#< show @visit)
   | AmbDefault     lhs.pp = locLine @pos     ("ambiguous default statement for" >#< show @name)
   | TypeConflict   lhs.pp = locLine @loc.pos ("type" >#< show @found >#< "does not match expected type" >#< show @expect)
-  | ChildSynUnav   lhs.pp = locLine @pos     ("default for" >#< show @name >#< "requires unavailable attribute of" >#< show @child)
+  | ChildSynUnav   lhs.pp = locLine @pos     ("default for" >#< show @name >#< "requires unavailable attribute" >#< show @name >#< "of" >#< show @child >|< "'s visit" >#< show @vis)
   | Cyclic         lhs.pp = locLine @pos     ("cycle:" >#< hlist_sp (map @loc.ppDep @comps) )
   | MatchCyclic    lhs.pp = locLine @pos     ("match statement not allowed in cyclic visit")
   | ClausesCyclic  lhs.pp = locLine @pos     ("cyclic visit" >#< show @name >#< "must have one clause, but has" >#< show @n)
