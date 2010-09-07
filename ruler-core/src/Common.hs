@@ -65,9 +65,10 @@ data DepItem
 
 instance Ord DepItem where
   compare (DepMatch n)    (DepMatch m)     = compare m n
-  compare (DepMatch n)    (DepAssert m)    = compare m n
+  -- compare (DepMatch n)    (DepAssert m)    = compare m n
   compare (DepMatch _)    _                = GT
-  compare (DepAssert n)   (DepMatch m)     = compare m n
+  -- compare (DepAssert n)   (DepMatch m)     = compare m n
+  compare (DepAssert n)   (DepMatch m)     = LT
   compare (DepAssert n)   (DepAssert m)    = compare m n
   compare (DepAssert _)   _                = GT
   compare (DepDefault _)  (DepMatch _)     = LT
