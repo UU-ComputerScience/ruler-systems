@@ -682,6 +682,16 @@ SEM Clause | Clause
   loc.extraStmts = Map.findWithDefault [] @name @lhs.clauseExtras
 
 --
+-- Count visits
+--
+
+ATTR AllVisitClauses [ visitNr : Int | | ]
+SEM Item | Sem CoSem           first.visitNr   = 1
+SEM DataSem | Sem              clauses.visitNr = 1
+
+SEM SemVisit | Visit           loc.visitNr     = @lhs.visitNr + 1
+
+--
 -- Visit order
 --
 
@@ -1456,7 +1466,9 @@ SEM BlocksTop | Top
                else BlocksTop_Top @blocks.extraBlocks
 
 SEM Con | Con
-  lhs.extraBlocks = [@loc.constr, @loc.deconstr, @loc.constrSem, @loc.deconstrSem]
+  lhs.extraBlocks = if genConNonterms @lhs.opts
+                    then [@loc.constr, @loc.deconstr, @loc.constrSem, @loc.deconstrSem]
+                    else []
   loc.conItfNm    = conItf @lhs.data @name
   loc.deconItfNm  = deconItf @lhs.data @name
   loc.allVarNms   = sort (@lhs.vars ++ @vars.vars)
@@ -1499,7 +1511,9 @@ noIterNm dt con = Ident ("NoIter_" ++ show dt ++ "_" ++ show con) (identPos con)
 }
 
 SEM ItfVisit | Visit
-  lhs.extraBlocks = [@loc.noIterSem]
+  lhs.extraBlocks = if genCoSems @lhs.opts
+                     then [@loc.noIterSem]
+                     else []
   loc.unqualItf = head @lhs.itf
   loc.noIterNm  = noIterNm @loc.unqualItf @name
   loc.noIterSem = Block_Item @loc.noIterNm $
@@ -1801,6 +1815,16 @@ ATTR AllCodeBlocks [ | | gathVisitStarts, gathVisitEnds USE {Seq.><} {Seq.empty}
 SEM SemVisit | Visit Internal
   +gathVisitStarts = @loc.scopeDep   Seq.<|
   +gathVisitEnds   = @loc.visitEndDep Seq.<|
+
+--
+-- Gather semantics starts and ends (in lexical order)
+--
+
+ATTR AllCodeBlocks [ | | gathSemStarts USE {Seq.><} {Seq.empty} : {Seq DepItem} ]
+SEM SemVisit | Visit
+  +gathSemStarts = if @lhs.visitNr == 1
+                   then (@loc.scopeDep Seq.<|)
+                   else id
 
 
 --
@@ -2275,11 +2299,12 @@ SEM Program | Program
                    `Map.union`
                      (Map.fromList [ (i, (ReasonSink,[])) | i <- @loc.unqItems ])
   loc.unqItems   = Set.toList $ Set.fromList $ concatMap (\(Dep from _ tos) -> from : tos) $ toList @blocks.gathDeps
-  loc.components = analyze (toList @blocks.gathVisitStarts) (toList @blocks.gathVisitEnds) @blocks.gathAvoidVisits $
+  loc.components = analyze (toList @blocks.gathSemStarts) (toList @blocks.gathVisitStarts) (toList @blocks.gathVisitEnds) @blocks.gathAvoidVisits $
                      map (\(from,(reason,tos)) -> (reason,from,tos)) $ Map.assocs @unqDeps
   loc.distRanks  = let merge rank (AcyclicSCC d) = [(d,(False,rank))]
                        merge rank (CyclicSCC ps) = zip ps (repeat (True,rank))
-                   in  Map.fromList $ concat $ zipWith merge [1..] @loc.components
+                       mp = Map.fromList $ concat $ zipWith merge [1..] @loc.components
+                   in  mp
   
   loc.cyclicComps = let isCyclicSCC (CyclicSCC _)    = True
                         isCyclicSCC _                = False

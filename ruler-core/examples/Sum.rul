@@ -30,7 +30,7 @@ test :: [Int] -> Either String Int
 test xs = do
   let inh1 = Inh_S_v1 { l_Inh_S = xs }
   syn1 <- invoke_S_v1 sum' inh1
-  let inh2 = Inh_S_v2 { z_Inh_S = 42 }
+  let inh2 = Inh_S_v2 { }
   syn2 <- invoke_S_v2 (next_S_v1 syn1) inh2
   let s = s_Syn_S syn2
   return s
