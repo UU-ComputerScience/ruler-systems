@@ -12,26 +12,31 @@ itf D
   visit dispatch
     inh ast :: D
     syn x :: Int
+    syn z :: Int
 
 datasem D monad IO
   clause C
     internal bla   -- internal clause: conditionally compute attributes
+      loc.p = False
+      lhs.z = 9
       clause other1
         match False = True  -- this clause will fail
+        loc.q = True
         lhs.x = 2
       clause other2
         lhs.x = 42          -- the result of this internal clause is returned
 
 {
-test :: D -> IO Int
+test :: D -> IO (Int, Int)
 test d = do
   let inh = Inh_D_dispatch { ast_Inh_D = d }
   syn <- invoke_D_dispatch dnt_D inh
   let x = x_Syn_D syn
-  return x
+  let z = z_Syn_D syn
+  return (x,z)
 
 main :: IO ()
 main = do let d = D_C
-          x <- test d
-          putStrLn $ show x
+          t <- test d
+          putStrLn $ show t
 }

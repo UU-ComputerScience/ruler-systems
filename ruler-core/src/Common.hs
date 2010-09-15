@@ -64,45 +64,48 @@ data DepItem
   deriving (Eq, Show)
 
 instance Ord DepItem where
-  compare (DepMatch n)    (DepMatch m)     = compare m n
-  -- compare (DepMatch n)    (DepAssert m)    = compare m n
-  compare (DepMatch _)    _                = GT
-  -- compare (DepAssert n)   (DepMatch m)     = compare m n
-  compare (DepAssert n)   (DepMatch m)     = LT
-  compare (DepAssert n)   (DepAssert m)    = compare m n
-  compare (DepAssert _)   _                = GT
-  compare (DepDefault _)  (DepMatch _)     = LT
-  compare (DepDefault _)  (DepAssert _)    = LT
-  compare (DepDefault n)  (DepDefault m)   = compare m n
-  compare (DepDefault _)  _                = GT
-  compare (DepAttach _)   (DepMatch _)     = LT
-  compare (DepAttach _)   (DepAssert _)    = LT
-  compare (DepAttach _)   (DepDefault _)   = LT
-  compare (DepAttach n)   (DepAttach m)    = compare m n
-  compare (DepAttach _)   _                = GT
-  compare (DepInvoke _)   (DepMatch _)     = LT
-  compare (DepInvoke _)   (DepAssert _)    = LT
-  compare (DepInvoke _)   (DepDefault _)   = LT
-  compare (DepInvoke _)   (DepAttach _)    = LT
-  compare (DepInvoke n)   (DepInvoke m)    = compareNames (reverse n) (reverse m)
-  compare (DepInvoke _)   _                = GT
-  compare (DepVisStart _) (DepMatch _)     = LT
-  compare (DepVisStart _) (DepAssert _)    = LT
-  compare (DepVisStart _) (DepDefault _)   = LT
-  compare (DepVisStart _) (DepAttach _)    = LT
-  compare (DepVisStart _) (DepInvoke _)    = LT
-  compare (DepVisStart n) (DepVisStart m)  = compareNames (reverse n) (reverse m)
-  compare (DepVisStart _) _                = GT
-  compare (DepVisEnd n)   (DepVisEnd m)    = compareNames (reverse n) (reverse m)
-  compare (DepVisEnd _)   _                = LT
-  compare (DepClause _)   (DepMatch _)     = LT
-  compare (DepClause _)   (DepAssert _)    = LT
-  compare (DepClause _)   (DepDefault _)   = LT
-  compare (DepClause _)   (DepAttach _)    = LT
-  compare (DepClause _)   (DepInvoke _)    = LT
-  compare (DepClause _)   (DepVisStart _)  = LT
-  compare (DepClause _)   (DepVisEnd _)    = GT
-  compare (DepClause n)   (DepClause m)    = compareNames (reverse n) (reverse m)
+  compare a b =
+   let
+    c (DepMatch n)    (DepMatch m)     = compare m n
+    -- c (DepMatch n)    (DepAssert m)    = compare m n
+    c (DepMatch _)    _                = GT
+    -- c (DepAssert n)   (DepMatch m)     = compare m n
+    c (DepAssert n)   (DepMatch m)     = LT
+    c (DepAssert n)   (DepAssert m)    = compare m n
+    c (DepAssert _)   _                = GT
+    c (DepDefault _)  (DepMatch _)     = LT
+    c (DepDefault _)  (DepAssert _)    = LT
+    c (DepDefault n)  (DepDefault m)   = compare m n
+    c (DepDefault _)  _                = GT
+    c (DepAttach _)   (DepMatch _)     = LT
+    c (DepAttach _)   (DepAssert _)    = LT
+    c (DepAttach _)   (DepDefault _)   = LT
+    c (DepAttach n)   (DepAttach m)    = compare m n
+    c (DepAttach _)   _                = GT
+    c (DepInvoke _)   (DepMatch _)     = LT
+    c (DepInvoke _)   (DepAssert _)    = LT
+    c (DepInvoke _)   (DepDefault _)   = LT
+    c (DepInvoke _)   (DepAttach _)    = LT
+    c (DepInvoke n)   (DepInvoke m)    = compareNames (reverse n) (reverse m)
+    c (DepInvoke _)   _                = GT
+    c (DepVisStart _) (DepMatch _)     = LT
+    c (DepVisStart _) (DepAssert _)    = LT
+    c (DepVisStart _) (DepDefault _)   = LT
+    c (DepVisStart _) (DepAttach _)    = LT
+    c (DepVisStart _) (DepInvoke _)    = LT
+    c (DepVisStart n) (DepVisStart m)  = compareNames (reverse n) (reverse m)
+    c (DepVisStart _) _                = GT
+    c (DepVisEnd n)   (DepVisEnd m)    = compareNames (reverse n) (reverse m)
+    c (DepVisEnd _)   _                = LT
+    c (DepClause _)   (DepMatch _)     = LT
+    c (DepClause _)   (DepAssert _)    = LT
+    c (DepClause _)   (DepDefault _)   = LT
+    c (DepClause _)   (DepAttach _)    = LT
+    c (DepClause _)   (DepInvoke _)    = LT
+    c (DepClause _)   (DepVisStart _)  = LT
+    c (DepClause _)   (DepVisEnd _)    = GT
+    c (DepClause n)   (DepClause m)    = compareNames (reverse n) (reverse m)
+   in c b a
 
 compareNames :: QIdent -> QIdent -> Ordering
 compareNames [] [] = EQ
@@ -127,4 +130,5 @@ data Reason = ReasonScopeVisit !Ident
             | ReasonSink
             | ReasonAlloc
             | ReasonError
+            | ReasonOrder
   deriving (Eq,Ord,Show)

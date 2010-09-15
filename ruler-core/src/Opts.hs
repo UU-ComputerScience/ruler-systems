@@ -18,6 +18,8 @@ data Opts
          , noDataGen   :: !Bool
          , outputGraph :: !(Maybe FilePath)
          , hNoLinePragmas :: !Bool
+         , genConNonterms :: !Bool
+         , genCoSems      :: !Bool
          }
 
 opts :: [OptDescr (Opts -> IO Opts)]
@@ -31,6 +33,8 @@ opts = [ Option "o" ["output"]  (ReqArg oOutput "path") "output .hs file"
        , Option ""  ["nodata"]  (NoArg oNoData) "do not generate data types"
        , Option ""  ["graph"]   (ReqArg oGraph "path") "output .dot file"
        , Option ""  ["noline"]  (NoArg oNoLinePragmas) "do not generate LINE pragmas"
+       , Option ""  ["genconnon"] (NoArg oGenConNon) "generate constructor nonterminals"
+       , Option ""  ["gencosems"] (NoArg oGenCoSems) "generate cosems"
        ]
 
 oOutput :: FilePath -> Opts -> IO Opts
@@ -63,10 +67,17 @@ oNoData o = return (o { noDataGen = True })
 oNoLinePragmas :: Opts -> IO Opts
 oNoLinePragmas o = return (o { hNoLinePragmas = True })
 
+oGenConNon :: Opts -> IO Opts
+oGenConNon o = return (o { genConNonterms = True })
+
+oGenCoSems :: Opts -> IO Opts
+oGenCoSems o = return (o { genCoSems = True })
+
 defaultOpts :: Opts
 defaultOpts = Opts { sourceFile = "", outputFile = Nothing, verbose = False, pretty = False, tokens = False
                    , genHaskell = True, genJs = False
-                   , forceGen = False, noDataGen = False, outputGraph = Nothing, hNoLinePragmas = False }
+                   , forceGen = False, noDataGen = False, outputGraph = Nothing, hNoLinePragmas = False
+                   , genConNonterms = False, genCoSems = False }
 
 commandlineArgs :: IO Opts
 commandlineArgs

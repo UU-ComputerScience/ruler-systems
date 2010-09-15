@@ -210,8 +210,8 @@ SEM Code
 SEM Item
   | Plain        lhs.hpp = if all isSpace @txt
                            then empty
-                           else hWrapLinePragma @lhs.opts @pos $ vlist $ modifySpacing @loc.diff @lhs.indent @txt
-  | Attr         lhs.hpp = addSpaces @loc.diff $ hParensWithPos @lhs.opts (identPos @child) @tp.hpp
+                           else vlist $ modifySpacing @loc.diff @lhs.indent @txt
+  | Attr         lhs.hpp = addSpaces @loc.diff $ @tp.hpp
   | Sem CoSem    lhs.hpp = addSpaces @loc.diff ( pp_parens (
                              "let" >#< (hNt @name >#< "::" >#< @loc.hppType)
                              >-< indent 4 (hNt @name >#< "=")

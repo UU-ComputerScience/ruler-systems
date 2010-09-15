@@ -19,6 +19,7 @@ itf Expr
 
 datasem Expr monad IO
   clause Int
+    loc.z = 3
     lhs.val = loc.x
   clause Plus
     invoke eval of l
