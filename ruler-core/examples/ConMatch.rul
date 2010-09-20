@@ -1,0 +1,22 @@
+{
+{-# LANGUAGE BangPatterns #-}
+module Eval where
+
+import Control.Monad.Error
+}
+
+itf I
+  visit v
+    syn x :: Int
+    
+data D
+  con C
+    y :: Int
+
+{
+t = sem t : I monad IO
+      visit v
+        clause c
+          match D.C@m = D_C 3
+          lhs.x = m.y
+}
