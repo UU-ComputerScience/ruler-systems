@@ -91,9 +91,11 @@ ATTR Program [ pos : Pos | | ]
 -- errs4: cycle checks
 
 SET AllDataFields = Data Cons Con Fields Field FieldType
-SET AllCode = Code Items Item DataSem AllVisitClauses Stmts Stmt
-              MaybeBoundCode BoundCode Pats Pat AttrTypePat AttrTypeCode ExprFields ExprField
-              SemCons SemCon SemFields SemField
+SET AllCode = AllCodeWithoutAttrs AttrTypePat AttrTypeCode
+SET AllCodeWithoutAttrs = Code Items Item DataSem AllVisitClauses Stmts Stmt
+                          MaybeBoundCode BoundCode Pats Pat  ExprFields ExprField
+                          SemCons SemCon SemFields SemField
+SET AllCodeBlocksWithoutAttrs = BlocksTop Blocks Block AllCodeWithoutAttrs
 SET AllCodeBlocks = BlocksTop Blocks Block AllCode
 SET AllVisitClauses = SemVisit ClausesTop Clauses Clause
 SET AllFinal = AllCodeBlocks ImplStmts ImplStmt
@@ -491,7 +493,8 @@ astIdent = Ident "ast" noPos
 -- Children defined
 --
 
-ATTR AllCodeBlocks [ | gathChildDefs, distChildDefs : {Env QIdent (QIdent, QIdent)} | ]
+ATTR AllCodeBlocksWithoutAttrs [ | gathChildDefs : {Env QIdent (QIdent, QIdent)} | ]
+ATTR AllCodeBlocks [ | distChildDefs : {Env QIdent (QIdent,QIdent)} | ]
 ATTR ImplStmts ImplStmt [ gathChildDefs, distChildDefs : {Env QIdent (QIdent,QIdent)} | | ]  -- inherit only
 
 SEM Program | Program  blocks.gathChildDefs = emptyEnv
@@ -547,7 +550,8 @@ SEM Stmt
 
 SEM Pat
   | Attr    ((loc.childItf, loc.startVisit), lhs.distChildDefs) = find [@child] (unknQIdent,unknQIdent) @lhs.distChildDefs
-  | AttrCon +gathChildDefs = extendTail [@name] (unknQIdent,unknQIdent)
+  | AttrCon +gathChildDefs = extendTail [@name] (locQIdent,locQIdent)
+            ((loc.childItf, loc.startVisit), lhs.distChildDefs) = find [@name] (unknQIdent,unknQIdent) @lhs.distChildDefs
 
 {
 unknIdent :: Ident
@@ -913,6 +917,7 @@ SEM Pat | Attr
                     | s == "lhs"                         -> AttrTypePat_Lhs
                     | s == "vis"                         -> AttrTypePat_VisLocal
                     | @child `Set.member` @lhs.allVisits -> AttrTypePat_Visit
+                    | @loc.childItf == locQIdent         -> AttrTypePat_ProdLocal
                     | otherwise                          -> AttrTypePat_Child
       tp.child    = @child
       tp.name     = @loc.origName
@@ -925,6 +930,7 @@ SEM Item | Attr
                     | s == "lhs"                         -> AttrTypeCode_Lhs
                     | s == "vis"                         -> AttrTypeCode_VisLocal
                     | @child `Set.member` @lhs.allVisits -> AttrTypeCode_Visit
+                    | @loc.childItf == locQIdent         -> AttrTypeCode_ProdLocal
                     | otherwise                          -> AttrTypeCode_Child
       tp.child    = @child
       tp.name     = @loc.origName
@@ -2075,7 +2081,7 @@ SEM ImplStmt
   | DefaultVisLocal  +gathAttrSource = Map.insert (False,visIdent,@name) @loc.stmtSource
 
 SEM Pat | AttrCon
-  loc.isLoc = @name == locIdent
+  loc.isLoc = @name == locIdent || @loc.childItf == locQIdent
   +gathAttrSource = Map.union (Map.fromList [ ((not @loc.isLoc, @name, nm), @lhs.stmtSource) | (nm,_) <- @loc.fields ])
 
 -- Determines: "Where is each child defined. What is its start visit?"
@@ -2168,10 +2174,10 @@ ATTR AllFinal [ | | gathDeps USE {Seq.><} {Seq.empty} : Deps ]
 SEM AttrTypeCode | VisLocal ProdLocal Lhs Child Visit
   +gathDeps = addDep @lhs.stmtSource (ReasonAttrReq @lhs.child @lhs.name) [@loc.attrDep]
 
-SEM AttrTypeCode | VisLocal Lhs
+SEM AttrTypeCode | VisLocal ProdLocal Lhs
   loc.attrDep = Map.findWithDefault unknDepItem (True, @lhs.child,@lhs.name) @lhs.distAttrSource
 
-SEM AttrTypeCode | Child Visit ProdLocal
+SEM AttrTypeCode | Child Visit
   loc.attrDep = Map.findWithDefault unknDepItem (False,@lhs.child,@lhs.name) @lhs.distAttrSource
 
 -- dependency on syn and vis attrs of visit. Must be defined before visit end.

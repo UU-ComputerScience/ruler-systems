@@ -14,17 +14,21 @@ itf D
     syn x :: Int
     syn z :: Int
 
-datasem D monad IO
-  clause C
+{
+foo =
+   sem foo : D monad IO
+  visit dispatch
+   clause C
     internal bla   -- internal clause: conditionally compute attributes
-      loc.p = False
-      lhs.z = 9
+      loc.p = 9
+      lhs.z = loc.p
       clause other1
         match False = True  -- this clause will fail
         loc.q = True
-        lhs.x = 2
+        lhs.x = loc.p + const 3 lhs.ast
       clause other2
         lhs.x = 42          -- the result of this internal clause is returned
+}
 
 {
 test :: D -> IO (Int, Int)

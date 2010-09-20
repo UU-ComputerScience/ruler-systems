@@ -29,6 +29,9 @@ hOutp child name
   | show child == "vis" = show child ++ "S" ++ show name
   | otherwise           = show child ++ "I" ++ show name
 
+hOutpLoc child name = show child ++ "L" ++ show name
+hInpLoc child name = show child ++ "L" ++ show name
+
 hInhFldNm nm itf vis = show nm ++ "_Inh_" ++ show itf
 hSynFldNm nm itf vis = show nm ++ "_Syn_" ++ show itf
 hInhFldNmFull nm itf vis = hInhFldNm nm itf vis ++ "_" ++ show vis
@@ -507,7 +510,7 @@ hppWrapRet False d = pp d
 SEM Pat
   | Con          lhs.hpp = @loc.hBang >|< hParensWithPos @lhs.opts (identPos @name) (@name >#< hlist_sp @pats.hpps)
   | AttrCon      lhs.hpp          = @loc.hBang >|< (pp_parens @loc.hpp)
-                 loc.hFldsPPs     = [ hParensWithPos @lhs.opts (identPos @name) (hOutp @name nm) | (nm,_) <- @loc.fields ]
+                 loc.hFldsPPs     = [ hParensWithPos @lhs.opts (identPos @name) (hOutpLoc @name nm) | (nm,_) <- @loc.fields ]
                  loc.hBangFldsPPs = map (@loc.hBang >|<) @loc.hFldsPPs
                  loc.hpp = case @mbAlias of
                              Nothing    -> hConNm @dt @con >#< hlist_sp @loc.hFldsPPs
@@ -533,8 +536,15 @@ SEM Var | Var
   lhs.hpp = text (show @name)
 
 
-SEM AttrTypePat  | *   lhs.hpp = text $ hOutp @lhs.child @lhs.name
-SEM AttrTypeCode | *   lhs.hpp = text $ hInp  @lhs.child @lhs.name
+SEM AttrTypePat
+  | ProdLocal  lhs.hpp = text $ hOutpLoc @lhs.child @lhs.name
+  | VisLocal Lhs Child Visit
+               lhs.hpp = text $ hOutp @lhs.child @lhs.name
+
+SEM AttrTypeCode
+  | ProdLocal  lhs.hpp = text $ hInpLoc @lhs.child @lhs.name
+  | VisLocal Lhs Child Visit
+               lhs.hpp = text $ hInp @lhs.child @lhs.name
 
 
 ATTR BlocksTop Blocks ItfVisits Items Pats Cons Fields Vars
