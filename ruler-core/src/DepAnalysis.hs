@@ -23,7 +23,7 @@ import qualified Data.Graph.Inductive as G
 analyze :: [DepItem] -> [DepItem] -> [DepItem] -> Set DepItem -> [(Reason, DepItem, [DepItem])] -> [SCC DepItem]
 analyze oSemStarts oStartVisits oEndVisits avoidVisits deps = map compToItem comps
   where
-    comps = stronglyConnCompR $ total deps'
+    comps = stronglyConnCompR $ deps'
 
     compToItem (AcyclicSCC d) = AcyclicSCC (toItem d)
     compToItem (CyclicSCC ds) = CyclicSCC (map toItem ds)

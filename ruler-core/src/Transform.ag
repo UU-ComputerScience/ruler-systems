@@ -28,6 +28,7 @@ import Data.Char
 import Data.Graph
 import Data.Foldable(toList)
 import DepAnalysis
+import Debug.Trace(trace)
 }
 
 
@@ -1118,7 +1119,7 @@ SEM AttrTypePat
   | Visit      +gathDefs = extend (@lhs.child, @lhs.name, False) Nothing
 
 SEM Pat | AttrCon
-  +gathDefs = \env -> foldr (\(nm,tp) -> extend (@name, nm, False) (Just (either show id tp))) env @loc.fields
+  +gathDefs = \env -> foldr (\(nm,tp) -> extend (@name, nm, not @loc.isLoc) (Just (either show id tp))) env @loc.fields
 
 SEM AttrTypeCode
   | VisLocal   +distVisLocalDefs = snd . find (@lhs.child, @lhs.name,True) Nothing
@@ -2173,12 +2174,18 @@ ATTR AllFinal [ | | gathDeps USE {Seq.><} {Seq.empty} : Deps ]
 -- dependency on source of attr
 SEM AttrTypeCode | VisLocal ProdLocal Lhs Child Visit
   +gathDeps = addDep @lhs.stmtSource (ReasonAttrReq @lhs.child @lhs.name) [@loc.attrDep]
+  loc.attrDep = Map.findWithDefault (mkUnknownDep @loc.depKey) @loc.depKey @lhs.distAttrSource
 
-SEM AttrTypeCode | VisLocal ProdLocal Lhs
-  loc.attrDep = Map.findWithDefault unknDepItem (True, @lhs.child,@lhs.name) @lhs.distAttrSource
+SEM AttrTypeCode | VisLocal Lhs
+  loc.depKey = (True,@lhs.child,@lhs.name)
 
-SEM AttrTypeCode | Child Visit
-  loc.attrDep = Map.findWithDefault unknDepItem (False,@lhs.child,@lhs.name) @lhs.distAttrSource
+SEM AttrTypeCode | Child Visit ProdLocal
+  loc.depKey = (False,@lhs.child,@lhs.name)
+
+{
+mkUnknownDep :: Show a => a -> DepItem
+mkUnknownDep s = DepVisStart [ident ("unknown" ++ show s)]
+}
 
 -- dependency on syn and vis attrs of visit. Must be defined before visit end.
 SEM Clause | Clause  -- lhs.scopeDep is identifier of visit
