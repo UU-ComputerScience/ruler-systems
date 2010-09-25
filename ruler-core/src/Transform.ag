@@ -999,10 +999,13 @@ SEM Program | Program  blocks.gathDefs         = emptyEnv
 
 -- scoping
 SEM Item | Sem CoSem
-      first.gathDefs         = enter @lhs.gathDefs
+      loc.gathDefsIn         = enter @lhs.gathDefs
+      first.gathDefs = @loc.gathDefsInh
       first.gathVisLocalDefs = enter @lhs.gathVisLocalDefs
       first.distDefs         = enterWith @loc.localDefs @lhs.distDefs
       first.distVisLocalDefs = enterWith @loc.localVisLocalDefs @lhs.distVisLocalDefs
+      
+      loc.gathDefsInh = Map.fold (flip (Map.foldWithKey (\n t -> extend (replPos @pos lhsIdent,replPos @pos n,True) (Just t)))) @loc.gathDefsIn @loc.inhAttrMap  -- add all inherited attrs of all visits
       
       (lhs.gathDefs, loc.localDefs)                  = leave @first.gathDefs
       (lhs.gathVisLocalDefs, loc.localVisLocalDefs)  = leave @first.gathVisLocalDefs
@@ -1015,10 +1018,13 @@ SEM Item | Sem CoSem
       +errs3 = addUseErrs'' @loc.localVisLocalDefs'
 
 SEM DataSem | Sem
-      clauses.gathDefs         = enter @lhs.gathDefs
+      loc.gathDefsIn           = enter @lhs.gathDefs
+      clauses.gathDefs         = @loc.gathDefsInh
       clauses.gathVisLocalDefs = enter @lhs.gathVisLocalDefs
       clauses.distDefs         = enterWith @loc.localDefs @lhs.distDefs
       clauses.distVisLocalDefs = enterWith @loc.localVisLocalDefs @lhs.distVisLocalDefs
+      
+      loc.gathDefsInh = Map.fold (flip (Map.foldWithKey (\n t -> extend (replPos @pos lhsIdent,replPos @pos n,True) (Just t)))) @loc.gathDefsIn @loc.inhAttrMap  -- add all inherited attrs of all visits
 
       (lhs.gathDefs, loc.localDefs)                  = leave @clauses.gathDefs
       (lhs.gathVisLocalDefs, loc.localVisLocalDefs)  = leave @clauses.gathVisLocalDefs
@@ -1070,6 +1076,18 @@ SEM ClausesTop
          +gathVisLocalDefs = push (strip $ intersection @clauses.gathVisLocalDefsAdds)
 
 SEM Clause | Clause
+  loc.enterF     = if @loc.isDeepest then enter else id
+  loc.leaveF     = if @loc.isDeepest then leave else (\x -> (x, emptyEnv))
+  loc.enterWithF = if @loc.isDeepest then enterWith else (\_ x -> x)  
+
+  next.gathDefs = @loc.enterF @stmts.gathDefs
+  (impls.gathDefs, loc.nextVisitLocDefs)  = @loc.leaveF @next.gathDefs
+  next.distDefs = @loc.enterWithF @loc.nextVisitLocDefs @stmts.distDefs
+  (impls.distDefs, loc.nextVisitLocDefs') = @loc.leaveF @next.distDefs
+  
+  +errs3 = addDefErrs'' @loc.nextVisitLocDefs
+  +errs3 = addUseErrs'' @loc.nextVisitLocDefs'
+
   lhs.gathDefs         = @impls.gathDefs
   lhs.gathVisLocalDefs = @next.gathVisLocalDefs  -- impls can't have gathVisLocalDefs
 
@@ -1091,10 +1109,8 @@ SEM Clause | Clause  -- only when the clause is deepest.
   loc.deflLocalAttrMap = @loc.missingLocalAttrMap
   loc.deflLocalAttrs   = Map.keys @loc.deflLocalAttrMap  -- always use default rules for local attributes
 
--- Add inh attrs of visit and check that that the syns are defined in the end
 SEM SemVisit | Visit
   loc.inhAttrMap = Map.findWithDefault Map.empty @name (Map.findWithDefault Map.empty (head @lhs.itf) @lhs.distVisitInhAttrs)
-  stmts.gathDefs =  Map.foldWithKey (\n t -> extend (replPos @pos lhsIdent,replPos @pos n,True) (Just t)) @lhs.gathDefs @loc.inhAttrMap
 
 ATTR SemVisit ClausesTop Clauses Clause [ visit : Ident | | ]
 SEM Item | Sem CoSem  first.visit   = @name  -- some dummy value
