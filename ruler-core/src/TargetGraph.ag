@@ -59,7 +59,7 @@ ppgColor False = ppgProp "color" "black"
 ppgLabel :: Pos -> DepItem -> Maybe Int -> PP_Doc
 ppgLabel pos item mbRank
   = case item of
-      DepMatch _   -> r >#< "@" >|< show (line pos)
+      DepMatch m   -> r >#< show m >|< "?@" >|< show (line pos)
       DepAssert n  -> r >#< show n >|< "@" >|< show (line pos)
       DepDefault o -> r >#< "d" >|< show o
       DepAttach n  -> r >#< "@" >|< show (line pos)
