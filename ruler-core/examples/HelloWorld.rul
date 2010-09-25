@@ -1,0 +1,23 @@
+{
+{-# LANGUAGE BangPatterns #-}
+module HelloWorld where
+
+import Control.Monad.Error
+}
+
+itf H
+  visit v1
+    syn xs :: String
+
+{
+hello = sem hello : H monad Either String
+          visit v1
+            clause c1
+              match True = False
+              lhs.xs = "Hello World"
+
+hello2 = sem hello2 : H monad Either String
+           visit v1
+             clause c3
+               lhs.xs = "Booh!"
+}

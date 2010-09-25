@@ -44,8 +44,9 @@ datasem Tree monad IO
 
   clause Bin
     default g = last
-    lhs.m = l.m `min` r.m
-    lhs.t = Tree_Bin l.t r.t
+    visit compdist
+      lhs.m = l.m `min` r.m
+      lhs.t = Tree_Bin l.t r.t
 
 {
 test :: Tree -> IO Tree

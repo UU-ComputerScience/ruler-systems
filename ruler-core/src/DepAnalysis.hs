@@ -16,8 +16,6 @@ import Data.IntSet(IntSet)
 import Data.List(partition, nub,sortBy,groupBy)
 import Data.Array
 import Data.Tree
-import Debug.Trace(trace)
-
 import qualified Data.Graph.Inductive as G
 
 
@@ -95,174 +93,7 @@ analyze oSemStarts oStartVisits oEndVisits avoidVisits deps = map compToItem com
                        Nothing -> return ()
                        Just d' -> put (mbD, Map.insertWith (flip const) d d' mp)
 
-{-
--- performs the actual ordering
-order :: (Ord k, Show k) => [k] -> [(a, k, [k])] -> [SCC (a, k, [k])]
-order _ [] = []
-order starts deps
-  = sccs'
-  where
-    vals = map convert' sccs
-    convert' (AcyclicSCC v) = [extract v]
-    convert' (CyclicSCC vs) = map extract vs
-  
-    (graph, lookupVal,lookupVert) = graphFromEdges deps
-    extract n = case lookupVal n of
-                  (_,a,_) -> a
-
-    verts  = vertices graph
-    reach  = map (\v -> concatMap (reachable graph) (graph ! v)) verts
-    pairs  = zip verts reach
-    sccs   = cluster $ sortBy cmp' pairs
-    sccs'  = map convert sccs
-    
-    convert (AcyclicSCC v) = AcyclicSCC (lookupVal v)
-    convert (CyclicSCC vs) = CyclicSCC (map lookupVal vs)
-
-    cluster []         = []
-    cluster ((v,r):xs) = c : cluster zs
-      where (ys,zs) = span (\(v', _) -> v' `elem` r) xs
-            c | null ys && not (v `elem` r) = AcyclicSCC v
-              | otherwise = CyclicSCC (v : map fst ys)
-    
-    cmp' (v1,r1) (v2,r2)
-      = let z = cmp (v1,r1) (v2,r2)
-        in trace (show (extract v1) ++ " ~ " ++ show (extract v2) ++ ": " ++ show z) z
-
-    cmp (v1,r1) (v2,r2)
-      | v1 == v2       = EQ
-      | v2Bv1 && v1Bv2 = EQ
-      | v1Bv2          = LT
-      | v2Bv1          = GT
-      | otherwise      = compare (extract v1) (extract v2)
-      where
-        v1Bv2 = v1 `elem` r2
-        v2Bv1 = v2 `elem` r1
--}
-
-{-
--- Returns the strongly-connected components in a total order
-total :: [(Reason, DepItem, [DepItem])] -> [(Reason, DepItem, [DepItem])]
-total deps = result
-  where
-    
-    result = map (\(a,(r,bs)) -> (r,a,bs)) $ Map.assocs merged
-    merged = Map.unionWith merge
-               (Map.fromListWith merge [ (toVal a, (ReasonOrder, [toVal b])) | (a,b) <- G.edges gFinal ])
-               (Map.fromList [ (a,(r,bs)) | (r,a,bs) <- deps ])
-    
-    merge (_,as) (r,bs) = (r,nub (as ++ bs))
-    
-    toVal x = G.lab' (G.context gFinal x)
-    
-    items = nub ([ s | (_,s,_) <- deps ] ++ [ d | (_,_,ds) <- deps, d <- ds ])
-    (nodes, mp) = G.mkNodes G.new items
-    (Just edges) = G.mkEdges mp [ (s,d,r) | (r, s, ds) <- deps, d <- ds ]
-    
-    gInitial :: G.Gr DepItem Reason
-    gInitial = G.mkGraph nodes edges
-    
-    sinks = map G.node' $ G.gsel (null . G.suc') gInitial
-    backwards = G.dfs sinks gInitial
-    (_,gFinal) = foldl tighten (G.trc gInitial, gInitial) backwards
-    
-    tighten :: (G.Gr DepItem (), G.Gr DepItem Reason) -> G.Node -> (G.Gr DepItem (), G.Gr DepItem Reason)
-    tighten (g, g') n
-      = let ps    = G.suc gInitial n  -- successors in previous graph
-            ps'   = sortBy compare' ps
-            pairs = [ (a,b) | a <- ps', b <- ps', a /= b ]
-        in foldr extend (g, g') pairs
-    
-    extend (a,b) (g, g')
-      | not aBb && not bBa = case compare av bv of
-                               EQ -> (g, g')
-                               LT -> gBA
-                               GT -> gAB
-      | otherwise = (g, g')
-      where
-        (Just av) = G.lab g a
-        (Just bv) = G.lab g b
-      
-        gAB = (G.trc $ G.insEdge (a,b,()) g, G.insEdge (a,b,ReasonOrder) g')
-        gBA = (G.trc $ G.insEdge (b,a,()) g, G.insEdge (b,a,ReasonOrder) g')
-
-        aBb = a `elem` G.suc g b
-        bBa = b `elem` G.suc g a
-    
-    compare' a b
-      = let (Just av) = G.lab gInitial a
-            (Just bv) = G.lab gInitial b
-        in compare av bv
--}
-
--- Refined approach
-{-
-total :: [(Reason, DepItem, [DepItem])] -> [(Reason, DepItem, [DepItem])]
-total deps = result
-  where
-    result = map (\(a,(r,bs)) -> (r,a,bs)) $ Map.assocs merged
-    merged = Map.unionWith merge
-               (Map.fromListWith merge [ (toVal a, (ReasonOrder, [toVal b])) | (b,a) <- G.edges gFinal ])
-               (Map.fromList [ (a,(r,bs)) | (r,a,bs) <- deps ])
-    
-    merge (_,as) (r,bs) = (r,nub (as ++ bs))
-    toVal x = G.lab' (G.context gFinal x)
-    
-    items = nub ([ s | (_,s,_) <- deps ] ++ [ d | (_,_,ds) <- deps, d <- ds ])
-    (nodes, mp) = G.mkNodes G.new items
-    (Just edges) = G.mkEdges mp [ (s,d,r) | (r, s, ds) <- deps, d <- ds ]
-    
-    g0 :: G.Gr DepItem Reason
-    g0 = G.mkGraph nodes edges
-    g1 = removeCycles g0
-    
-    g2 :: G.Gr DepItem ()
-    g2 = G.trc (G.grev g1)
-    sinks = map G.node' $ G.gsel (null . G.suc') g2
-    backwards = G.dfs sinks g2
-    gFinal = g2 -- foldl tighten g2 backwards  -- note: graph is reversed compared to g0
-    
-    tighten :: G.Gr DepItem () -> G.Node -> G.Gr DepItem ()
-    tighten g n
-      = let ps    = G.suc g1 n  -- successors in older graph
-            pairs = [ (a,b) | a <- ps, b <- ps, a /= b ]
-        in foldr extend g pairs
-    
-    extend :: (G.Node, G.Node) -> G.Gr DepItem () -> G.Gr DepItem ()
-    extend (a,b) g
-      | not aBb && not bBa = case compare av bv of
-                               EQ -> g
-                               LT -> gBA
-                               GT -> gAB
-      | otherwise = g
-      where
-        (Just av) = G.lab g a
-        (Just bv) = G.lab g b
-        gAB = G.trc $ G.insEdge (b,a,()) g
-        gBA = G.trc $ G.insEdge (a,b,()) g
-
-        aBb = b `elem` G.suc g a
-        bBa = a `elem` G.suc g b
-    
-removeCycles :: G.Gr DepItem Reason -> G.Gr DepItem Reason
-removeCycles g0
-  = g2
-  where
-    sources = map G.node' $ G.gsel (null . G.suc') g0
-    forest = G.rdff sources g0
-    g1 = G.efilter (const False) g0
-    g2 = G.insEdges edges g1
-    edges = getEdges Nothing forest
-    
-    getEdges parent = concatMap (getEdges' parent)
-    getEdges' parent t
-      = let front = case parent of
-                      Nothing -> []
-                      Just p  -> [(rootLabel t, p, ReasonOrder)]
-        in front ++ getEdges (Just $ rootLabel t) (subForest t)
--}
-
--- totally new approach
+-- Creates a total order
 total :: [(Reason, DepItem, [DepItem])] -> [(Reason, DepItem, [DepItem])]
 total deps = result
   where
@@ -284,7 +115,7 @@ total deps = result
     
     g0 :: G.Gr DepItem Reason
     g0 = G.mkGraph nodes edges     -- orig graph
-    g1 = G.trc $ g0 -- removeCycles g0   -- search graph
+    g1 = G.trc $ removeCycles g0   -- search graph
     
     nodes1 = sortBy compare' (G.nodes g0)  -- totally ordered
     compare' a b
@@ -315,22 +146,34 @@ total deps = result
                            let todo2 = Map.fromList [ (b,v) | v <- succs, let k = lookupDMapVal v dmap', b > a] `Map.union` todo1
                            in fixSolve todo2 dmap'
 
+-- eliminates those edges E from the graph that make it cyclic.
+-- for an edge e `elem` E, it holds that not removing it from
+-- the graph:
+-- (a) makes it cylic, or
+-- (b) does not increase the connected-ness of nodes
+-- the idea:
+-- (1) compute strongly connected components
+-- (2) arbitrarily totally-order the nodes in such component
+-- (3) filter out those edges between nodes in such component
+--     that are going in a different direction than imposed
+--     by the order.
 removeCycles :: G.Gr DepItem Reason -> G.Gr DepItem Reason
-removeCycles g0
-  = g2
+removeCycles g
+  = G.efilter keep g
   where
-    sources = map G.node' $ G.gsel (null . G.suc') g0
-    forest = G.rdff sources g0
-    g1 = G.efilter (const False) g0
-    g2 = G.insEdges edges g1
-    edges = getEdges Nothing forest
+    cmps = G.scc g
+    mp = IntMap.unions (map createMp cmps)
+    createMp comp =
+      let items = IntSet.fromList comp
+      in IntMap.fromList [ (i, items) | i <- comp ]
     
-    getEdges parent = concatMap (getEdges' parent)
-    getEdges' parent t
-      = let front = case parent of
-                      Nothing -> []
-                      Just p  -> [(rootLabel t, p, ReasonOrder)]
-        in front ++ getEdges (Just $ rootLabel t) (subForest t)
+    keep (a, b, _)
+      = case IntMap.lookup a mp of
+          Nothing -> error "removeCycles: missing node"
+          Just comp -> not (IntSet.member b comp) || b > a
+
+-- A sparse array with elements indexed by doubles instead of integers,
+-- offering fast insertion.
 
 newtype DMap = DMap (Map Double Int, IntMap Double)
 
