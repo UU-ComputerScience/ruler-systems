@@ -1,0 +1,46 @@
+--   To proof the monad laws, we have to proof the laws depending for both 'lazyEval' and 'smallStep'.
+--   First for 'lazyEval':
+-- 
+--   > (1) lazyEval (return a >>= k)
+--   >     ==  lazyEval (Pending (Cont (Bind k) TransNone TransNone Root) (Final a))
+--   >     ==  evalStack (Cont (Bind k) TransNone TransNone Root) (lazyEval (Final a))
+--   >     ==  evalStack (Cont (Bind k) TransNone TransNone Root) a
+--   >     ==  evalStack Root $ lazyEval $ k a
+--   >     ==  lazyEval (k a)
+--   >
+--   > (2) lazyEval (m >>= return)
+--   >     ==  lazyEval (Pending (Cont (Bind Final) TransNone TransNone Root) m)
+--   >     ==  evalStack (Cont (Bind Final) TransNone TransNone Root) (lazyEval m)
+--   >     ==  evalStack Root $ lazyEval $ Final $ lazyEval m
+--   >     ==  lazyEval m
+--   >
+--   > (3) lazyEval (m >>= (\x -> k x >>= h))
+--   >     ==  lazyEval (Pending (Cont (Bind (\x -> Pending (Cont (Bind h) TransNone TransNone Root) (k x))) TransNone TransNone Root) m)
+--   >     ==  evalStack (Cont (Bind (\x -> Pending (Cont (Bind h) TransNone TransNone Root) (k x))) TransNone TransNone Root) (lazyEval m)
+--   >     ==  evalStack Root $ lazyEval $ (\x -> Pending (Cont (Bind h) TransNone TransNone Root) (k x)) (lazyEval m)
+--   >     ==  evalStack Root $ lazyEval $ Pending (Cont (Bind h) TransNone TransNone Root) $ k $ lazyEval m
+--   >     ==  lazyEval (Pending (Cont (Bind h) TransNone TransNone Root) (Pending (Cont (Bind k) TransNone TransNone Root) m))
+--   >     ==  lazyEval ((m >>= k) >>= h)
+--
+--   Now for 'smallStep':
+--   > (1) smallStep (return a >>= k)
+--   >     ==  smallStepPending (Pending (Cont (Bind k) TransNone TransNone Root) (Final a))
+--   >     ==  smallStep $ Pending (pushCoder TransNone Root) (k a)
+--   >     ==  smallStepPending $ Pending Root (k a)
+--   >     ==  smallStep (k a)
+--   >
+--   > (2) smallStep (m >>= return)
+--   >     ==  smallStepPending (Pending (Cont (Bind Final) TransNone TransNone Root) m)
+--   >     ==  smallStepPending Root m
+--   >     ==  smallStep m
+--   >     use induction on the length of step-sequences
+--   >     use case distinction on what steps are produced
+--   > (3) tbd
+--
+--   Todo: proof that if strictEval m == v then lazyEval m == v
+--   Todo: proof that if only the bind and return combinators are used, that
+--         lazyEval m == runIdentity m
+--   Todo: proof mfix laws.
+
+module Control.Monad.Stepwise.Proofs
+  () where

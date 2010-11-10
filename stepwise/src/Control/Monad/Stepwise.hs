@@ -1,0 +1,142 @@
+-- |
+--   Module      :  Control.Monad.Stepwise
+--   Copyright   :  Arie Middelkoop
+--   License     :  LGPL
+--
+--   Maintainer  :  ariem@cs.uu.nl
+--   Stability   :  experimental
+--   Portability :  non-portable (GADTs)
+--
+--   A module for the step-wise evaluation of pure computations, in particular
+--   suitable to resolve non-deterministic choices in computations.
+--
+--   This module provides a monadic interface for a special form of pure
+--   /coroutines/ that, upon disgression of the caller, yield lazily the result
+--   of the coroutine, or evaluates strictly until it can yield next
+--   callee-determined progress report.
+--   Due to the monadic interface, such a coroutine is an ordinary composable
+--   monadic haskell function, with the exception that it may be decorated with
+--   statements that yield progress reports.
+--   Both the result and progress reports are purely functional: given an
+--   expression written with this interface, the evaluated value as well as all the
+--   progress reports are uniquely determined by the values for the free variables
+--   of the expression.
+--
+--   Given such a coroutine @m@, we can both refer to its progress reports and its
+--   value from another coroutine. Given a coroutine @m@, the conventional way to
+--   access its value is via a coroutine @m >>= f@, where @f@ is itself a coroutine
+--   that takes @m@'s value as parameter.
+--   The progress reports of @m@ are incorporated as part of the progress reports of
+--   @m >>= f@, ordered such that the progress reports of @m@ are emitted before
+--   those of @f@. 
+--   Alternatively, we can ask @m@ to yield the next progress report via
+--   @smallStep m@. This returns a progress report, and an updated coroutine to be
+--   used as continuation. In this case, @m@ evaluated one step, hence 'step-wise'.
+--
+--   Stepwise evaluation provides a means to encode non-deterministic choices in
+--   a deterministic way via advanced search strategies. For example, with this
+--   module, we can define a coroutine that determines its result by making a
+--   choice between the results of two other coroutines. For that, we step through
+--   the evaluation of both coroutines until we saw sufficient progress reports
+--   to make a choice. Meanwhile, we already yield progress reports. Finally, we
+--   make a choice by integrating the coroutine in the conventional way.
+--   Consequently, the choice is optimized away, and the coroutine that is not
+--   selected becomes garbage.
+--
+--   With this approach, we encode a breadth-first evaluation by letting each
+--   couroutine emitting steps regularly, and alternate the coroutine to take
+--   steps from. We get depth-first behavior by fully
+--   stepping through one of the choices first before considering the other
+--   choice. Custom strategies are possible by emitting progress reports. For
+--   example, a coroutine can emit statistics about the work done so far and
+--   predictions of the work still to do to produce the result, which can
+--   subsequently be used to direct the evaluation process.
+--
+--   A coroutine has the type @BF e i w a@, where @a@ is the final result
+--   computed by the coroutine. Such a computation may fail, with reasons
+--   indicated by the type @e@. Progress reports are of the type @i w@,
+--   i.e. parameterized in the type of a /watcher/ @w@. A watcher is a
+--   type index that allows the progress reports to be different depending
+--   on the caller of a coroutine: both the callee and its caller (and the
+--   caller's caller, etc.) coroutines must share the same type @i@ for
+--   progress reports. Specific callee/caller combinations may decide on
+--   a common type @w@ to communicate special-typed progress information.
+--   To emit such a progress report to a caller with a different watcher-type,
+--   it has to be /transcoded/ first via e.g. 'transcode'.
+--
+--   In some situations, the choice between a coroutine @a@ and @b@ may
+--   depend on what happends when we pick i.e. @a@ and our caller continues
+--   its evaluation. For example, suppose that the continued evaluation is
+--   represented by some unknown coroutine @r@, and we we define a coroutine
+--   @c = choice a b@. This means that the actual evaluation is @choice a b >>= r@.
+--   We may want to lift this choice over @r@, to @choice' (a >>= r) (b >>= r)@.
+--   Since @r@ is unknown, @choice'@ cannot base its choice on the value
+--   computed by @a >>= r@ or @b >>= r@. Both the type of the result and the
+--   watcher type are existential. However, we can inspect if one of
+--   the alternatives fails, and inspect progress reports that are independent of
+--   the watcher type.
+--   We provide this choice-lifting via a special operation call 'lookahead'.
+--   It provides us with our continuation @r@, and we must define the coroutine
+--   denoting @c' >>= r@, where @c'@ denotes our choice.
+--   This lifting comes with a price: requesting a step from a coroutine may
+--   require us to provide it a continuation that represents what we are
+--   going to do afterwards with it. For example, if we pass 'return', there
+--   is no lookahead beyond the evaluation of the coroutine. However, if we
+--   pass the continuation obtained through @lookahead@, we potentially look
+--   ahead through a possible future.
+--   The difference between progress report type and watcher type is important
+--   here. We cannot make assumptions about the wachter of the continuation:
+--   but we do know that we get progress reports of type @i@ with unspecified
+--   watcher type.
+--   
+--   When we request a step from @e = m >>= f@, we gradually reduce it until
+--   it emits the next progress report. It first gradually reduces @m@. When
+--   it is entirely finished with @m@, it continues with @f@, after parametrizing
+--   it with the value computed for @m@. However, given such a partially reduced
+--   @e' = m' >>= f'@, when we ask for the @lazyEval e@, we immediately get the
+--   result @lazyEval (f' (lazyEval m'))@. 'lazyEval' discards any progress
+--   reports and immediately produces a lazy result. When @f@ is not strict in
+--   its first argument, this means that a value can already be produced, possibly
+--   without even evaluating the remainder of @m'@. For example, @lazyEval (choice a b)@
+--   strictly evaluates @a@ and @b@ as long as it is asking for steps. Once @choice@
+--   selects one alternative, lazy evaluation takes over. This allows us to produce
+--   /online/ results when choices have been resolved.
+--
+--   Benchmark results show that a 'Stepwise' bind is approximately 10 times
+--   slower compared to a bind of the identity monad. Stepwise evaluation of
+--   a bind via 'stepwiseEval' is only marginally (e.g. approx 10%) slower
+--   compared to 'lazyEval' of a bind.
+--
+--   A downside of the monadic interface is that it requires code to be written in a
+--   sequential way (it enforces monadic style upon the program).
+--   For tree traversals, we eliminate this downside with Attribute Grammars.
+--   For the class of Ordered Attribute Grammars (non-cyclic tree-traversals fall in this class),
+--   the UUAG system has an option to automatically derive code for this library.
+--
+--   This library is a generalization of the Steps-technique presented in
+--   `Polish parsers, Step by Step` by R. J. M. Hughes and
+--   S. D. Swierstra, and the later work in `Combinator Parsing: A Short Tutorial' by
+--   S. D. Swierstra. The key difference is that we do not construct a
+--   single function @f :: a -> b@ in @Apply f@ (as mentioned in the latter paper) that represents a continuation of
+--   what still needs to be computed. Instead, we explicitly build a stack of
+--   all pending right-hand sides @g1..gn@ that follow the currently active computation
+--   @m@ in @m >>= g1 >>= ... gn@. The functions @g@ on the stack thus have the monadic type
+--   @g :: a -> BF e i w b@. When we request a new progress report and @m@
+--   is fully reduced, we reduce the pending-stack: pop off @g1@, parametrize it with
+--   the result of @m@, then start reducing that value. Consequently, we have no
+--   difficulties dealing with the monadic bind in this approach.
+--   This representation, however, does not impair laziness. We still manage to map this representation
+--   back to a function @f :: a -> b@. This transformation is performed by 'lazyEval'.
+--   A smaller difference is that our interface to deal with progress reports does not
+--   expose the above mentioned stack, which reduces complexity for the programmer.
+--
+
+module Control.Monad.Stepwise
+  ( module Control.Monad.Stepwise.Core
+  , module Control.Monad.Stepwise.Derived
+  ) where
+
+import Control.Monad.Stepwise.Core
+import Control.Monad.Stepwise.Derived
+import Control.Monad.Stepwise.Proofs
+import Control.Monad.Stepwise.Examples
