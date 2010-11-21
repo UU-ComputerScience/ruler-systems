@@ -5,18 +5,25 @@
 --   In practice, you'll combine several of the features presented
 --   here.
 
-{-# LANGUAGE GADTs #-}
+{-# LANGUAGE GADTs, DeriveDataTypeable, DoRec #-}
 module Control.Monad.Stepwise.Examples where
 
 import Control.Applicative
+import Control.Concurrent
 import Control.Monad.Fix
-import Control.Monad.State.Lazy
+import Control.Monad.RWS.Lazy
 import Control.Monad.Stepwise.Core
 import Control.Monad.Stepwise.Derived
 import Control.Monad.Trans
+import Data.IORef
 import Data.Monoid
 import Data.Set(Set)
+import Data.Typeable
 import qualified Data.Set as Set
+import Data.Map(Map)
+import qualified Data.Map as Map
+import System.IO
+import System.IO.Unsafe
 
 
 -- | A type for the simplest form of progress report: just a message 'I' that
@@ -202,126 +209,163 @@ test7Succs = lazyEval test7c
 -- We takes as example path-finding in a labyrinth. Taking a step that brings us
 -- back to a position where we've been before is an immediate failure. However,
 -- the possibilities that remain may hit a dead-end later.
-type Lab a = Stepwise AnyFailure I Lazy AnyWatcher a
-type Pos = (Int,Int)
-data Dir = North | East | South | West deriving (Enum, Show)
-type Path = [Dir]
-data LabState = LS
-  { ls_lab   :: !(Set Pos)        -- the empty squares in the labyrinth
-  , ls_end   :: !Pos
-  , ls_cur   :: !Pos
-  , ls_trail :: !(Set Pos)        -- a trail of crumbs of where we've been before.
-  , ls_path  :: Path -> Path      -- the path traversed so far
+type Lab a = RWST LabIn Instrs Pos (Stepwise AnyFailure LabSteps Lazy AnyWatcher) a
+type Lab' a = Stepwise AnyFailure LabSteps Lazy AnyWatcher (a, Pos, Instrs)
+
+data LabIn = LI
+  { inLab   :: !(Set Pos)            -- the empty squares in the labyrinth
+  , inEnd   :: {-# UNPACK #-} !Pos
+  , inTrail :: {-# UNPACK #-} !(IORef (Set Pos))    -- a refererence to a trail of crumbs of where we've been before
+  , inMemo  :: {-# UNPACK #-} !(MemoEnvRef AnyFailure LabSteps Lazy AnyWatcher)  -- covered later
   }
 
-test8_search :: LabState -> Lab LabState
-test8_search st0
-  = test8_finished st0
-      `test8_best`
-    test8_non [ do st1 <- test8_move d st0
-                   test8_search st1
-              | d <- [North .. West] ]
+data LabSteps t = Walked !(Set Pos)
 
-test8_finished :: LabState -> Lab LabState
-test8_finished st0 =
-  let p = ls_cur st0
-      e = ls_end st0
-  in if p == e
-     then return st0
-     else fail "not at the end yet"
+type Pos = (Int,Int)
+newtype Instrs = Instrs (Path -> Path) deriving Typeable
+type Path = [Dir]
+data Dir = North | East | South | West deriving (Enum, Show)
 
-test8_non :: [Lab a] -> Lab a
-test8_non []     = fail "choose something else"
-test8_non (x:xs) = x `test8_best` (test8_non xs)
+search :: Lab ()
+search = do
+  memo <- asks inMemo
+  loc  <- fmap pos2key get
+  let actions = finished <<|> moves
+      moves   = foldr1 (<<|>) [ move d >> search | d <- [North .. West] ]
+  memoize memo loc actions
 
-test8_move :: Dir -> LabState -> Lab LabState
-test8_move d st0 =
-  let p  = ls_cur st0
-      p' = test8_forward d p
-      a  = ls_lab st0
-  in sequentially $ do
-       liftIO (putStrLn ("Trying: " ++ show d ++ " @ " ++ show p' ++ " from " ++ show (ls_cur st0)))
-       if p' `Set.member` a   -- can we go to this square?
-         then let ps = ls_trail st0
-              in if p' `Set.member` ps
-                 then fail "already been there"
-                 else do emit I
-                         return st0 { ls_cur   = p'
-                                    , ls_trail = Set.insert p' (ls_trail st0)
-                                    , ls_path  = (d :) . ls_path st0 }
-         else fail "at non-empty square"
+pos2key :: Pos -> Int
+pos2key (x,y) = x + 1024 * y
 
-test8_forward :: Dir -> Pos -> Pos
-test8_forward North (x,y) = (x,y+1)
-test8_forward East  (x,y) = (x+1,y)
-test8_forward South (x,y) = (x,y-1)
-test8_forward West  (x,y) = (x-1,y)
+finished :: Lab ()
+finished = do
+  p <- get
+  e <- asks inEnd
+  when (p /= e) (fail "not at the end yet")
 
+move :: Dir -> Lab ()
+move d = do
+  p <- get
+  a <- asks inLab
+  let p' = forward d p
+  unless (p' `Set.member` a) (fail "inaccessible square")
+  trailRef <- asks inTrail
+  trail <- lift $ sequentially $ liftIO $ readIORef trailRef
+  when (p' `Set.member` trail) (fail "already been there")
+  sync <- lift $ sequentially $ liftIO $ modifyIORef trailRef (Set.insert p')
+  tell $ pathOne d
+  lift $ emit (Walked (Set.singleton p))
+  put p'
+  seq sync (return ()) -- ensures that the side effect also takes place during a lazy eval
+
+forward :: Dir -> Pos -> Pos
+forward North (x,y) = (x,y+1)
+forward East  (x,y) = (x+1,y)
+forward South (x,y) = (x,y-1)
+forward West  (x,y) = (x-1,y)
+
+infixl 3 <<|>
+(<<|>) :: Lab a -> Lab a -> Lab a
+p <<|> q = do
+  l <- fmap pickBranch $ branch p
+  r <- fmap pickBranch $ branch q
+  let k = best l r
+  embed' k
+
+best :: Lab' a -> Lab' a -> Lab' a
+best l r = globalChoice (tr l) (tr r)
+  where tr = translate (\(Walked ps) -> Walked ps)
+
+
+-- | Example labyrinth
+lab1 :: [Pos]
+-- lab1 = [(0,0),(0,-1),(0,-2),(1,-2),(1,-1),(2,-1),(2,0),(3,0),(4,0),(4,1),(4,2),(3,2),(2,2),(1,2)]
+lab1 = [(0,0),(0,-1),(1,-1),(2,-1),(2,0),(3,0),(4,0),(4,1),(4,2),(3,2),(2,2),(1,2)
+             ,(3,3),(3,4),(3,5),(2,5),(1,5),(1,4),(1,3),(2,3)]
+-- [(x,x) | x <- [0..1]] ++ [(x+1,x) | x <- [0..1]] -- ++ [(x+2,x) | x <- [0..9]]
+
+exp8Succs :: Path
+exp8Succs = pathClose path
+  where
+    memoref   = unsafePerformIO newMemoEnv -- it's ok if 'memoref' is floated to top-level, because 'exp8Succ' is a CAF
+    crumbsref = unsafePerformIO $ newIORef Set.empty
+    
+    initial = LI { inLab = Set.fromList lab1
+                 , inEnd = (1,1)
+                 , inTrail = crumbsref
+                 , inMemo  = memoref
+                 }
+    m = evalRWST search initial (0,0)
+    (_,path) = lazyEval m
+
+branch :: Lab a -> Lab (Branch a)
+branch (RWST f) = do
+  rState <- ask
+  sState <- get
+  return $ Branch $ f rState sState
+
+-- | Container to keep the contained value lazy
+data Branch a = Branch { pickBranch :: Lab' a }
+
+embed' :: Lab' a -> Lab a
+embed' k = RWST (\_ _ -> k)
+
+pathClose :: Instrs -> Path
+pathClose (Instrs f) = f []
+
+pathOne :: Dir -> Instrs
+pathOne d = Instrs (d:)
+
+instance Monoid Instrs where
+  mempty = Instrs id
+  (Instrs a) `mappend` (Instrs b) = Instrs (a . b)
+
+
+{-
 -- | This data type represents a handle to a stepwise computation, and the intended continuation
 --   when we are finished evaluating that computation.
 data ContHandle o w a where
   ContHandle :: (StepHandle AnyFailure I Lazy AnyWatcher b) -> Bool -> (b -> Stepwise AnyFailure I o w a) -> ContHandle o w a
 
-test8_best :: Lab a -> Lab a -> Lab a
+-- do it manually using the handle-interface
 test8_best l r = sequentially $ do
   hl <- handle l
   hr <- handle r
   lookahead (\k -> sequentially $ best (ContHandle hl False k) (ContHandle hr False k))
   where
-    best c1@(ContHandle hl commitl kl) c2@(ContHandle hr commitr kr) = do
-      perform hl         -- demonstrates the monadic interface to steps
-      perform hr         -- (it's main advantage is that it is explicitly
+    best c1@(ContHandle hl commitl kl) c2@(ContHandle hr commitr kr) = forceSequential $ do
+      x <- perform hl         -- demonstrates the monadic interface to steps
+      y <- perform hr         -- (it's main advantage is that it is explicitly
       rl <- report hl    -- made clear what the relative ordering between
       rr <- report hr    -- steps is
-      liftIO (putStrLn "comparing...")
-      let inspect (Progress I) (Progress I) = do liftIO $ putStrLn "progres"
-                                                 -- emit I >> best c1 c2
-                                                 best c1 c2
-          inspect _ (Failure _) = do liftIO $ putStrLn "failure right"
+      let inspect (Progress I) (Progress I) = emit I >> best c1 c2
+          inspect _ (Failure _) = do -- liftIO $ putStrLn "failed: taking left"
                                      proceedAfter hl kl
-          inspect (Failure _) _ = do liftIO $ putStrLn "failure left"
+          inspect (Failure _) _ = do -- liftIO $ putStrLn "failed: taking right"
                                      proceedAfter hr kr
-          inspect (Finished v) _ | commitl   = do liftIO $ putStrLn "committed left"
-                                                  lazily $ kl v
+          inspect (Finished v) _ | commitl   = lazily $ kl v
                                  | otherwise = do liftIO $ putStrLn "finished left"
                                                   h' <- handle $ recode $ kl v
                                                   let c' = ContHandle h' True return
                                                   best c' c2
-          inspect _ (Finished v) | commitr = do liftIO $ putStrLn "committed right"
-                                                lazily $ kr v
+          inspect _ (Finished v) | commitr = lazily $ kr v
                                  | otherwise = do liftIO $ putStrLn "finished right"
                                                   h' <- handle $ recode $ kr v
                                                   let c' = ContHandle h' True return
                                                   best c1 c'
-          inspect (Future f) _ = do liftIO $ putStrLn "future left"
+          inspect (Future f) _ = do -- liftIO $ putStrLn "future left"
                                     h' <- handle $ recode $ f $ lazily . kl
                                     let c' = ContHandle h' commitl return
                                     best c' c2
-          inspect _ (Future f) = do liftIO $ putStrLn "future right"
+          inspect _ (Future f) = do -- liftIO $ putStrLn "future right"
                                     h' <- handle $ recode $ f $ lazily . kr
                                     let c' = ContHandle h' commitr return
                                     best c1 c'
-                                    
       inspect rl rr
 
-    recode = unsafeObserve -- observe (\I -> I) -- in this particular case, with GHC, it is safe to use: unsafeObserve (which is faster)
+    recode = observe (\I -> I) -- in this particular case, with GHC, it is safe to use: unsafeObserve (which is faster)
     proceedAfter h k = recode (proceed h) >>= lazily . k
-
--- | Example labyrinth
-test8_lab1 :: [Pos]
-test8_lab1 = [(0,0),(1,0),(1,1)]
--- [(x,x) | x <- [0..1]] ++ [(x+1,x) | x <- [0..1]] -- ++ [(x+2,x) | x <- [0..9]]
-
-exp8Succ :: Path
-exp8Succ = ls_path sFin []
-  where
-    sIn = LS { ls_lab   = Set.fromList test8_lab1
-             , ls_cur   = (0,0)
-             , ls_end   = (1,1)
-             , ls_trail = Set.empty
-             , ls_path  = id
-             }
-    sFin = stepwiseEval (test8_search sIn)
+-}
 
 
 -- | Test 9: Explicit sharing.
@@ -330,4 +374,74 @@ exp8Succ = ls_path sFin []
 -- form a DAG. However, certain paths on this DAG we may traverse more than once.
 -- In this example, we ensure that we only traverse each path once.
 
+memoize :: MemoEnvRef AnyFailure LabSteps Lazy AnyWatcher -> Int -> Lab () -> Lab ()
+memoize memo loc s = do
+  b <- branch s
+  let k = memoSteps memo loc (pickBranch b)
+  embed' k
+
+{-
+type MemoRef = IORef MemoTbl
+type MemoTbl = Map Pos (LabH LabOut)
+type LabH a = StepHandle AnyFailure I Lazy AnyWatcher a
+
+memo :: MemoRef -> Pos -> Lab LabOut -> Lab LabOut
+memo r p m = sequentially $ do
+  liftIO $ do putStrLn ("memo move: " ++ show p)
+              threadDelay 300000
+  mp <- liftIO $ readIORef r
+  case Map.lookup p mp of
+    Just h -> proceedIndirect h
+    Nothing -> do liftIO $ putStrLn ("Not in cache: " ++ show p)
+                  h <- handle m
+                  let mp' = Map.insert p h mp
+                  liftIO $ writeIORef r mp'
+                  proceedIndirect h
+-}
+
 -- Todo: compression and parallel evaluation.
+
+
+-- | Repmin with alternatives!
+--   The tree may contain alternatives. The tree is returned such that it
+--   (1) consists of the shortest (left-biassed) alternatives
+--   (2) all leaves replaced with the minimal value occurring in the
+--       tree (for the selected alternatives)
+--   This tests the 'MonadFix' feature.
+--
+--   Note: To show that online results are in general necessairy for
+--   cyclic computations, we should actually make the selection process
+--   dependent on the outcome of a previously but already resolved selection.
+--   For example, by keeping a local minimum (from the left), and taking the
+--   first alternative that goes under it. Perhaps a min/max game tree would
+--   be a good example for that.
+--
+--   Also, a lazy value depending on the outcome of two or more alternatives
+--   can only be produced if there is one alternative left. If all the
+--   alternatives would yield the same outermost constructor, still no
+--   value can be produced. This is in general no problem; the reason that
+--   you had alternatives there is likely because it returns different
+--   results.
+
+data BinTree = Leaf Int | Bin BinTree BinTree | Alt BinTree BinTree deriving Show
+type RepMin a = Stepwise AnyFailure I Lazy AnyWatcher a
+
+repmin :: BinTree -> RepMin BinTree
+repmin t = do
+  rec (gmin,t') <- semTree t gmin
+  return t'
+
+semTree :: BinTree -> Int -> RepMin (Int, BinTree)
+semTree (Leaf x)  gmin = emit I >> return (x, Leaf gmin)
+semTree (Bin l r) gmin = do
+  emit I
+  (lmin,l') <- semTree l gmin
+  (rmin,r') <- semTree r gmin
+  return (lmin `min` rmin, Bin l' r')
+semTree (Alt l r) gmin = semTree l gmin <|> semTree r gmin
+
+test9 :: RepMin BinTree
+test9 = repmin $ Bin (Bin (Bin (Leaf 1) (Leaf 2) `Alt` Leaf 3) (Leaf 2)) (Leaf 4)
+
+exp9Succs :: BinTree
+exp9Succs = lazyEval test9
