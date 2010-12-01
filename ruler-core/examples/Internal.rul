@@ -16,7 +16,7 @@ itf D
 
 {
 foo =
-   sem foo : D monad IO
+ sem foo : D monad IO
   visit dispatch
    clause C
     internal bla   -- internal clause: conditionally compute attributes
@@ -34,7 +34,7 @@ foo =
 test :: D -> IO (Int, Int)
 test d = do
   let inh = Inh_D_dispatch { ast_Inh_D = d }
-  syn <- invoke_D_dispatch dnt_D inh
+  syn <- invoke_D_dispatch foo inh
   let x = x_Syn_D syn
   let z = z_Syn_D syn
   return (x,z)

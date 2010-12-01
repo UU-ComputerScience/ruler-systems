@@ -2056,8 +2056,10 @@ SEM Program | Program   blocks.distAttrSource = Map.empty
 SEM SemVisit | Visit    loc.distAttrSource = Map.unions [ @loc.gathChnAttrSource
                                                         , @stmts.gathAttrSource
                                                         , @loc.gathVisAttrSource
+                                                        , @impls.gathAttrSource
                                                         , @lhs.distAttrSource ]
 SEM SemVisit | Internal loc.distAttrSource = Map.unions [ @stmts.gathAttrSource
+                                                        , @impls.gathAttrSource
                                                         , @lhs.distAttrSource ]
 SEM Clause | Clause     loc.distAttrSource = Map.unions [ @stmts.gathAttrSource
                                                         , @deflts.gathAttrSource
@@ -2205,12 +2207,16 @@ mkUnknownDep s = DepVisStart [ident ("unknown" ++ show s)]
 
 -- dependency on syn and vis attrs of visit. Must be defined before visit end.
 SEM Clause | Clause  -- lhs.scopeDep is identifier of visit
-  +gathDeps = Seq.fromList [ Dep @lhs.visitEndDep (ReasonAttrReq lhsIdent attr) 
-                               [Map.findWithDefault unknDepItem (False,lhsIdent,attr) @loc.distAttrSource]
-                           | attr <- Map.keys @loc.synAttrMap ] Seq.><
-  +gathDeps = Seq.fromList [ Dep @lhs.visitEndDep (ReasonAttrReq visIdent attr) 
-                               [Map.findWithDefault unknDepItem (False,visIdent,attr) @loc.distAttrSource]
-                           | attr <- Map.keys @lhs.localAttrs ] Seq.><
+  +gathDeps = if @loc.isDeepest
+              then (Seq.fromList [ Dep @lhs.visitEndDep (ReasonAttrReq lhsIdent attr) 
+                                  [Map.findWithDefault (trace ("Clause.Clause.unknown.syn: " ++ show (attr, @loc.distAttrSource) ) unknDepItem) (False,lhsIdent,attr) @loc.distAttrSource]
+                               | attr <- Map.keys @loc.synAttrMap ] Seq.><)
+              else id
+  +gathDeps = if @loc.isDeepest
+              then (Seq.fromList [ Dep @lhs.visitEndDep (ReasonAttrReq visIdent attr) 
+                                  [Map.findWithDefault (trace "Clause.Clause.unknown.loc" unknDepItem) (False,visIdent,attr) @loc.distAttrSource]
+                                | attr <- Map.keys @lhs.localAttrs ] Seq.><)
+              else id
 
 SEM Stmt | *  -- dependency on start of visit or clause
   +gathDeps = addDep @loc.stmtSource @lhs.scopeReason [@lhs.scopeDep]
@@ -2238,7 +2244,7 @@ SEM Stmt | Invoke -- depends on: * previous invokes, nearest child, and defs for
                 Nothing    -> id
                 Just (_,d) -> addDep @loc.stmtSource (ReasonChildReq @name) [d]
   +gathDeps = Seq.fromList [ Dep @loc.stmtSource (ReasonAttrReq @name attr)
-                               [Map.findWithDefault unknDepItem (True,@name,attr) @lhs.distAttrSource]
+                               [Map.findWithDefault (trace "Stmt.Invoke.unknown.inh" unknDepItem) (True,@name,attr) @lhs.distAttrSource]
                            | attr <- Map.keys @loc.inhAttrMap ] Seq.><
   +gathDeps = addDep @lhs.visitEndDep @lhs.visitEndReason [@loc.stmtSource]
 
@@ -2252,14 +2258,14 @@ SEM ImplStmt | Invoke -- depends on: * previous invokes, nearest child, and defs
                 Nothing    -> id
                 Just (_,d) -> addDep @loc.stmtSource (ReasonChildReq @child) [d]
   +gathDeps = Seq.fromList [ Dep @loc.stmtSource (ReasonAttrReq @child attr)
-                               [Map.findWithDefault unknDepItem (True,@child,attr) @lhs.distAttrSource]
+                               [Map.findWithDefault (trace "ImplStmt.Invoke.unknown.inh" unknDepItem) (True,@child,attr) @lhs.distAttrSource]
                            | attr <- Map.keys @loc.inhAttrMap ] Seq.><
   -- +errs2 = debugMsg ("Impl invoke: " ++ show @child ++ ", visit: " ++ show @visit ++ ", inh attrs: " ++ show @loc.inhAttrMap ++ "\nsource: " ++ show @lhs.distAttrSource) Seq.><
 
 {
 nearestVisitEntry :: Bool -> Ident -> [Ident] -> Map Ident DepItem -> Maybe (Ident,DepItem)
 nearestVisitEntry inclusive vis order mp
-  = case [ (b, Map.findWithDefault unknDepItem b mp) | b <- befores, Map.member b mp ] of
+  = case [ (b, Map.findWithDefault (trace "nearestVisitEntry.unknown" unknDepItem) b mp) | b <- befores, Map.member b mp ] of
       []    -> Nothing
       (e:_) -> Just e
   where
@@ -2313,10 +2319,10 @@ SEM ImplStmt -- depend on children + inh attrs
   | DefaultChild DefaultSyn
       +gathDeps = if @loc.lhsHasAttr
                   then addDep @loc.stmtSource (ReasonAttrReq lhsIdent @name)
-                         [Map.findWithDefault unknDepItem (True,lhsIdent,@name) @lhs.distAttrSource]
+                         [Map.findWithDefault (trace "ImplStmt.Default.lhsinh" unknDepItem) (True,lhsIdent,@name) @lhs.distAttrSource]
                   else id
       +gathDeps = Seq.fromList [ Dep @loc.stmtSource (ReasonAttrReq c a)
-                                   [Map.findWithDefault unknDepItem (False,c,a) @lhs.distAttrSource]
+                                   [Map.findWithDefault (trace "ImplStmt.Default.childsyn" unknDepItem) (False,c,a) @lhs.distAttrSource]
                                | (c,a) <- @loc.childAttrs ] Seq.><
       -- +errs2 = debugMsg ("dependencies: " ++ show @loc.stmtSource ++ ", attr: " ++ show @name ++ ", children: " ++ show @loc.children) Seq.><
 
