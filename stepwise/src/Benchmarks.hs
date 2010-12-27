@@ -1,3 +1,5 @@
+{-# LANGUAGE BangPatterns #-}
+
 -- | Some benchmarks of the Stepwise monad.
 module Main(main) where
 
@@ -10,44 +12,53 @@ import Progression.Main
 
 data I t = I
 
-listbench :: Monad m => Int -> m ()
-listbench size
-  = do x <- runner 0 list
-       seq x (return ())
+bindbench :: Monad m => Int -> Int -> m ()
+bindbench length depth
+  = tree depth
   where
-    list = [1..size]
+    runner !0 !n = return ()
+    runner m n = tree n >>= \() -> runner (m-1) n
     
-    runner acc [] = return acc
-    runner acc (x:xs) = (return acc) >>= \acc' -> seq acc' $ runner (max x acc') xs
+    tree !0 = return ()
+    tree n = runner length (n-1)
 
-listbench' :: Int -> Stepwise AnyFailure I any AnyWatcher ()
-listbench' size = listbench size
+bindbench' :: Int -> Int -> Stepwise AnyFailure I any AnyWatcher ()
+bindbench' = bindbench
 
-{-# INLINE listbench #-}
-{-# INLINE listbench' #-}
+{-# INLINE bindbench #-}
+{-# INLINE bindbench' #-}
 
 
-listbench1 :: Int -> IO ()
-listbench1 size = seq (runIdentity (listbench size)) (return ())
+bench1 :: Int -> Int -> IO ()
+bench1 length size = seq (runIdentity (bindbench length size)) (return ())
 
-listbench2 :: Int -> IO ()
-listbench2 size = seq (lazyEval (listbench' size)) (return ())
+bench2 :: Int -> Int -> IO ()
+bench2 length size = seq (lazyEval (bindbench' length size)) (return ())
 
-listbench3 :: Int -> IO ()
-listbench3 size = seq (seqEval (listbench' size)) (return ())
+bench3 :: Int -> Int -> IO ()
+bench3 length size = seq (seqEval (bindbench' length size)) (return ())
 
-listbench4 :: Int -> IO ()
-listbench4 size = seq (stepwiseEval (listbench' size)) (return ())
+bench4 :: Int -> Int -> IO ()
+bench4 length size = seq (stepwiseEval (bindbench' length size)) (return ())
 
 
 listbenchmarks :: [(String, IO ())]
-listbenchmarks = [ ("list-" ++ n ++ "-" ++ show p, f p) | p <- params, (n,f) <- funs ]
+listbenchmarks = [ ("list-" ++ n ++ "-" ++ show p ++ "-" ++ show q, f p q) | (p,q) <- params, (n,f) <- funs ]
   where
-    params = [10000,100000,1000000]
-    funs = [ ("id",   listbench1)
-           , ("lazy", listbench2)
-           , ("seq",  listbench3)
-           , ("step", listbench4) ]
+    params = [ (10000,1)
+             , (100000,1)
+             , (1000000,1)
+             , (2, 5)
+             , (2, 7)
+             , (2, 9)
+             , (3, 5)
+             , (50, 3)
+             , (10, 4)
+             ]
+    funs = [ ("id",   bench1)
+           , ("lazy", bench2)
+--           , ("seq",  bench3)
+           , ("step", bench4) ]
 
 
 main :: IO ()

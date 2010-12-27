@@ -1,7 +1,8 @@
 {-# LANGUAGE MagicHash, UnboxedTuples #-}
 module Control.Monad.Stepwise.Unsafe
   ( inlinePerformIO
-  , unsafeCoerce) where
+  , unsafeCoerce
+  , ghc7compat) where
 
 import GHC.Base
 import GHC.IO
@@ -16,3 +17,9 @@ inlinePerformIO (IO m)
       (# _, r #) -> r
 
 {-# INLINE inlinePerformIO #-}
+
+
+ghc7compat :: a -> b
+ghc7compat = unsafeCoerce
+
+{-# INLINE ghc7compat #-}

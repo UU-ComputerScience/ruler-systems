@@ -209,15 +209,20 @@ test7Succs = lazyEval test7c
 -- We takes as example path-finding in a labyrinth. Taking a step that brings us
 -- back to a position where we've been before is an immediate failure. However,
 -- the possibilities that remain may hit a dead-end later.
-type Lab a = RWST LabIn Instrs Pos (Stepwise AnyFailure LabSteps Lazy AnyWatcher) a
-type Lab' a = Stepwise AnyFailure LabSteps Lazy AnyWatcher (a, Pos, Instrs)
+type Lab a = RWST LabIn Instrs LabChn (Stepwise AnyFailure LabSteps Lazy AnyWatcher) a
+type Lab' a = Stepwise AnyFailure LabSteps Lazy AnyWatcher (a, LabChn, Instrs)
 
 data LabIn = LI
   { inLab   :: !(Set Pos)            -- the empty squares in the labyrinth
   , inEnd   :: {-# UNPACK #-} !Pos
-  , inTrail :: {-# UNPACK #-} !(IORef (Set Pos))    -- a refererence to a trail of crumbs of where we've been before
+  -- , inTrail :: {-# UNPACK #-} !(IORef (Set Pos))    -- a refererence to a trail of crumbs of where we've been before
   , inMemo  :: {-# UNPACK #-} !(MemoEnvRef AnyFailure LabSteps Lazy AnyWatcher)  -- covered later
   }
+
+data LabChn = LC
+  { chnPos   :: !Pos
+  , chnTrail :: !(Set Pos)
+  } deriving Typeable
 
 data LabSteps t = Walked !(Set Pos)
 
@@ -229,7 +234,7 @@ data Dir = North | East | South | West deriving (Enum, Show)
 search :: Lab ()
 search = do
   memo <- asks inMemo
-  loc  <- fmap pos2key get
+  loc  <- fmap pos2key (gets chnPos)
   let actions = finished <<|> moves
       moves   = foldr1 (<<|>) [ move d >> search | d <- [North .. West] ]
   memoize memo loc actions
@@ -239,24 +244,24 @@ pos2key (x,y) = x + 1024 * y
 
 finished :: Lab ()
 finished = do
-  p <- get
+  p <- gets chnPos
   e <- asks inEnd
   when (p /= e) (fail "not at the end yet")
 
 move :: Dir -> Lab ()
 move d = do
-  p <- get
+  p <- gets chnPos
   a <- asks inLab
   let p' = forward d p
   unless (p' `Set.member` a) (fail "inaccessible square")
-  trailRef <- asks inTrail
-  trail <- lift $ sequentially $ liftIO $ readIORef trailRef
+  trail <- gets chnTrail
   when (p' `Set.member` trail) (fail "already been there")
-  sync <- lift $ sequentially $ liftIO $ modifyIORef trailRef (Set.insert p')
+  modify (\c -> c { chnTrail = Set.insert p' (chnTrail c) })
+  -- lift $ sequentially $ liftIO $ putStrLn ("move: " ++ show p')
   tell $ pathOne d
   lift $ emit (Walked (Set.singleton p))
-  put p'
-  seq sync (return ()) -- ensures that the side effect also takes place during a lazy eval
+  modify (\c -> c { chnPos = p' })
+  return ()
 
 forward :: Dir -> Pos -> Pos
 forward North (x,y) = (x,y+1)
@@ -269,34 +274,44 @@ infixl 3 <<|>
 p <<|> q = do
   l <- fmap pickBranch $ branch p
   r <- fmap pickBranch $ branch q
-  let k = best l r
+  (l1,r1) <- convergeKill l r
+  let k = best l1 r1
   embed' k
 
 best :: Lab' a -> Lab' a -> Lab' a
-best l r = globalChoice (tr l) (tr r)
-  where tr = translate (\(Walked ps) -> Walked ps)
+best l r = globalChoice (unsafeTranslate l) (unsafeTranslate r)
+--  where tr = translate (\(Walked ps) -> Walked ps)
 
 
 -- | Example labyrinth
 lab1 :: [Pos]
+lab1 = [ (0,0), (1,0), (2,0), (2,1), (2,2)
+       , (0,1), (0,2), (1,2), (2,2)
+       -- , (3,2), (4,2), (5,2), (6,2), (7,2), (8,2), (9,2)
+       -- , (9,3), (9,4), (9,5), (9,6), (9,7), (9,8), (9,9)
+       ]
+
 -- lab1 = [(0,0),(0,-1),(0,-2),(1,-2),(1,-1),(2,-1),(2,0),(3,0),(4,0),(4,1),(4,2),(3,2),(2,2),(1,2)]
-lab1 = [(0,0),(0,-1),(1,-1),(2,-1),(2,0),(3,0),(4,0),(4,1),(4,2),(3,2),(2,2),(1,2)
-             ,(3,3),(3,4),(3,5),(2,5),(1,5),(1,4),(1,3),(2,3)]
+-- lab1 = [(0,0),(0,-1),(1,-1),(2,-1),(2,0),(3,0),(4,0),(4,1),(4,2),(3,2),(2,2),(1,2)
+--             ,(3,3),(3,4),(3,5),(2,5),(1,5),(1,4),(1,3),(2,3)]
 -- [(x,x) | x <- [0..1]] ++ [(x+1,x) | x <- [0..1]] -- ++ [(x+2,x) | x <- [0..9]]
 
 exp8Succs :: Path
 exp8Succs = pathClose path
   where
-    memoref   = unsafePerformIO newMemoEnv -- it's ok if 'memoref' is floated to top-level, because 'exp8Succ' is a CAF
-    crumbsref = unsafePerformIO $ newIORef Set.empty
+    memoref = unsafePerformIO newMemoEnv -- it's ok if 'memoref' is floated to top-level, because 'exp8Succ' is a CAF
     
-    initial = LI { inLab = Set.fromList lab1
-                 , inEnd = (1,1)
-                 , inTrail = crumbsref
-                 , inMemo  = memoref
+    initIn = LI { inLab = Set.fromList lab1
+                , inEnd = (9,9)
+                , inMemo  = memoref
+                }
+    
+    initChn = LC { chnPos   = (0,0)
+                 , chnTrail = Set.empty
                  }
-    m = evalRWST search initial (0,0)
-    (_,path) = lazyEval m
+                
+    m = evalRWST search initIn initChn
+    (_,path) = stepwiseEval m
 
 branch :: Lab a -> Lab (Branch a)
 branch (RWST f) = do
@@ -321,7 +336,69 @@ instance Monoid Instrs where
   (Instrs a) `mappend` (Instrs b) = Instrs (a . b)
 
 
+-- | Test 8b: Explicit sharing.
+-- This example builds on the previous one. Since we immediately fail when a step
+-- would take us back at a position that we've been before, the paths we traverse
+-- form a DAG. However, certain paths on this DAG we may traverse more than once.
+-- In this example, we ensure that we only traverse each path once.
+--
+-- Note, however, that it memoizes the outcome (i.e. the Lab' value), produced in
+-- a context potentially different from ours. The key "loc" in this case, however,
+-- identifies a unique context.
+
+memoize :: MemoEnvRef AnyFailure LabSteps Lazy AnyWatcher -> Int -> Lab () -> Lab ()
+memoize memo loc s = do
+  b <- branch s
+  let k = memoSteps memo loc (pickBranch b)
+  embed' k
+
+-- | Test 8c: Ambiguity and online-ness improvement. If two parallel branches
+--   converge on a single path, kill one of the branches.
+--   A much more effective approach is to keep a shared trail via an IORef and kill
+--   any branch that makes a move to a square already visited. However, the current
+--   approach is more interesting: it takes a bit longer until common paths are
+--   found.
+
+convergeKill :: Lab' a -> Lab' a -> Lab (Lab' a, Lab' a)
+convergeKill p q
+  = lift $ sequentially $ liftIO $ do
+      ref <- newIORef Set.empty   -- shared memory between two translators; should not be floated out of the expression!
+      let a = translate' abortOnCommon p
+          b = translate' abortOnCommon q
+          
+          abortOnCommon i@(Walked ps) = do
+            passed <- readIORef ref  -- get the already observed positions (shared)
+            if Set.null (Set.intersection ps passed)  -- if the current positions are not in it
+             then do let merge ps0 = let ps1 = Set.union ps ps0 in (ps1, ())  -- add them
+                     atomicModifyIORef ref merge
+                     return $ Right [i]  -- ok
+             else return $ Right [] -- Left AnyFailure  -- common path, abort
+      return (a,b)
+
+{-# NOINLINE convergeKill #-}
+
+
+runAhead :: Int -> Lab' a -> Lab (Lab' a)
+runAhead n m = lift $ sequentially $ do
+    m' <- share m
+    liftIO $ do
+      forkIO (go n m')
+      return m'
+  where
+    go n' m1 | n' <= 0 = return ()
+             | otherwise = do
+                 p <- next m1
+                 case p of
+                   Step _ m2 -> go (n' - 1) m2
+                   _         -> return ()
+
+
+-- Todo: compression and parallel evaluation.
+
 {-
+-- Example of the monadic inteface of merging steps
+-- (alternative for 'globalChoice')
+
 -- | This data type represents a handle to a stepwise computation, and the intended continuation
 --   when we are finished evaluating that computation.
 data ContHandle o w a where
@@ -366,40 +443,6 @@ test8_best l r = sequentially $ do
     recode = observe (\I -> I) -- in this particular case, with GHC, it is safe to use: unsafeObserve (which is faster)
     proceedAfter h k = recode (proceed h) >>= lazily . k
 -}
-
-
--- | Test 9: Explicit sharing.
--- This example builds on the previous one. Since we immediately fail when a step
--- would take us back at a position that we've been before, the paths we traverse
--- form a DAG. However, certain paths on this DAG we may traverse more than once.
--- In this example, we ensure that we only traverse each path once.
-
-memoize :: MemoEnvRef AnyFailure LabSteps Lazy AnyWatcher -> Int -> Lab () -> Lab ()
-memoize memo loc s = do
-  b <- branch s
-  let k = memoSteps memo loc (pickBranch b)
-  embed' k
-
-{-
-type MemoRef = IORef MemoTbl
-type MemoTbl = Map Pos (LabH LabOut)
-type LabH a = StepHandle AnyFailure I Lazy AnyWatcher a
-
-memo :: MemoRef -> Pos -> Lab LabOut -> Lab LabOut
-memo r p m = sequentially $ do
-  liftIO $ do putStrLn ("memo move: " ++ show p)
-              threadDelay 300000
-  mp <- liftIO $ readIORef r
-  case Map.lookup p mp of
-    Just h -> proceedIndirect h
-    Nothing -> do liftIO $ putStrLn ("Not in cache: " ++ show p)
-                  h <- handle m
-                  let mp' = Map.insert p h mp
-                  liftIO $ writeIORef r mp'
-                  proceedIndirect h
--}
-
--- Todo: compression and parallel evaluation.
 
 
 -- | Repmin with alternatives!

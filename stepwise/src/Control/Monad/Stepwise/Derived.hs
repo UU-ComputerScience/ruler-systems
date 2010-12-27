@@ -12,6 +12,7 @@ import Control.Monad.Stepwise.Core
 
 import Control.Applicative
 import Control.Monad.Error
+import Control.Monad.State.Strict
 import Data.Monoid
 
 
@@ -27,7 +28,7 @@ instance Error e => MonadError e (Stepwise e i o w) where
   catchError m h = case smallStep m of
     Step i m'   -> info i (catchError m' h)
     Fin v       -> return v
-    Failed e    -> h e
+    Failed mb   -> h (maybe noMsg id mb)
     Lookahead f -> lookahead f
 
 -- Applicative instance of 'Stepwise' computations.
@@ -54,7 +55,11 @@ localChoice !f !g p q = merge (localStep p) (localStep q) where
   merge (Step i1 p1) (Step i2 p2) = f i1 p1 i2 p2
   merge (Fin x) _ = final x
   merge _ (Fin x) = final x
-  merge (Failed s1) (Failed s2) = g s1 s2
+  merge (Failed mb1) (Failed mb2) = case mb1 of
+    Just s1 -> case mb2 of
+      Just s2 -> g s1 s2
+      Nothing -> failure mb1
+    Nothing -> failure mb2
   merge (Step i m) (Failed _)   = info i m
   merge (Failed _) (Step i m)   = info i m
 
@@ -67,3 +72,22 @@ globalChoice :: Error e => (forall v . Stepwise e i Lazy v a) -> (forall v . Ste
 globalChoice l r = lookahead (\k -> merge (l >>= k) (r >>= k))
   where merge = localChoice both (\e _ -> abort e)
         both i1 p1 _ p2 = info i1 (p1 `merge` p2)
+
+
+-- | Customizeable merge function.
+--   using events.
+
+{-
+newtype StepMerger g e i o w a = Merger (StateT (MergeState s g e i o w) (Stepwise e i o w) a)
+
+data MergeState g e i o w = MergeState
+  { handleLeft  :: MergeHandle g e i o w
+  , handleRight :: MergeHandle g e i o w
+  , actions     :: MergeActions g e i o w
+  }
+
+data MergeActions g e i o w = MergeActions
+  {
+  
+  }
+-}

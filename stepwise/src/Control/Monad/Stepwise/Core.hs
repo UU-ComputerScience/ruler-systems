@@ -3,11 +3,14 @@ module Control.Monad.Stepwise.Core
   ( Stepwise, StepHandle                 -- the type of a computation in the breadth-first monad
   , lazyEval, seqEval, stepwiseEval      -- evaluation of the result of a breadth-first computation
   , info, emit                           -- prefix/inject progress reports
+  , next                                 -- runs the computation until the next progress report
   , localStep, smallStep, Progress(..)   -- step through step-wise computations
   , lookahead                            -- obtain the continuation
   , transcode, Transcoder(..)            -- transcode progress reports
+  , CodeIn(..), CodeOut(..), translate'  -- transcoder input and output
   , translate, unsafeTranslate           -- transcoder variations
-  , abort, final, failure, resume        -- primary combinators
+  , abort, final, resume                 -- primary combinators
+  , failure, unspecifiedFailure          -- failure combinators
   , lazily, sequentially                 -- evaluation options
   , share                                -- share a step-wise computation
   , task, nextTask                       -- the source of a progress report
@@ -15,7 +18,7 @@ module Control.Monad.Stepwise.Core
   , proceed, close                       -- embed handles
   , Report(..)                           -- data-type for progress reports
   , Sequential, Lazy                     -- type indices for the type of evaluation
-  , AnyWatcher, AnyFailure               -- types representing "don't care about these aspects"
+  , AnyWatcher, AnyFailure(..)           -- types representing "don't care about these aspects"
   , forceSequential                      -- forces the type to sequential
   , memoSteps, newMemoEnv, MemoEnvRef    -- memoize stepwise computations
   ) where
@@ -108,7 +111,7 @@ data Stepwise e i o w a where
   Ahead   :: !(forall b v . (forall o' . a -> Stepwise e i o' v b) -> Stepwise e i Lazy v b) -> Stepwise e i o w a
   Final   :: !a -> Stepwise e i o w a
   Info    :: !(i w) -> Stepwise e i o w a -> Stepwise e i o w a
-  Fail    :: !e -> Stepwise e i o w a
+  Fail    :: !(Maybe e) -> Stepwise e i o w a
   Ind     :: {-# UNPACK #-} !(StepRef e i o w a) -> Stepwise e i o w a
   Unpure  :: !(IO a) -> Stepwise e i o w a          -- warning: properly ordered I/O only in sequential evaluation mode
   Mode    :: !(Env -> Env) -> Stepwise e i o w a -> Stepwise e i o w a    -- mutates (or restores) evaluation environment
@@ -181,13 +184,14 @@ data CodeIn e i w where
   TcReport :: !(i w) -> CodeIn e i w
   TcLazy   :: CodeIn e i w
   TcDone   :: CodeIn e i w
-  TcFail   :: !e -> CodeIn e i w
+  TcFail   :: !(Maybe e) -> CodeIn e i w
 
 -- | Output of a transcoder.
 --   Either it succeeds with zero or more transcoded progress reports,
 --   or it aborts the computation.
 data CodeOut e i w where
-  TcReports :: [i w] -> !(Maybe e) -> CodeOut e i w
+  TcReports :: [i w] -> CodeOut e i w
+  TcFailed  :: !(Maybe e) -> CodeOut e i w
 
 -- | A transcoder is a function that transcodes a progress report of the
 --   type @i v@ to reports of the type @i w@. It gets a 'CodeIn' as input
@@ -257,7 +261,7 @@ peekEvalMode DefaultMode = AllowLazy
 --   proofs of the monad laws.
 instance Error e => Monad (Stepwise e i o w) where
   return = final
-  fail   = failure . strMsg
+  fail   = abort . strMsg
   (>>=)  = resume
 
   {-# SPECIALIZE instance Error e => Monad (Stepwise e i o w) #-}
@@ -321,6 +325,9 @@ takeRef (Ref h) = takeMVar h
 createRef :: Stepwise e i o w a -> IO (StepRef e i o w a)
 createRef m = newMVar (Cell m Nothing) >>= return . Ref
 
+extractVar :: StepRef e i o w a -> MVar (StepCell e i o w a)
+extractVar (Ref v) = v
+
 
 -- | Lazy evaluation of a step-wise computation.
 lazyEval :: Stepwise e i Lazy w a -> a
@@ -374,23 +381,45 @@ evalStack env (Cont (Code t) _ stack) =
 
 -- | A progress report. Either the progress report denotes a single
 --   step, or a finished/failed computation, or a suspended computation
---   that waits for its future continuation before it can proceed.
+--   in the form of a lookahead that waits for its future continuation
+--   before it can proceed.
 data Progress e i o w a where
   Step      :: !(i w) -> Stepwise e i o w a -> Progress e i o w a
   Fin       :: !a -> Progress e i o w a
   Lookahead :: !(forall b v . (forall o' . a -> Stepwise e i o' v b) -> Stepwise e i Lazy v b) -> Progress e i o w a
-  Failed    :: !e -> Progress e i o w a
+  Failed    :: !(Maybe e) -> Progress e i o w a
 
 
 -- | One step strict evaluation. Reduction proceeds until one
 -- progress report entry is produced, or the computation is
 -- suspended waiting for the continuation.
 next :: Stepwise e i o w a -> IO (Progress e i o w a)
-next r = do st <- newIORef DefaultMode
-            trace Toplevel "next: obtained the next progress report."
-            fst <$> nextReport st r
-
+next r = nextRoot NoHandles r
 {-# NOINLINE next #-}
+
+-- | Keeps track of the handles in use by a current thread. If a thread access the same
+--   handle more than once, we ran in a loop, and fail the computation. This cycle
+--   detection is only available to explicitly shared computations (via 'share' or
+--   'memoizeSteps'). In these situations, it's typically nasty to implement a
+--   cycle-check, hence this is offered as a service. This has semantic consequences:
+--   it is up to the programmer to prove that the computation would also have failed
+--   without sharing.
+data Handles where
+  NoHandles :: Handles
+  OneHandle :: {-# UNPACK #-}! (MVar a) -> !Handles -> Handles
+
+-- | Checks if a certain handle is in the stack of handles kept per 'next' invocation.
+containsHandle :: MVar a -> Handles -> Bool
+containsHandle m NoHandles         = False
+containsHandle m (OneHandle m' hs)
+  | unsafeCoerce m == m' = True
+  | otherwise            = containsHandle m hs
+
+nextRoot :: Handles -> Stepwise e i o w a -> IO (Progress e i o w a)
+nextRoot hs r = do
+  st <- newIORef DefaultMode
+  trace Toplevel "next: obtained the next progress report."
+  fst <$> nextReport st hs r
 
 -- Assumes a start-evaluation mode of DefaultMode.
 -- However, when it returns a 'Step' progress report,
@@ -401,26 +430,28 @@ next r = do st <- newIORef DefaultMode
 -- sequentially. However, 'lazyEval' may be called onto a partially reduced computation.
 -- We thus need to keep track of what context it is in, such that 'lazyEval' can decide
 -- upon the right evaluation mode.
-nextReport :: EnvRef -> Stepwise e i o w a -> IO (Progress e i o w a, Env)
-nextReport ref r = do
+nextReport :: EnvRef -> Handles -> Stepwise e i o w a -> IO (Progress e i o w a, Env)
+nextReport ref hs r = do
   st0 <- readIORef ref
-  p   <- next' ref r
+  p   <- next' ref hs r
   st1 <- readIORef ref
   writeIORef ref st0     -- restores the evaluation mode to before running the progress report
-  trace Toplevel "nextReport: obtained the next proress report."
+  trace Toplevel "nextReport: obtained the next progress report."
   return (remember st0 st1 p, st1)  -- returns r's mode stack as well, for potential continuations
 
 -- Handles stepwise computation for the trivial cases, and
 -- delegates the handling of 'Pending'-nodes to 'nextPending'.
-next' :: EnvRef -> Stepwise e i o w a -> IO (Progress e i o w a)
-next' !_  (Info i r) = return $ Step i r
-next' env p@(Pending _ _) = inline nextPending env p
-next' _   (Ind h)    = nextHandle h
-next' _   (Final v)  = return $ Fin v
-next' _   (Ahead f)  = return $ Lookahead f
-next' _   (Fail e)   = return $ Failed e
-next' _   (Unpure m) = Fin <$> m
-next' env (Mode f r) = modifyIORef env f >> next' env r  -- applies the changes to the mode stack
+next' :: EnvRef -> Handles -> Stepwise e i o w a -> IO (Progress e i o w a)
+next' !_  !_ (Info i r) = return $ Step i r
+next' env hs p@(Pending _ _) = nextPending env hs p
+next' _   hs (Ind h)    = nextHandle hs h
+next' _   _  (Final v)  = return $ Fin v
+next' _   _  (Ahead f)  = return $ Lookahead f
+next' _   _  (Fail e)   = return $ Failed e
+next' _   _  (Unpure m) = Fin <$> m
+next' env hs (Mode f r) = do  -- applies the changes to the mode stack.
+  modifyIORef env f           -- there should only be one thread that has access to
+  next' env hs r              -- this reference.
 
 -- | Keep track of the evaluation mode. The invariant is that 'next'
 --   always starts in DefaultMode. The Stepwise computation should thus
@@ -441,18 +472,26 @@ remember _ _ p = p                                                  -- no need t
 --   If the value that comes out is an 'Info'-value, we again turn the remaining
 --   computation into an indirection, in order to allow sharing of this remaining
 --   computation.
-nextHandle :: StepRef e i o w a -> IO (Progress e i o w a)
-nextHandle !h = do
-  c@(Cell m mbFin) <- takeRef h
-  trace Notice "nextHandle: obtaining next progress report."
-  p <- next m
-  case p of   -- don't update a 'Failed' computation: lazyEval on it may still succeed
-    Failed _ | isNothing mbFin -> putRef h c >> return p  
-    _ -> do p' <- case p of  -- create an indirection to the remainder of the computation
-                    Step i m1 -> createRef m1 >>= return . Step i . Ind
-                    _         -> return p
-            updateHandle h mbFin m (task p')
-            return p'
+nextHandle :: Handles -> StepRef e i o w a -> IO (Progress e i o w a)
+nextHandle !hs !h = do
+  let !v   = extractVar h
+      !hs' = OneHandle v hs
+  if containsHandle v hs         -- we are on a cyclic path
+   then do trace Toplevel "nextHandle: terminated cyclic evaluation path."
+           putStrLn "deadlock!"
+           return (Failed Nothing)  -- the handle is not updated in this case: there may still be a non-cyclic alternative
+   else do
+     c@(Cell m mbFin) <- takeRef h
+     trace Notice "nextHandle: obtaining next progress report."
+     p <- nextRoot hs' m
+     let mbFin' = case p of  -- don't update a 'Failed' computation: lazyEval on it may still yield a partial result
+           Failed _ | isNothing mbFin -> Just (eval DefaultMode m)  -- store this partial result
+           _ -> mbFin
+     p' <- case p of  -- create an indirection to the remainder of the computation
+             Step i m1 -> createRef m1 >>= return . Step i . Ind
+             _         -> return p
+     updateHandle h mbFin' m (task p')
+     return p'
 
 -- | Conditionally updates the handle with the new stepwise computation, if the old computation is not trivial.
 --  If the handle the computation points to is by itself an indirection, we keep the indirection: only tripple or
@@ -472,9 +511,9 @@ updateHandle h mbFin  m             _   = putRef h (Cell m mbFin)     -- update 
 --   may influence this stack. We need to make sure that upon resume, that
 --   computation gets its new stack again (via a 'Mode'-node), and also
 --   restore our stack again.
-nextPending :: EnvRef -> Stepwise e i o w a -> IO (Progress e i o w a)
-nextPending !env (Pending Root r) = next' env r
-nextPending env  (Pending stack@(Cont o tr c) r) = 
+nextPending :: EnvRef -> Handles -> Stepwise e i o w a -> IO (Progress e i o w a)
+nextPending !env !hs (Pending Root r) = next' env hs r
+nextPending env  hs  (Pending stack@(Cont o tr c) r) = 
   let (m, mb) = modeElim r
       mode Nothing  x = x
       mode (Just _) m@(Mode _ _) = m
@@ -485,21 +524,24 @@ nextPending env  (Pending stack@(Cont o tr c) r) =
                                                Nothing -> stack  -- no need to restore stack if there is no mode change
                                                Just f  -> pushOper (\x -> Mode (const env') $! final x) stack
                                trace Notice "nextPending: merging stacks."
-                               nextPending env (Pending (pushStack stack1 stack0) (mode mb r'))
-       _ -> do (p, env') <- nextReport env (mode mb m)
+                               nextPending env hs (Pending (pushStack stack1 stack0) (ghc7compat (mode mb (ghc7compat r'))))
+       _ -> do (p, env') <- nextReport env hs (mode mb m)
                trace Notice "nextPending: reducing active node."
                case p of
-                 Step i r' -> applyTranscoder env tr (TcReport i) (Pending stack r') >>= next' env
-                 Failed e  -> applyTranscoder env tr (TcFail e) (Fail e) >>= next' env
+                 Step i r' -> do trace Notice "nextPending: step"
+                                 applyTranscoder env tr (TcReport i) (Pending stack r') >>= next' env hs
+                 Failed e  -> applyTranscoder env tr (TcFail e) (Fail e) >>= next' env hs
                  _ -> case o of
                    Code t -> do
                      let !m' = case p of
                                  Fin v       -> Final v
                                  Lookahead k -> Ahead k
-                     applyTranscoder env t TcDone m' >>= next' env . Pending c
+                     applyTranscoder env t TcDone m' >>= next' env hs . Pending c
                    Bind f  -> case p of
-                     Fin v       -> next' env $ Pending c $ f v
-                     Lookahead k -> next $ lazily $ k $! coerceMode . Mode (const env') . Pending c . f
+                     Fin v       -> next' env hs $ Pending c $ f v
+                     Lookahead k -> nextRoot hs $ lazily $ k (coerceMode . Mode (const env') . Pending c . f)
+                                       -- I actually would like to force the argument of |k| to normal form here
+                                       -- Unfortunately, the program is then not accepted as type correct by GHC 7.1
 
 -- | Applies the transcoder and builds a new computation, by prepending the transcoded steps,
 --   and possibly replacing the initial computation with a failing one. This happens only when the
@@ -508,10 +550,8 @@ applyTranscoder :: EnvRef -> Transcode e i v w -> CodeIn e i v -> Stepwise e i o
 applyTranscoder !env !tr !tcIn !m = do
   tcOut <- runCoder tr tcIn
   case tcOut of
-    TcReports rs mb ->
-      let !m1 = maybe m Fail mb
-          !m2 = foldr (\i' !k -> Info i' k) m1 rs
-      in return m2
+    TcReports rs -> return $! foldr Info m rs
+    TcFailed e   -> return $! Fail e
 
 -- | Remembers the evaluation mode for the continuation.
 restoreMode :: Env -> (b -> Stepwise e i o w a) -> b -> Stepwise e i o w a
@@ -558,10 +598,10 @@ runCoder (TransCoder (Trans t))  i = t i
 
 -- | Empty transcoder: just passes along what it gets.
 emptyCoder :: CodeIn e i w -> IO (CodeOut e i w)
-emptyCoder (TcReport i) = return (TcReports [i] Nothing)
-emptyCoder (TcFail e)   = return (TcReports [] (Just e))
-emptyCoder TcLazy       = return (TcReports [] Nothing)
-emptyCoder TcDone       = return (TcReports [] Nothing)
+emptyCoder (TcReport i) = return (TcReports [i])
+emptyCoder (TcFail e)   = return (TcFailed e)
+emptyCoder TcLazy       = return (TcReports [])
+emptyCoder TcDone       = return (TcReports [])
 
 -- | Pushes a transcoder on the parent's stack.
 --   Note: a pending-node specifies how to transcode the progress reports
@@ -586,10 +626,16 @@ composeCoder (TransCoder (Trans f)) (TransCoder (Trans g)) = TransCoder (Trans h
   h inp = do
     out <- f inp
     case out of
-      TcReports reps mbE -> do
-        outs <- mapM (g . TcReport) reps
-        let combine (TcReports rs1 mb1) (TcReports rs2 mb2) = TcReports (rs1 ++ rs2) (maybe mb2 Just mb1)
-        return $! foldr combine (TcReports [] mbE) outs
+      TcReports reps -> do
+        let run !acc ![]    = return $ TcReports acc
+            run acc  (r:rs) = do
+              out' <- g (TcReport r)
+              case out' of
+                TcReports reps' -> run (reps' ++ acc) rs
+                TcFailed e      -> return $! TcFailed e
+        run [] reps
+      TcFailed e -> return $! TcFailed e
+
 
 -- | Pushes an operation on the stack.
 pushOper :: (a -> Stepwise e i o u b) -> Parents e i o u w b c -> Parents e i o u w a c
@@ -627,17 +673,25 @@ transcode !f = Pending (pushCoder (TransCoder f) Root)
 
 -- | Translates progress reports from one domain directly into another.
 translate :: (i v -> i w) -> Stepwise e i o v a -> Stepwise e i o w a
-translate !f = transcode $ Trans tr where
-  tr (TcReport i) = return $ TcReports [f i] Nothing
-  tr (TcFail e)   = return $ TcReports [] (Just e)
-  tr TcDone       = return $ TcReports [] Nothing
-  tr TcLazy       = return $ TcReports [] Nothing
+translate !f = translate' g
+  where g x = return $ Right [f x]
+
+-- | Translates to zero or more reports, or failure.
+translate' :: (i v -> IO (Either (Maybe e) [i w])) -> Stepwise e i o v a -> Stepwise e i o w a
+translate' !f = transcode $ Trans tr where
+  tr (TcReport i) = fmap g (f i) where
+    g (Left e)   = TcFailed e
+    g (Right rs) = TcReports rs
+  tr (TcFail e)   = return $ TcFailed e
+  tr TcDone       = return $ TcReports []
+  tr TcLazy       = return $ TcReports []
 
 -- | Assumes that 'i v' is structurally equal to 'i w'.
 unsafeTranslate :: Stepwise e i o v a -> Stepwise e i o w a
 unsafeTranslate = unsafeCoerce
 
 {-# INLINE translate #-}
+{-# INLINE translate' #-}
 {-# INLINE transcode #-}
 {-# INLINE unsafeTranslate #-}
 
@@ -648,15 +702,19 @@ unsafeTranslate = unsafeCoerce
 --   This means that if there is no backtracking-alternative
 --   left, aborts are replaced by a bottom value.
 abort :: e -> Stepwise e i o w a
-abort =  Fail
+abort = Fail . Just
 
 -- | Turn a result into a (trivial) stepwise compuation.
 final :: a -> Stepwise e i o w a
 final = Final
 
 -- | Creates an always failing stepwise computation.
-failure :: e -> Stepwise e i o w a
+failure :: Maybe e -> Stepwise e i o w a
 failure = Fail
+
+-- | Creates an always failing stepwise computation (without an error message).
+unspecifiedFailure :: Stepwise e i o w a
+unspecifiedFailure = Fail Nothing
 
 -- | Creates a pending computation for @m@ with @f@ on the stack of parents.
 resume :: Stepwise e i o w b -> (b -> Stepwise e i o w a) -> Stepwise e i o w a
@@ -735,7 +793,7 @@ data StepCursor e i o w a = Cursor (Stepwise e i o w a) !(Report e i o w a)
 data Report e i o w a where
   Finished :: !a -> Report e i o w a
   Progress :: !(i w) -> Report e i o w a
-  Failure  :: !e -> Report e i o w a
+  Failure  :: !(Maybe e) -> Report e i o w a
   Future   :: !(forall b v . (forall o' . a -> Stepwise e i o' v b) -> Stepwise e i Lazy v b) -> Report e i o w a
   Unavail  :: Report e i o w a
   
