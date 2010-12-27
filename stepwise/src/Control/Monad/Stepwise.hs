@@ -7,6 +7,9 @@
 --   Stability   :  experimental
 --   Portability :  non-portable (GADTs)
 --
+--   Note: Some documentation may not be visible in the Haddock documentation;
+--         also check the comments directly in the source code.
+--
 --   A module for the step-wise evaluation of pure computations, in particular
 --   suitable to resolve non-deterministic choices in computations.
 --
@@ -103,9 +106,9 @@
 --   /online/ results when choices have been resolved.
 --
 --   Benchmark results show that a 'Stepwise' bind is approximately 10 times
---   slower compared to a bind of the identity monad. Stepwise evaluation of
---   a bind via 'stepwiseEval' is only marginally (e.g. approx 10%) slower
---   compared to 'lazyEval' of a bind.
+--   slower compared to a bind of the identity monad (independent of the
+--   amount of binds). Stepwise evaluation of a bind via 'stepwiseEval' is only
+--   marginally (e.g. approx 10%) slower compared to 'lazyEval' of a bind.
 --
 --   A downside of the monadic interface is that it requires code to be written in a
 --   sequential way (it enforces monadic style upon the program).
