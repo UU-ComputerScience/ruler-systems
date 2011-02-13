@@ -1,7 +1,7 @@
-cabal-version: >=1.2
-build-type: Simple
+cabal-version: >=1.6
+build-type: Custom
 name: ruler-core
-version: 0.9
+version: 1.0
 license: LGPL
 maintainer: Arie Middelkoop <ariem@cs.uu.nl>
 homepage: http://www.cs.uu.nl/wiki/HUT/WebHome
@@ -9,7 +9,7 @@ description: Ruler-core Attribute Grammar
 category: Development
 stability: Experimental
 copyright: Arie Middelkoop
-extra-source-files: uuagc_options, src/AstAG.ag, src/TargetHaskell.ag, src/TargetGraph.ag, src/TargetJs.ag
+extra-source-files: README, uuagc_options, src/AstAG.ag, src/Ast.ag, src/TargetHaskell.ag, src/TargetGraph.ag, src/TargetJs.ag, examples/*.rul
 
 executable ruler-core
   build-depends: base >= 4, base < 5, uulib, uuagc>=0.9.26, filepath, directory, containers, array, mtl, fgl
@@ -17,4 +17,4 @@ executable ruler-core
   main-is: Main.hs
   hs-source-dirs: src
   other-modules:
-    Scanner, Parser, Opts, Ast, Transform, Errs, Env, DepAnalysis
+    Scanner, Parser, Opts, Ast, Transform, Errs, Env, DepAnalysis, Pretty, Common
