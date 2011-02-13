@@ -43,11 +43,11 @@ ppgNode pos item rankMap
       DepMatch n      -> ppgKey pos item >#< pp_block "[" "]" "," [ppgProp "label" l, c] >|< ";"
       DepAssert n     -> ppgKey pos item >#< pp_block "[" "]" "," [ppgProp "label" l, c] >|< ";"
       DepDefault n    -> ppgKey pos item >#< pp_block "[" "]" "," [ppgProp "label" l, c] >|< ";"
-      DepAttach n     -> ppgKey pos item >#< pp_block "[" "]" "," [ppgProp "shape" "box",ppgProp "label" l, c] >|< ";"
-      DepInvoke nms   -> ppgKey pos item >#< pp_block "[" "]" "," [ppgProp "shape" "box",ppgProp "skew" ".3",ppgProp "label" l,c] >|< ";"
-      DepVisStart nms -> ppgKey pos item >#< pp_block "[" "]" "," [ppgProp "shape" "box",ppgProp "skew" ".3",ppgProp "label" l,c] >|< ";"
-      DepVisEnd nms   -> ppgKey pos item >#< pp_block "[" "]" "," [ppgProp "shape" "box",ppgProp "skew" ".3",ppgProp "label" l,c] >|< ";"
-      DepClause nms   -> ppgKey pos item >#< pp_block "[" "]" "," [ppgProp "shape" "box",ppgProp "skew" ".3",ppgProp "label" l,c] >|< ";"
+      DepAttach n     -> ppgKey pos item >#< pp_block "[" "]" "," [ppgProp "label" l, c] >|< ";"
+      DepInvoke nms   -> ppgKey pos item >#< pp_block "[" "]" "," [ppgProp "skew" ".3",ppgProp "label" l,c] >|< ";"
+      DepVisStart nms -> ppgKey pos item >#< pp_block "[" "]" "," [ppgProp "shape" "box", ppgProp "fillcolor" "black", ppgProp "style" "filled",ppgProp "skew" ".3",ppgProp "label" l,c] >|< ";"
+      DepVisEnd nms   -> ppgKey pos item >#< pp_block "[" "]" "," [ppgProp "shape" "box", ppgProp "fillcolor" "black", ppgProp "style" "filled",ppgProp "skew" ".3",ppgProp "label" l,c] >|< ";"
+      DepClause nms   -> ppgKey pos item >#< pp_block "[" "]" "," [ppgProp "shape" "box", ppgProp "fillcolor" "black", ppgProp "style" "filled",ppgProp "skew" ".3",ppgProp "label" l,c] >|< ";"
   where mbInfo = Map.lookup item rankMap
         l = ppgLabel pos item (maybe Nothing (Just . snd) mbInfo)
         c = ppgColor (maybe False fst mbInfo)
