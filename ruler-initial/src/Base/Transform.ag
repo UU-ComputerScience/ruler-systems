@@ -1,0 +1,202 @@
+--
+-- =============================================================================
+--   Last Phase: Transforms the Base AST to Core AST
+-- =============================================================================
+--
+
+imports
+{
+import Data.List
+}
+
+ATTR Module [ | | transformed : {C.Module} ]
+
+SEM Module
+  | Mod
+      lhs.transformed = C.Module_Mod @nm @loc.transTypes @loc.transRels
+
+SEM Module
+  | Mod
+      loc.typeHoles   = snd $ dups @decls.gathTypeHoles
+      loc.altFormats  = snd $ dups @decls.gathAltFormats
+      loc.typeFormats = snd $ dups @decls.gathTypeFormats
+
+      loc.transTypes
+        = [ C.Type_Tp tp 
+              [ C.Alternative_Alt alt
+                  [ C.Hole_Hole nm ty
+                  | (nm, ty) <- Map.assocs holes ] 
+                  (fetch alt $ fetch tp @loc.altFormats)
+              | (alt, holes) <- Map.assocs alts ]
+              (fetch tp @loc.typeFormats)
+          | (tp,alts) <- Map.assocs @loc.typeHoles ]
+
+SEM Module
+  | Mod 
+      loc.relHoles      = snd $ dups @decls.gathRelHoles
+      loc.relFormats    = snd $ dups @decls.gathRelFormats
+      loc.judgeTypes    = snd $ dups @decls.gathJudgeTypes
+      loc.ruleConcs     = snd $ dups @decls.gathRuleConcs
+      loc.identFormats  = snd $ dups @decls.gathIdentFormats
+
+      loc.transRels
+        = [ C.Relation_Rel rel
+              [ C.Hole_Hole nm tp | (nm, tp) <- Map.assocs $ fetch rel @loc.relHoles ]
+              (fetch rel @loc.relFormats)
+              [ let judges' = [ ( nm, C.Judgement_Judge nm
+                                        (fetch nm $ fetch rule $ fetch rel @loc.judgeTypes)
+                                        bindings )
+                              | (nm, bindings) <- Map.assocs judges ]
+                    concNm = fetch rule $ fetch rel @loc.ruleConcs
+                    ([conc], prems) = partition ((==) concNm . fst) judges'
+                in C.Rule_Rule rule
+                     [ C.Ident_Ident nm tp
+                         (fetch nm $ fetch rule $ fetch rel @loc.identFormats)
+                     | (nm,tp) <- Map.assocs $ fetch rule $ fetch rel @loc.ruleIdents ]
+                     (map snd prems)
+                     (snd conc)
+              | (rule, judges) <- Map.assocs rules ]
+          | (rel,rules) <- Map.assocs @decls.gathJudgeBindings ]
+
+
+--
+-- Synthesize patterns
+--
+
+ATTR Format [ | | self : SELF ]
+
+
+--
+-- Collect the types
+--
+
+ATTR Decls Decl         [ | | gathTypeHoles USE {`merge`} {Map.empty} : {Map Identifier (Map Identifier (Map Identifier [Identifier]))} ]
+ATTR TypeDecls TypeDecl [ | | gathTypeHoles USE {`merge`} {Map.empty} : {Map Identifier (Map Identifier [Identifier])} ]
+ATTR AltDecls AltDecl   [ | | gathTypeHoles USE {`merge`} {Map.empty} : {Map Identifier [Identifier]} ]
+
+SEM Decl     | Type  lhs.gathTypeHoles = Map.singleton @nm @decls.gathTypeHoles
+SEM TypeDecl | Alt   lhs.gathTypeHoles = Map.singleton @nm @decls.gathTypeHoles
+SEM AltDecl  | Hole  lhs.gathTypeHoles = Map.singleton @nm [@tp]
+
+
+--
+-- Collect the formats of alternatives
+--
+
+ATTR Decls Decl         [ | | gathAltFormats USE {`merge`} {Map.empty} : {Map Identifier (Map Identifier [Format])} ]
+ATTR TypeDecls TypeDecl [ | | gathAltFormats USE {`merge`} {Map.empty} : {Map Identifier [Format]} ]
+ATTR AltDecls AltDecl   [ | | gathAltFormats USE {++} {[]} : {[Format]} ]
+
+SEM Decl     | Type    lhs.gathAltFormats = Map.singleton @nm @decls.gathAltFormats
+SEM TypeDecl | Alt     lhs.gathAltFormats = Map.singleton @nm @decls.gathAltFormats
+SEM AltDecl  | Format  lhs.gathAltFormats = [@format.self]
+
+
+--
+-- Collect the formats of types
+--
+
+ATTR Decls Decl [ | | gathTypeFormats USE {`merge`} {Map.empty} : {Map Identifier [Format]} ]
+ATTR TypeDecls TypeDecl [ | | gathTypeFormats USE {++} {[]} : {[Format]} ]
+
+SEM Decl     | Type    lhs.gathTypeFormats = Map.singleton @nm @decls.gathTypeFormats
+SEM TypeDecl | Format  lhs.gathTypeFormats = [@format.self]
+
+
+--
+-- Collect the bindings of judgements
+--
+
+ATTR Decls Decl         [ | | gathJudgeBindings USE {`merge`} {Map.empty} : {Map Identifier (Map Identifier (Map Identifier C.Bindings))} ]
+ATTR RelDecls RelDecl   [ | | gathJudgeBindings USE {`merge`} {Map.empty} : {Map Identifier (Map Identifier C.Bindings)} ]
+ATTR RuleDecls RuleDecl [ | | gathJudgeBindings USE {`merge`} {Map.empty} : {Map Identifier C.Bindings} ]
+
+SEM Decl     | Relation  lhs.gathJudgeBindings = Map.singleton @nm @decls.gathJudgeBindings
+SEM RelDecl  | Rule      lhs.gathJudgeBindings = Map.singleton @nm @decls.gathJudgeBindings
+SEM RuleDecl | Judge     lhs.gathJudgeBindings = Map.singleton @nm @bindings.transformed
+
+ATTR Bindings Binding [ | | transformed USE {++} {[]} : {C.Bindings} ]
+ATTR Exprs Expr [ | | transformed : {C.Expr} ]
+
+SEM Expr | String  lhs.transformed = C.Expr_String @pos @str
+SEM Expr | Int     lhs.transformed = C.Expr_Int @pos @n
+SEM Expr | Ident   lhs.transformed = C.Expr_Ident @nm
+SEM Expr | Alt     lhs.transformed = C.Expr_Alt @pos @nm @bindings.transformed @lhs.expTp
+
+SEM Exprs
+  | Cons  lhs.transformed = if null @hd.gathTypeErrs
+                            then @hd.transformed
+                            else @tl.transformed
+  | Nil   lhs.transformed = error "there should always be one expr after typing"
+
+SEM Binding | Assign  lhs.transformed = [ C.Binding_Assign @nm @exprs.transformed ]
+
+
+--
+-- Collect relation holes
+--
+
+SEM Decls Decl       [ | | gathRelHoles USE {`merge`} {Map.empty} : {Map Identifier (Map Identifier [Identifier])} ]
+SEM RelDecls RelDecl [ | | gathRelHoles USE {`merge`} {Map.empty} : {Map Identifier [Identifier]} ]
+
+SEM Decl | Relation  lhs.gathRelHoles = Map.singleton @nm @decls.gathRelHoles
+SEM RelDecl | Hole   lhs.gathRelHoles = Map.singleton @nm [@tp]
+
+
+--
+-- Collect relation formats
+--
+
+SEM Decls Decl       [ | | gathRelFormats USE {`merge`} {Map.empty} : {Map Identifier [Format]} ]
+SEM RelDecls RelDecl [ | | gathRelFormats USE {++} {[]} : {[Format]} ]
+
+SEM Decl | Relation   lhs.gathRelFormats = Map.singleton @nm @decls.gathRelFormats
+SEM RelDecl | Format  lhs.gathRelFormats = [@format.self]
+
+
+--
+-- Collect the judgement types
+--
+
+ATTR Decls Decl         [ | | gathJudgeTypes USE {`merge`} {Map.empty} : {Map Identifier (Map Identifier (Map Identifier [Identifier]))} ]
+ATTR RelDecls RelDecl   [ | | gathJudgeTypes USE {`merge`} {Map.empty} : {Map Identifier (Map Identifier [Identifier])} ]
+ATTR RuleDecls RuleDecl [ | | gathJudgeTypes USE {`merge`} {Map.empty} : {Map Identifier [Identifier]} ]
+
+SEM Decl     | Relation  lhs.gathJudgeTypes = Map.singleton @nm @decls.gathJudgeTypes
+SEM RelDecl  | Rule      lhs.gathJudgeTypes = Map.singleton @nm @decls.gathJudgeTypes
+SEM RuleDecl | Judge     lhs.gathJudgeTypes = Map.singleton @nm [@kind.judgeTp]
+
+
+--
+-- Collect names of rule conclusions
+--
+
+ATTR Decls Decl         [ | | gathRuleConcs USE {`merge`} {Map.empty} : {Map Identifier (Map Identifier [Identifier])} ]
+ATTR RelDecls RelDecl   [ | | gathRuleConcs USE {`merge`} {Map.empty} : {Map Identifier [Identifier]} ]
+ATTR RuleDecls RuleDecl [ | | gathRuleConcs USE {++} {[]} : {[Identifier]} ]
+
+SEM Decl     | Relation  lhs.gathRuleConcs = Map.singleton @nm @decls.gathRuleConcs
+SEM RelDecl  | Rule      lhs.gathRuleConcs = Map.singleton @nm @decls.gathRuleConcs
+SEM RuleDecl | Judge     lhs.gathRuleConcs = if @kind.isConclusion
+                                             then [@nm]
+                                             else []
+
+
+--
+-- Collect the bindings of judgements
+--
+
+ATTR Decls Decl         [ | | gathIdentFormats USE {`merge`} {Map.empty} : {Map Identifier (Map Identifier (Map Identifier [Format]))} ]
+ATTR RelDecls RelDecl   [ | | gathIdentFormats USE {`merge`} {Map.empty} : {Map Identifier (Map Identifier [Format])} ]
+ATTR RuleDecls RuleDecl [ | | gathIdentFormats USE {`merge`} {Map.empty} : {Map Identifier [Format]} ]
+
+SEM Decl     | Relation  lhs.gathIdentFormats = Map.singleton @nm @decls.gathIdentFormats
+SEM RelDecl  | Rule      lhs.gathIdentFormats = Map.singleton @nm @decls.gathIdentFormats
+SEM RuleDecl | Ident     lhs.gathIdentFormats = Map.singleton @nm [@format.self]
+
+
+{
+fetch :: (Ord k, Show k) => k -> Map k a -> a
+fetch nm = Map.findWithDefault (error ("Not in map: " ++ show nm)) nm
+}
+

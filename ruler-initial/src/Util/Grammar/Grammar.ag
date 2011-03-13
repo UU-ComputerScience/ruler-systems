@@ -1,0 +1,92 @@
+MODULE {Util.Grammar.Grammar} {} {}
+
+INCLUDE "Util/Grammar/AST.ag"
+
+PRAGMA gendatas
+
+imports
+{
+import Data.List(intersperse)
+import Data.Map(Map)
+import qualified Data.Map as Map
+
+import Util.Common
+import Util.Parsing.Token
+}
+
+
+{
+instance Show NtIdent where
+  show (NtIdent_Ident nm level ss)
+    = concat $ intersperse "_" (shownm : map show ss)
+    where shownm = show nm ++ "<" ++ show level ++ ">"
+
+
+instance Show GrammarRoot where
+  show (GrammarRoot_Root g) = unlines [ showNonterm nt prods | (nt,prods) <- Map.assocs g ]
+
+showNonterm :: NtIdent -> Productions -> String
+showNonterm nt prods
+  = unlines (show nt : map show prods)
+
+instance Show Production where
+  show (Production_Prod sem symbols)
+    = " |  " ++ showsyms symbols ++ "  {" ++ show sem ++ "}"
+    where 
+      showsyms [] = "<epsilon>"
+      showsyms ss = unwords (map show ss)
+
+instance Show Symbol where
+  show (Symbol_Term tk)     = show tk
+  show (Symbol_Nonterm ref) = show ref
+  show Symbol_PrimString    = "<string>"
+  show Symbol_PrimInt       = "<int>"
+  show Symbol_PrimIdent     = "<ident>"
+  show Symbol_Root          = "<root>"
+
+instance Show ProdSem where
+  show sem
+    = case sem of
+        ProdSem_Identity       -> "id"
+        ProdSem_Parentheses    -> "(...)"
+        ProdSem_Name nm fields -> show nm ++ show [ maybe (identFromString "_") id fn | fn <- fields ]
+        ProdSem_Lam sem        -> "\\l > " ++ show sem
+        ProdSem_App sem        -> "(" ++ show sem ++ ") l ..."
+
+showGrammar :: Grammar -> String
+showGrammar = show . GrammarRoot_Root
+
+
+instance Show ParseTree where
+  show (ParseTree_Alternative _ nm children)
+    = unlines (("Alt " ++ show nm) : concat [map ("  " ++) ((show n ++ " = ") : lines (show c)) | (n,c) <- Map.assocs children]) 
+  show (ParseTree_Terminal nm)
+    = show nm
+  show (ParseTree_PrimString _ str)
+    = show str
+  show (ParseTree_PrimInt _ n)
+    = show n
+  show (ParseTree_PrimIdent nm)
+    = show nm
+  show (ParseTree_Amb ts)
+    = unlines $ zipWith (\n t -> show n ++ ": " ++ show t) [1..] ts
+  show (ParseTree_Parentheses t)
+    = show t
+
+getPosFromTree :: ParseTree -> Pos
+getPosFromTree t
+  = case t of
+      ParseTree_Alternative pos _ _ -> pos
+      ParseTree_Terminal nm         -> identPos nm
+      ParseTree_PrimString pos _    -> pos
+      ParseTree_PrimInt pos _       -> pos
+      ParseTree_PrimIdent nm        -> identPos nm
+      ParseTree_Amb children        -> getPosFromTree (head children)
+      ParseTree_Parentheses tree    -> getPosFromTree tree
+
+
+addSuf :: NtIdent -> Symbol -> NtIdent
+addSuf (NtIdent_Ident nt lvl ss) s
+  = NtIdent_Ident nt lvl (s:ss)
+}
+

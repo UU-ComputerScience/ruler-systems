@@ -1,0 +1,264 @@
+The use case for the description that follows are type rules that contain vectors of meta variables.
+In the remainder of the text I'll write variable instead of meta variable. Also note that a static check in this case means a static check by ruler. And runtime means running the generated compiler.
+
+The use case raises the following issues:
+* How to overlay these vectors of variables on top of the real abstract syntax.
+* How to represent a variables that ranges over such a list.
+* How to deal with judgements containing such variables
+* How to statically ensure that lists are of the right length and properly overlaid on abstract syntax.
+
+As a concrete example, I'll use a typing rule for function application with more than one argument. This rule is visualized as:
+
+  gam :- f : tau.1 -> .. tau.i .. -> tau.n -> tau
+  gam :- a.i : tau.i
+  ----------------------------------------------- (App)
+  gam :- f a.1 .. a.i .. a.n : tau
+
+For a typing relation of the form: Gam :- Expr : Ty
+
+How to write this down in a sensible way (i.e. aspect wise, extensible, being able to use all kinds of boilerplate removal such as copy rules later), I'm not sure about that yet, so I just take something that looks like the existing ruler notation at the moment and improve it as we go along:
+
+  relation Expr
+    forall e   : Expr
+    forall env : Gam
+    forall ty  : Ty
+
+    sem App
+      exist tys : Vec (n+1) Ty = [ty.1 .. ty.i .. ty.n, ty] overlay right with Ty.App (Ty.App tyConArr this) cont)
+      exist as  : Vec n Expr   = [a.1 .. a.i .. a.n]
+
+      pre
+        judge fun : Expr
+          eqn e   = f
+          eqn env = env
+          eqn ty  = tys
+
+        judge arg : Expr
+          eqn e   = a.i
+          eqn env = env
+          eqn ty  = ty.i
+
+      post
+        judge res : Expr
+          eqn e   = App f as
+          eqn env = env
+          eqn ty  = ty
+
+Not all variables are declared. For example, 'i' is an iterator variable, and 'n' is an index. 'ty' occurs in a list. It can be a sublist or a single element. The type of 'ty' disambiguates.
+
+Variable 'i' is used as an iterator here. It ranges over many values, in contrast to '1' and 'n'.
+From an operational perspective: we need to define what happens if the 'n' in 'tys' does not match the 'n' in 'as'. Is the rule then just not applicable, or do we want to give some runtime error message in that case? In that case, we also need to define what sufficient reason is that such a rule must be applicable (for example, if we know that the rules are syntax directed, then we know that a rule must be applicable if we observed the right constructor).
+
+The structure of data types is needed for pattern matches.
+
+Since 'i' is an index, the judgement 'arg' is not a single judgement, but a judgement for each combination of the indices involved.
+
+Desugaring away these indices gives us:
+
+  relation Expr
+    forall e   : Expr
+    forall env : Gam
+    forall ty  : Ty
+
+    sem App
+      pre
+        judge fun : Expr
+          eqn e   = f
+          eqn env = env
+          eqn ty  = [ty1n, ty] overlay right with Ty.App (Ty.App tyConArr this) cont)
+
+        judge args : Exprs
+          eqn es  = as
+          eqn env = env
+          eqn tys = ty1n
+    
+      post
+        judge res : Expr
+          eqn e   = App f as
+          eqn env = env
+          eqn ty  = ty
+
+  relation Exprs
+    forall e   : Expr
+    forall env : Gam
+    forall ty  : Ty
+    
+    sem Cons
+      pre
+        judge expr : Expr
+          eqn e   = e
+          eqn env = env
+          eqn ty  = ty
+        
+        judge exprs : Exprs
+          eqn es  = es
+          eqn env = env
+          eqn tys = tys
+
+      post
+        judge res : Exprs
+          eqn es  = (e : es)
+          eqn env = env
+          eqn tys = (ty : tys)
+
+    sem Nil
+      post
+        judge res : Exprs
+          eqn es  = []
+          eqn env = env
+          eqn tys = []
+
+Note that this translation implicitly demands that 'tys' and 'es' should be of the same size.
+
+Now a bit of abstraction. Suppose we have some form of higher-order type rules. Then we could lift type rules to all kinds of more general structures.
+
+  relation List
+    forall xs : [t]
+    forall t : type
+    forall r : relation
+      hole x : t
+
+    sem Cons
+      pre
+        judge elem : r
+          eqn x = x
+        
+        judge rest : List
+          eqn t  = t
+          eqn r  = r
+          eqn xs = xs
+    
+      post
+        judge res : List
+          eqn t  = t
+          eqn r  = r
+          eqn xs = (x : xs)
+
+    sem Nil
+      post
+        judge res : List
+          eqn t  = t
+          eqn r  = r
+          eqn xs = []
+
+  relation Expr
+    forall e   : Expr
+    forall env : Gam
+    forall ty  : Ty
+
+    sem App
+      pre
+        judge fun : Expr
+          eqn e   = f
+          eqn env = env
+          eqn ty  = [ty1n, ty] overlay right with Ty.App (Ty.App tyConArr this) cont)
+
+        judge args : List
+          eqn xs = as
+          eqn t = Expr
+          eqn r = relation
+                   ( forall x : Expr
+
+                     ref Expr
+                       eqn e   = x
+                       eqn env = env
+                       eqn ty  = ???
+                   )
+
+      post
+        judge res : Expr
+          eqn e   = App f as
+          eqn env = env
+          eqn ty  = ty
+
+The big issue with this formulation is: the relation passed to a relation like List may have more attributes than List requires. How to define these attributes?
+
+One way is to define this at the place of use, but this requires knowledge of the internals of a relation, and thus destroys abstraction:
+
+  relation Expr
+    forall e   : Expr
+    forall env : Gam
+    forall ty  : Ty
+
+    sem App
+      pre
+        judge args : List
+          extend ( forall tys : [Ty]
+
+                   sem Cons
+                     pre
+                       judge elem
+                         eqn ty = ty
+
+                       judge rest
+                         eqn tys = tys
+
+                     post
+                       judge res
+                         eqn tys = (ty : tys)
+
+                   sem Nil
+                     post
+                       judge res : List
+                         eqn tys = []
+                 )
+
+          eqn xs = as
+          eqn t = Expr
+          eqn r = relation
+                   ( forall x : Expr
+                     forall ty : Ty
+
+                     ref Expr
+                       eqn e   = x
+                       eqn env = env
+                       eqn ty  = ty
+                   )
+
+So, what we want instead is to define 'ty' or 'tys' without the need to refer to specific rules of List.
+What we essentially express here is: treat 'tys' in the same way as 'xs'.
+
+Different idea: define networks of equations and use that as an in
+
+attribute flow and use that as an interface, and attach attributes to a flow.
+
+  relation List
+    forall xs : [t]
+    forall t : type
+    forall r : relation
+      hole x : t
+    
+    sem Cons
+      flows
+        flow thread
+          >- res >- elem
+          
+          
+        flow collect
+      judgements
+        pre
+          judge elem : r
+            eqn x = x
+        
+          judge rest : List
+            eqn t  = t
+            eqn r  = r
+            eqn xs = xs
+    
+        post
+          judge res : List
+            eqn t  = t
+            eqn r  = r
+            eqn xs = (x : xs)
+
+    sem Nil
+      flows
+        flow collect >- []
+        flow thread >-
+      judgements
+        post
+          judge res : List
+            eqn t  = t
+            eqn r  = r
+            eqn xs = []
+

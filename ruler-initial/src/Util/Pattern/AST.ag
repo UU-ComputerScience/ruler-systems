@@ -1,0 +1,21 @@
+--
+-- Abstract syntax for patterns
+--
+
+DATA PatternInfo
+  | Info
+      fixity   : {Fixity}
+      priority : {Int}
+      pat      : Pattern
+  | PatOnly
+      pat      : Pattern
+
+DATA Pattern
+  | Identifier
+      nm    : {Identifier}
+  | Keyword
+      nm    : {Identifier}
+  | Seq
+      left  : Pattern
+      right : Pattern
+

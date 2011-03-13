@@ -1,0 +1,83 @@
+--
+-- AST for grammars with priorities
+--
+
+DATA NtIdent
+  | Ident
+      nm       : {Identifier}
+      level    : {Int}
+      suffixes : {[Symbol]}
+
+DERIVING NtIdent : Eq, Ord
+
+
+DATA GrammarRoot
+  | Root
+      gram : Grammar
+
+TYPE Grammar = MAP {NtIdent} Productions
+
+TYPE Productions = [Production]
+
+DATA Production
+  | Prod
+      sem     : {ProdSem}
+      symbols : Symbols
+
+TYPE ProdName = MAYBE {Identifier}
+
+TYPE Symbols = [Symbol]
+
+DATA Symbol
+  | Term
+      token : {String}
+  | Nonterm
+      ref   : {NtIdent}
+  | PrimString
+  | PrimInt
+  | PrimIdent
+  | Root
+
+DERIVING Symbol : Eq, Ord
+
+DATA ProdSem
+  | Identity
+  | Parentheses
+  | Name
+      nm     : {Identifier}
+      fields : {[Maybe Identifier]}
+  | Lam
+      sem : ProdSem
+  | App
+      sem : ProdSem
+
+
+DATA ParseResult
+  | Tree
+      tree : {ParseTree}
+  | Function
+      fun  : {[ParseResult] -> ParseResult}
+
+DATA ParseTree
+  | Alternative
+      pos      : {Pos}
+      alt      : {Identifier}
+      children : ParseForest
+  | Terminal
+      nm       : {Identifier}
+  | PrimString
+      pos      : {Pos}
+      str      : {String}
+  | PrimInt
+      pos      : {Pos}
+      int      : {Int}
+  | PrimIdent
+      nm       : {Identifier}
+  | Amb
+      children : ParseTrees
+  | Parentheses
+      tree     : ParseTree
+
+TYPE ParseForest = MAP {Identifier} ParseTree
+TYPE ParseTrees = [ParseTree]
+

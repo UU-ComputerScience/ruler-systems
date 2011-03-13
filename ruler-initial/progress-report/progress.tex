@@ -1,0 +1,85 @@
+\documentclass[a4paper]{article}
+
+\title{Implementation Strategies for Type Rules\\Progress Report}
+\author{Arie Middelkoop}
+
+\usepackage{a4}
+
+\makeatletter
+    \def\thebibliography#1{\section*{Publications\@mkboth
+      {PUBLICATIONS}{PUBLICATIONS}}\list
+      {[\arabic{enumi}]}{\settowidth\labelwidth{[#1]}\leftmargin\labelwidth
+	\advance\leftmargin\labelsep
+	\usecounter{enumi}}
+	\def\newblock{\hskip .11em plus .33em minus .07em}
+	\sloppy\clubpenalty4000\widowpenalty4000
+	\sfcode`\.=1000\relax}
+    \makeatother
+
+
+\begin{document}
+
+\maketitle
+
+\paragraph{Overview.}
+
+Type rules for programming languages are usually given as a formal
+specification.  Since these specifications often include
+non-algorithmic formulations, these rules cannot be implemented
+straightforwardly. For example, this would require \emph{guessing} of
+types or the shape of the inference tree at intermediate steps. 
+
+As a consequence, an implementation of a type checking or inference
+algorithm will not resemble the original type rules at all.
+Furthermore, given an implementation, it is unclear whether it matches
+the type rules, and it might also be overly complicated, inefficient
+and not adaptable to future changes.
+
+To remedy these shortcomings, we propose \emph{implementation
+  strategies} for type rules. A strategy is a transformation on type
+rules which removes the non-algorithmic aspects from the rules. The
+resulting type rules are then trivial to implement: either by mapping
+them directly onto attribute grammars with Haskell support code, or
+using other implementation mechanisms.
+
+\paragraph{Current State.}
+
+To explore the design space, we investigated different topics related
+to formal type systems and their algorithmic counterparts:
+abstractions for type rules (e.g. syntax extensions, generic
+programming, meta programming), type systems for type rules and formal
+specifications.
+ 
+Due to the complexity of the topic, we then focused on implementation
+mechanisms for type rules. More specifically, we used the Essential
+Haskell Compiler as a use case for experimenting with the Utrecht
+University Attribute Grammar system. We investigated some syntax
+extensions and support for meta programming and debugging. Moreover, a
+lot of attention was devoted to efficiency.
+
+More recently, we substantiated the concept of a strategy. We have
+informally defined a Damas-Milner strategy, and two extensions based
+on it: one for the HML type system (Leijen 09), and one for the FPH
+type system (Vytiniotis 08). Both type systems deal with first-class
+polymorphism, and provide interesting challenges due to many non-algorithmic
+aspects in their type rules.
+
+\paragraph{Outlook.}
+Based on our results accomplished so far, we are currently formalizing
+the strategies mentioned above, in order to make their semantics precise. Then
+we can investigate properties, such as preservation of typing and
+applicability. In addition, a tool in which type rules can be
+modeled is under development. Strategies, however, are currently just
+Haskell functions transforming the AST of the type rules. Our main
+focus will be on the design of a language to describe strategies with. 
+
+Furthermore, we are developing attribute grammar-based prototype
+implementations of the HML and FPH type systems, which help us in the
+formalization of the corresponding strategies.
+
+\nocite{ariemtfp08, hage07generic, dolstra08report}
+
+\bibliography{progress}
+\bibliographystyle{plain}
+
+\end{document}

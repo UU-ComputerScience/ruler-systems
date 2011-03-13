@@ -1,0 +1,16 @@
+MODULE {Util.Error.Err} {} {}
+
+PRAGMA gendatas
+
+INCLUDE "Util/Error/AST.ag"
+
+imports
+{
+import Data.Sequence(Seq)
+
+import Util.Common
+import Util.Parsing.Parser
+import Util.Parsing.Support
+import Util.Parsing.Token
+}
+

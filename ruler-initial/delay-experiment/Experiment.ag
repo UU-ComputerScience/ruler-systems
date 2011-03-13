@@ -1,0 +1,431 @@
+module {Main} {} {}
+
+-- FIXME: Type variables should be in two fashions: rigid and non-rigid.
+--        Otherwise we cannot enforce that there will be universal
+--        quantification over a non-variable.
+--        Sidenote: expressed by the type rules by a syntactical constraint.
+--        Thus this has to be encoded in the syntax. Hence, rigid variables.
+
+imports
+{
+import qualified Data.Map as Map
+import Data.Map(Map)
+import qualified Data.Set as Set
+import Data.Set(Set)
+import Data.Maybe
+import qualified Data.IntMap as IntMap
+import Data.IntMap(IntMap)
+import Data.List
+}
+
+
+deriving * : Show
+
+
+--
+-- Syntax
+--
+
+data ExprRoot
+  | Root
+      body :: Expr
+
+data Expr
+  | Var
+      x :: {String}
+  | App
+      f :: Expr
+      a :: Expr
+  | Lam1
+      x :: {String}
+      e :: Expr
+  | Lam2
+      x  :: {String}
+      tp :: Type
+      e  :: Expr
+
+type Types = [Type]
+data Type
+  | Var
+      nm   :: {String}
+  | Univ
+      vars :: {[String]}
+      body :: Type
+  | Con
+      nm   :: {String}
+      tps  :: Types
+
+
+--
+-- Inferencing
+--
+
+type Tys = [Ty]
+data Ty
+  | Con
+      nm   :: {String}
+      args :: Tys
+  | Univ
+      idents :: {Idents}
+      body   :: Ty
+  | Var
+      ident :: Ident
+
+data ExprDeriv
+  | Var
+      x :: {String}
+  | App
+      f :: ExprDeriv
+      a :: ExprDeriv
+  | Lam1
+      x :: {String}
+      e :: ExprDeriv
+  | Lam2
+      x  :: {String}
+      ty :: {Ty}
+      e  :: ExprDeriv
+  | Inst
+      e :: ExprDeriv
+  | Gen
+      e :: ExprDeriv
+  | Fixate
+      e :: ExprDeriv
+
+{
+type Idents = [Ident]
+type Ident = Delay
+}
+
+--
+-- Construct derivations for Expr
+--
+
+wrapper ExprRoot
+
+{
+mkExprDeriv :: Subst -> Expr -> (ExprDeriv, Subst)
+mkExprDeriv subst expr
+  = let inh = Inh_ExprRoot { s_Inh_ExprRoot = subst }
+        sem = sem_ExprRoot (ExprRoot_Root expr)
+        syn = wrap_ExprRoot sem inh
+     in (deriv_Syn_ExprRoot syn, s_Syn_ExprRoot syn)
+}
+
+attr ExprRoot Expr
+  inh s :: {Subst}
+  syn s :: {Subst}
+  syn deriv :: {ExprDeriv}
+
+sem ExprRoot
+  | Root
+      lhs.deriv = ExprDeriv_Fixate @body.deriv
+
+sem Expr
+  | Var
+      lhs.deriv = ExprDeriv_Inst (ExprDeriv_Var @x)
+  | App
+      lhs.deriv = ExprDeriv_App @f.deriv (ExprDeriv_Gen @a.deriv)
+  | Lam1
+      lhs.deriv = ExprDeriv_Lam1 @x @e.deriv
+  | Lam2
+      tp.m      = Map.empty
+      lhs.deriv = ExprDeriv_Lam2 @x @tp.ty @e.deriv
+
+attr Type Types
+  inh m :: {Map String Ident}
+  syn m :: {Map String Ident}
+  inh s :: {Subst}
+  syn s :: {Subst}
+attr Type
+  syn ty :: {Ty}
+attr Types
+  syn tys :: {Tys}
+
+sem Type
+  | Var
+      (loc.ident, lhs.s) =
+        case Map.lookup @nm @lhs.m of
+          Just ident -> (ident, @lhs.s)
+          Nothing    -> fresh @lhs.s
+      lhs.m = Map.insert @nm @loc.ident @lhs.m
+      lhs.ty = Ty_Var @loc.ident
+  | Univ
+      lhs.ty = Ty_Univ (catMaybes $ map (\x -> Map.lookup x @body.m) @vars) @body.ty
+  | Con
+      lhs.ty = Ty_Con @nm @tps.tys
+
+sem Types
+  | Cons  lhs.tys = @hd.ty : @tl.tys
+  | Nil   lhs.tys = []
+
+
+--
+-- Substitution
+--
+
+{
+data Subst = Subst !Int (IntMap Value)
+  deriving Show
+
+data Value
+  = ValType Ty
+  | ValDelay Delay
+  | ValDelayed DelayedSem
+
+instance Show Value where
+  show (ValType ty)   = show ty
+  show (ValDelay d)   = show d
+  show (ValDelayed _) = show "<<delayed>>" 
+
+emptySubst :: Subst
+emptySubst = Subst 0 IntMap.empty
+
+singleSubst :: Delay -> Value -> Subst
+singleSubst (Delay i) v = Subst 0 (IntMap.singleton i v)
+
+class ApplySubst a where
+  appSubst :: Subst -> a -> a
+
+instance ApplySubst Subst where
+  appSubst s1@(Subst i1 m1) (Subst i2 m2)
+    = Subst (i1 `max` i2) (IntMap.union m1 m2')
+    where m2' = IntMap.map (appSubst s1) m2
+
+instance ApplySubst Value where
+  appSubst s (ValType ty) = ValType $ appSubst s ty
+  appSubst s@(Subst _ m) v@(ValDelay (Delay i))
+    = case IntMap.lookup i m of
+        Just (ValDelay d') -> ValDelay d'
+        Just (ValType ty)  -> ValType ty
+        _                  -> v
+  appSubst _ d = d
+
+instance ApplySubst Delay where
+  appSubst s@(Subst _ m) d@(Delay i)
+    = case IntMap.lookup i m of
+        Just (ValDelay d') -> d'
+        _                  -> d
+
+instance ApplySubst Ty where
+  appSubst s@(Subst _ m) ty
+    = case ty of
+        Ty_Con nm args   -> Ty_Con nm (map (appSubst s) args)
+        Ty_Univ ids body -> Ty_Univ (map (appSubst s) ids) (appSubst s body)
+        Ty_Var (Delay i) -> case IntMap.lookup i m of
+                              Just (ValType ty') -> ty'
+                              Just (ValDelay d)  -> Ty_Var d
+                              _                  -> ty
+}
+
+
+--
+-- Delay
+--
+
+{
+data Delay = Delay Int
+  deriving (Show, Eq, Ord)
+
+type DelayedSem = Subst -> Ty -> (Ty, Subst)
+type ConditionalDelayedSem = Subst -> Ty -> Maybe (Ty, Subst)
+
+fresh :: Subst -> (Delay, Subst)
+fresh = delay (\s ty -> (ty, s))
+
+delay :: DelayedSem -> Subst -> (Delay, Subst)
+delay f (Subst n m)
+  = (Delay n', Subst n' m')
+  where
+    n' = n + 1
+    m' = IntMap.insert n' (ValDelayed f) m
+
+force :: Delay -> Ty -> Subst -> (Ty, Subst)
+force d@(Delay i) ty s@(Subst _ m)
+  = case IntMap.lookup i m of
+      Just (ValDelayed f) -> let (ty', s') = f s (s `appSubst` ty)
+                                 ty'' = s' `appSubst` ty'
+                             in (ty'', singleSubst d (ValType ty'') `appSubst` s')
+      Just (ValType ty')  -> (ty', s)
+      _ -> error "force: delay-indirection not in substitution"
+
+semantics :: Delay -> Subst -> DelayedSem
+semantics (Delay i) (Subst _ m)
+  = case IntMap.findWithDefault (error "semantics: delay not in subst") i m of
+      ValDelayed f -> f
+      _            -> error "semantics: substitution target mismatch"
+
+compose :: Delay -> Delay -> Subst -> Subst
+compose d1 d2 s
+  = (singleSubst d1 v `appSubst` singleSubst d2 v) `appSubst` s'
+  where
+    f1 = semantics d1 s
+    f2 = semantics d2 s
+    f s t = let (t', s') = f2 s t
+             in f1 s' t' 
+    (d, s') = delay f s
+    v = ValDelay d
+
+fixate :: Ty -> Subst -> (Ty, Subst)
+fixate t s
+  = let s' = foldr f s (delays t)
+        f d s = case s `appSubst` (Ty_Var d) of
+                  Ty_Var d' -> let (d'',s') = fresh s
+                               in snd $ force d' (Ty_Var d'') s'
+                  _         -> s
+    in (s' `appSubst` t, s')
+
+
+multi :: [ConditionalDelayedSem] -> DelayedSem
+multi sems s t
+  = case catMaybes $ map (\f -> f s t) sems of
+      []    -> error "no matching conditional semantics"
+      (x:_) -> x
+
+delays :: Ty -> [Delay]
+delays t
+  = case t of
+      Ty_Con _ args -> concatMap delays args
+      Ty_Univ idents body -> nub (delays body) \\ idents 
+      Ty_Var ident        -> [ident]
+}
+
+
+--
+-- Unification
+--
+
+{
+unify :: Subst -> Ty -> Ty -> Subst
+unify s (Ty_Var ident1) (Ty_Var ident2) = compose ident1 ident2 s
+unify s (Ty_Var ident) ty = discover s ident ty
+unify s ty (Ty_Var ident) = discover s ident ty
+unify s (Ty_Con nm1 tps1) (Ty_Con nm2 tps2)
+  | nm1 /= nm2 = error "unify: type constructor clash"
+  | length tps1 /= length tps2 = error "unify: kind error"
+  | otherwise = foldr (\(t1,t2) s' -> unify s' (s' `appSubst` t1) (s' `appSubst` t2)) s $ zip tps1 tps2
+unify s (Ty_Univ vars1 tp1) (Ty_Univ vars2 tp2)
+  | length vars1 == length vars2 =
+      let s' = foldr ($) s (zipWith compose vars1 vars2)
+       in unify s' (s `appSubst` tp1) (s `appSubst` tp2)
+unify s _ _ = error "unify: one of the types is not general enough"
+
+discover :: Subst -> Delay -> Ty -> Subst
+discover s d ty
+  | d `elem` delays ty = error "discover: occur check"
+  | otherwise          = snd $ force d ty s
+}
+
+--
+-- Type rule implementation
+--
+
+attr ExprDeriv
+  inh s :: Subst
+  syn s :: Subst
+  inh g :: {Map String Ty}
+  syn ty :: Ty
+
+sem ExprDeriv
+  | Var
+      lhs.ty = Map.findWithDefault (error "var not in environment") @x @lhs.g
+  | App
+      a.s = @f.s
+      (loc.d, loc.s1) = fresh @a.s
+      loc.alpha = Ty_Var @loc.d
+      
+      loc.s' = unify @loc.s1 (@a.s `appSubst` @f.ty) (mkArr @a.ty @loc.alpha)
+
+      lhs.s  = @loc.s'
+      lhs.ty = @loc.s' `appSubst` @loc.alpha
+  | Lam1
+      (loc.d, e.s) = fresh @lhs.s
+      loc.alpha = Ty_Var @loc.d
+      e.g = Map.insert @x @loc.alpha @lhs.g
+      lhs.ty = mkArr (@e.s `appSubst` @loc.alpha) @e.ty
+  | Lam2
+      e.g = Map.insert @x @ty @lhs.g
+      lhs.ty = mkArr (@e.s `appSubst` @ty) @e.ty
+  | Inst
+      (lhs.ty, lhs.s)
+        = case @e.ty of
+            {-
+            Ty_Var _ -> let (d, s') = delay (multi [fInst,fNoInst]) @e.s
+                            fInst s t = let t' = s `appSubst` @e.ty
+                                        in case t' of
+                                             Ty_Univ _ _ -> let (t'', s') = instantiate t' s
+                                                                s'' = unify s' t'' (s' `appSubst` t)
+                                                            in Just (s'' `appSubst` t, s'')
+                                             _           -> Nothing
+                            fNoInst s t = let s' = unify s t (s `appSubst` @e.ty)
+                                          in Just (s' `appSubst` @e.ty, s')
+                        in (Ty_Var d, s')
+            -}
+            Ty_Univ _ _ -> instantiate @e.ty @e.s
+            _           -> (@e.ty, @e.s)
+  | Gen
+      (lhs.ty, lhs.s) = let (d, s') = delay (multi [fGen,fMono]) @e.s
+                            fGen s t@(Ty_Univ ids t1)
+                              = let s1 = unify s (s `appSubst` @e.ty) t1
+                                    t2 = s1 `appSubst` t1
+                                    ids2 = map (appSubst s1) ids
+                                    t3 = Ty_Univ ids2 t2
+                                    s2 = unify s1 (s1 `appSubst` t) (t3)
+                                in Just (s2 `appSubst` t3, s2)
+                            fGen s _ = Nothing
+                            fMono s t = case s `appSubst` @e.ty of
+                                          Ty_Var d -> Just $ force d t s
+                                          ty'      -> let s' = unify s t ty'
+                                                      in Just (s' `appSubst` t, s')
+                         in (Ty_Var d, s')
+  | Fixate
+      (loc.ty, lhs.s) = fixate @e.ty @e.s
+      lhs.ty = let ds = nub $ delays @loc.ty
+                in if null ds
+                   then @loc.ty
+                   else Ty_Univ ds @loc.ty
+
+{
+mkArr :: Ty -> Ty -> Ty
+mkArr t1 t2 = Ty_Con "->" [t1, t2]
+
+instantiate :: Ty -> Subst -> (Ty, Subst)
+instantiate t@(Ty_Univ idents ty) s
+  = (rename ty, s')
+  where
+    (m, s') = foldr (\d (m,s) -> let (d',s') = fresh s in (Map.insert d d' m, s')) (Map.empty, s) idents
+
+    rename (Ty_Con nm args)   = Ty_Con nm (map rename args)
+    rename (Ty_Univ ids body) = Ty_Univ ids (rename body)
+    rename (Ty_Var ident)     = case Map.lookup ident m of
+                                  Just d  -> Ty_Var d
+                                  Nothing -> Ty_Var ident
+}
+
+
+wrapper ExprDeriv
+
+{
+inferDeriv :: Subst -> ExprDeriv -> (Ty, Subst)
+inferDeriv s deriv
+  = (ty_Syn_ExprDeriv syn, s_Syn_ExprDeriv syn)
+  where
+    inh = Inh_ExprDeriv { s_Inh_ExprDeriv = s, g_Inh_ExprDeriv = Map.empty }
+    sem = sem_ExprDeriv deriv
+    syn = wrap_ExprDeriv sem inh
+
+infer :: Expr -> Ty
+infer e = tp
+  where
+    (tp, _) = inferDeriv s deriv
+    (deriv, s) = mkExprDeriv emptySubst e
+
+main :: IO ()
+main = let e1 = Expr_Lam2 "c" (Type_Con "Int" []) e2
+           e2 = Expr_App e3 e4
+           e3 = Expr_Lam2 "f" (Type_Univ ["a"] (Type_Con "->" [Type_Var "a", Type_Var "a"])) e31
+           e31 = Expr_App (Expr_Var "f") (Expr_Var "c")
+           e4 = Expr_Lam1 "x" (Expr_Var "x")
+           ty = infer e1
+        in putStrLn (show ty)
+}
+

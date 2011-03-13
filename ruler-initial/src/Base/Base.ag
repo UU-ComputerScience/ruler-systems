@@ -1,0 +1,15 @@
+MODULE {Base.Base} {} {}
+
+PRAGMA gendatas
+
+INCLUDE "Base/AST.ag"
+INCLUDE "Util/Expr/AST.ag"
+
+imports
+{
+import Util.Common
+import Util.Format.Format
+import Util.Pattern.Pattern
+import Util.Parsing.Token
+}
+

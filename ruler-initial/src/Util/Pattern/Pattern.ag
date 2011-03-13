@@ -1,0 +1,147 @@
+MODULE {Util.Pattern.Pattern} {} {}
+
+PRAGMA gendatas
+
+INCLUDE "Util/Pattern/AST.ag"
+
+imports
+{
+import Data.Maybe
+import qualified Data.IntSet as IntSet
+import Data.IntSet(IntSet)
+import qualified Data.Set as Set
+import Data.Set(Set)
+import qualified Data.Map as Map
+import Data.Map(Map)
+import Data.List(nub)
+
+import Util.Common
+import Util.Grammar.Grammar
+import Util.Grammar.LeftCorner
+import Util.Grammar.LeftFactor
+import Util.Grammar.Compile
+import Util.Parsing.Parser
+import Util.Parsing.Support
+import Util.Parsing.Token
+}
+
+
+--
+-- Compile patterns to parsers
+--
+-- Requires for each pattern a nonterminal name, a name for the alternative, an environment mapping names inside the pattern to types, and the pattern itself.
+--
+
+{
+type PatternsEnv = [(Identifier, Identifier, Map Identifier Identifier, [PatternInfo])]
+
+patternsToGrammar :: [Identifier] -> PatternsEnv -> Grammar
+patternsToGrammar atoms pats
+  = gramOpt
+  where
+    gramOpt  = leftfactor gramSafe
+    gramSafe = leftcorner gramBase
+    gramBase = foldr prods initial pats
+
+    availPrios = Map.fromListWith IntSet.union [ (nt, IntSet.singleton n) | (nt, _, _, infos) <- pats, (PatternInfo_Info _ n _) <- infos ]
+
+    basePrio nt = 1 + IntSet.findMax (Map.findWithDefault (IntSet.singleton 0) nt availPrios)
+    rootPrio nt = IntSet.findMin (Map.findWithDefault (IntSet.singleton 1) nt availPrios)
+
+    higherPrio nt prio
+      = let s = snd $ IntSet.split prio $ Map.findWithDefault (IntSet.singleton prio) nt availPrios
+         in if IntSet.null s then basePrio nt else IntSet.findMin s
+
+    nts = nub [ nt | (nt, _, _, _) <- pats ]
+
+    initial = Map.fromListWith (++)
+                (  [ (NtIdent_Ident nt (basePrio nt) [], [Production_Prod ProdSem_Identity [Symbol_PrimIdent]]) | nt <- nts ]  -- extra production for meta var
+                ++ [ (NtIdent_Ident nt 1 [], [Production_Prod ProdSem_Identity [Symbol_PrimIdent]]) | nt <- atoms ]            -- single production for atoms
+                ++ map (parentheses []) nts
+                ++ map (parentheses [Symbol_Root]) nts
+                ++ concatMap (priotransfers []) nts
+                ++ concatMap (priotransfers [Symbol_Root]) nts
+                )
+
+    parentheses selfSuf nt
+      = (NtIdent_Ident nt (basePrio nt) selfSuf, [Production_Prod ProdSem_Parentheses [Symbol_Term "(", Symbol_Nonterm (NtIdent_Ident nt (rootPrio nt) selfSuf), Symbol_Term ")"]])
+
+    priotransfers selfSuf nt
+      = let bp    = basePrio nt
+            prios = IntSet.elems (Map.findWithDefault IntSet.empty nt availPrios)
+        in [ (NtIdent_Ident nt prio selfSuf, [Production_Prod ProdSem_Identity [Symbol_Nonterm (NtIdent_Ident nt prio' selfSuf)]])
+           | prio <- prios, let prio' = higherPrio nt prio ]                                                                             -- extra productions for traversing priorities downwards
+           
+    prods (nt, prod, env, pats) mp
+      = foldr (oneprodBoth nt prod env) mp pats
+
+    oneprodBoth nt prod env pat
+      = oneprod [Symbol_Root] nt prod env pat . oneprod [] nt prod env pat
+
+    oneprod selfSuf nt prod env (PatternInfo_PatOnly pat) mp
+      = insert mp selfSuf nt prod (basePrio nt) (compile selfSuf nt Infix (rootPrio nt) (-99999) env pat)
+    oneprod selfSuf nt prod env (PatternInfo_Info fixity prio pat) mp
+      = insert mp selfSuf nt prod prio (compile selfSuf nt fixity (higherPrio nt prio) prio env pat)
+
+    insert mp selfSuf nt prod prio (names, syms)
+      = Map.insertWith (++) (NtIdent_Ident nt prio selfSuf) [Production_Prod (ProdSem_Name prod names) syms] mp
+
+    compile selfSuf nt fixity prioHigher prioCurrent env pat
+      = (names, syms)
+      where
+        (names, syms, _, _) = rec pat [] [] False False
+
+        rec pat n r didOccL didOccR
+          = case pat of
+              Pattern_Keyword nm          -> (Nothing : n, Symbol_Term (identName nm) : r, didOccL, didOccR)
+              Pattern_Seq left right      -> let (nRight, sRight, occLRight, occRRight) = rec right n r occLLeft didOccR
+                                                 (nLeft, sLeft, occLLeft, occRLeft)     = rec left nRight sRight didOccL occRRight
+                                             in (nLeft, sLeft, occLRight, occRLeft)
+              Pattern_Identifier nm
+                | tp  == identInt         -> (Just nm : n, Symbol_PrimInt    : r, didOccL, didOccR)
+                | tp  == identString      -> (Just nm : n, Symbol_PrimString : r, didOccL, didOccR)
+                | tp  == identIdent       -> (Just nm : n, Symbol_PrimIdent  : r, didOccL, didOccR)
+                | nt == tp && needHigher  -> (Just nm : n, Symbol_Nonterm (NtIdent_Ident tp prioHigher selfSuf)  : r, True,    True)
+                | nt == tp                -> (Just nm : n, Symbol_Nonterm (NtIdent_Ident tp prioCurrent selfSuf) : r, True,    True)
+                | otherwise               -> (Just nm : n, Symbol_Nonterm (NtIdent_Ident tp (rootPrio tp) [])    : r, didOccL, didOccR)
+                where
+                  tp = Map.findWithDefault (error "no type for ident") nm env
+                  needHigher = fixity == Infix || (fixity == Infix_Left && didOccL) || (fixity == Infix_Right && didOccR)
+
+patternsToScanner :: Scanner -> PatternsEnv -> Scanner
+patternsToScanner scan pats
+  = \n p s -> maybe Nothing convert (scan n p s)
+  where
+    tokens = Set.fromList [ identName s | (_, _, _, infos) <- pats, info <- infos, s <- keywordsInfo info ]
+
+    keywordsInfo (PatternInfo_Info _ _ pat) = keywords pat []
+    keywordsInfo (PatternInfo_PatOnly pat)  = keywords pat []
+
+    keywords (Pattern_Seq l r)    kws = keywords l (keywords r kws)
+    keywords (Pattern_Keyword nm) kws = nm : kws
+    keywords _                    kws = kws
+
+    convert (tk,n,s,p,m) = Just (convertTk tk,n,s,p,m)
+
+    convertTk (TkIdent nm p) | nm `Set.member` tokens = TkReserved nm p
+    convertTk tk                                                        = tk
+
+unsafeSymbolsOfPatterns :: PatternsEnv -> Set Identifier
+unsafeSymbolsOfPatterns pats
+  = Set.unions [ unsafeSyms nt env info | (nt, _, env, infos) <- pats, info <- infos ]
+  where unsafeSyms _ _ (PatternInfo_Info _ _ pat)
+          = firstSym pat
+        unsafeSyms nt env (PatternInfo_PatOnly pat)
+          | isRecursive nt env pat = firstSym pat
+          | otherwise              = Set.empty
+
+        isRecursive nt env = rec where
+          rec (Pattern_Seq l r)       = rec l || rec r
+          rec (Pattern_Identifier nm) = let nt' = Map.findWithDefault nt nm env in nt == nt'
+          rec _                       = False
+
+        firstSym (Pattern_Seq l r)    = let s = firstSym l in if Set.null s then firstSym r else s
+        firstSym (Pattern_Keyword nm) = Set.singleton nm
+        firstSym _                    = Set.empty
+}
+

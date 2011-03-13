@@ -1,0 +1,49 @@
+-- =============================================================================
+-- Phase 3: Static checks: Name analysis before typing
+-- =============================================================================
+
+-- To check:
+-- 
+-- all local identifiers occur as identifier in a binding
+-- all identifiers in a binding occur as local identifier
+
+ATTR Decls Decl RelDecls RelDecl RuleDecls RuleDecl
+     Bindings Binding Exprs Expr
+  [ | | nmTrees2 USE {++} {[]} : AnaTrees ]
+
+SEM Decl
+  | Relation
+      lhs.nmTrees2 = [NA.Tree_Node @loc.props2 @decls.nmTrees2]
+      loc.props2   = NA.scopes (ScRel @nm) [NsIdents, NsBindingIdents]
+
+SEM RelDecl
+  | Rule
+      lhs.nmTrees2 = [NA.Tree_Node @loc.props2 @decls.nmTrees2]
+      loc.props2   = NA.scopes (ScRule @nm) [NsIdents, NsBindingIdents]
+
+SEM RuleDecl
+  | Ident
+      lhs.nmTrees2 = [NA.Tree_Node @loc.props2 []]
+      loc.props2   = [ NA.Property_Def @loc.identNm NsIdents
+                     , NA.Property_Use @loc.identNm NsBindingIdents
+                     ]
+
+SEM Expr
+  | Ident
+      lhs.nmTrees2 = [NA.Tree_Node @loc.props []]
+      loc.identNm  = mkIdentName IdIdent @nm
+      loc.props    = [ NA.Property_Use @loc.identNm NsIdents
+                     , NA.Property_Def @loc.identNm NsBindingIdents
+                     ]
+
+
+--
+-- Collect name errors
+--
+
+SEM Module
+  | Mod
+      loc.nmTree2      = NA.Tree_Node [] @decls.nmTrees2
+      loc.nameErrs2    = analysis @loc.spaceConfig2 dupTest2 mkMissingDefErr mkDupDefErr @loc.nmTree2
+      loc.spaceConfig2 = Map.fromList [(NsIdents, False), (NsBindingIdents, True)]
+

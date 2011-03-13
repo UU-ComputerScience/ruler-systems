@@ -1,0 +1,21 @@
+--
+-- Helper functions typically needed by type rules
+--
+
+
+--
+-- If a can be made equal to b, it does so and returns true. Otherwise it
+-- returns false.
+--
+
+let equal = \a b -> abstract equal inputs a, b
+                      ( inst (derivation outputs res
+                                { branch equal:   a == b;
+                                                  this.res == true;
+                                  branch unequal: this.res == false;
+                                }) as test;
+                        establish test;
+                        test.res
+                      );
+
+

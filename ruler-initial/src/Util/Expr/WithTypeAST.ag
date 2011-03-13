@@ -1,0 +1,4 @@
+DATA Expr
+  | Alt
+      tp : {Identifier}
+

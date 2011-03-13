@@ -1,0 +1,157 @@
+MODULE {Util.Error.Pretty} {} {}
+
+PRAGMA gentypesigs
+PRAGMA gencatas
+PRAGMA gensems
+
+INCLUDE "Util/Error/AST.ag"
+
+imports
+{
+import Text.PrettyPrint
+import Util.Common
+import Util.Parsing.Support
+import Util.Parsing.Parser
+import Util.Parsing.Token
+import Util.Error.Err
+}
+
+WRAPPER Err
+
+{
+prettyErr :: Bool -> Err -> String
+prettyErr verbose e
+  = render (ppErr verbose e)
+
+ppErr :: Bool -> Err -> Doc
+ppErr verbose e
+  = let inh = Inh_Err { verbose_Inh_Err = verbose }
+        syn = wrap_Err (sem_Err e) inh
+    in pp_Syn_Err syn
+
+instance Show Err where
+  show = prettyErr False
+
+ppParseError :: Bool -> Error Token Sym Pos -> Doc
+ppParseError verbose e
+  = case e of
+      Inserted s pos strs -> text (show pos) <> text ": parse error: missing symbol " <> text (show s) <> (ppExps strs)
+      Deleted t pos strs  -> text (show pos) <> text ": parse error: unexpected token " <> text (show t) <> (ppExps strs)
+      DeletedAtEnd t      -> text "parse error: unexpected token at end of file: " <> text (show t)
+  where
+    ppExps strs
+      = if verbose && not (null strs)
+        then text ", expecting: " <> vcat (punctuate (text ", ") (map text strs))
+        else empty
+}
+
+
+ATTR Errs Err [ verbose : Bool | | ]
+ATTR Errs Err [ | | pp USE {$+$} {empty} : Doc ]
+
+
+--
+-- PP of parse errors
+--
+
+SEM Err
+  | ParseErrors JudgeParseErrors
+      loc.errsPP = if not @lhs.verbose && length @errs > 3
+                   then @loc.errsPP' $+$ text "... and more parse errors."
+                   else @loc.errsPP'
+      loc.errsPP' = vcat $ map (ppParseError @lhs.verbose) $
+                      if @lhs.verbose
+                      then @errs
+                      else take 3 @errs
+
+
+--
+-- Judgement context
+--
+
+SEM Err
+  | JudgeParseErrors Ambiguity TypeMismatch
+      loc.ctxPP = text "in judgement " <> text (show @judgeNm)
+                  <> text " of rule " <> text (show @rulNm)
+                  <> text " of relation " <> text (show @relNm)
+
+
+--
+-- General PP'n
+--
+
+  | ParseErrors
+      lhs.pp = @loc.errsPP
+
+  | JudgeParseErrors
+      loc.msg = if length @errs > 1
+                then "parse errors"
+                else "parse error"
+      lhs.pp = ( text (show $ identPos @judgeNm)
+                 <>  text ": " <> text @loc.msg
+                 <+> @loc.ctxPP
+                 <>  text ":"
+               ) $+$ nest 2 @loc.errsPP
+
+  | MissingDefinition
+      loc.scopePP = foldr (<+>) empty (zipWith (\pre sc -> text pre <+> text sc) (" for" : repeat "of") @scope)
+      lhs.pp = text (show $ identPos @nm)
+               <> text ": missing "
+               <> text @space
+               <> text " definition for "
+               <> text @type <+> text (show @nm)
+               <> @loc.scopePP
+
+  | DuplicateDefinition
+      loc.scopePP = foldr (<+>) empty (zipWith (\pre sc -> text pre <+> text sc) (" for" : repeat "of") @scope)
+      loc.pos = identPos $ snd $ head @nms
+      lhs.pp = (  text (show @pos)
+               <> text ": duplicate "
+               <> text @space
+               <> text " definitions"
+               <> @loc.scopePP
+               <> text ":"
+               )
+               $+$
+               (nest 2 $vcat [ text s <+> text (show i) <> text " at " <> text (show $ identPos i) | (s, i) <- @nms])
+
+  | Ambiguity
+      loc.relPP = text "hole "
+                  <>  text (show @fieldNm)
+                  <>  text " of relation "
+                  <>  text (show @ctxTp)
+      loc.altPP = \alt -> 
+                  text "field "
+                  <>  text (show @fieldNm)
+                  <>  text " of alternative "
+                  <>  text (show alt)
+                  <>  text " of type "
+                  <>  text (show @ctxTp)
+
+      loc.errsPP = if null @errs
+                   then empty
+                   else nest 2 $ vcat $ zipWith (\n errs -> text (show n) <> text "." <+> nest 2 (vcat (map (ppErr @lhs.verbose) errs))) [1..] @errs
+
+      lhs.pp = (   text (show @pos)
+               <>  text ": unresolved ambiguity"
+               <+> @loc.ctxPP
+               <>  text ": no single error-free assignment of "
+               <>  maybe @loc.relPP @loc.altPP @ctxAlt
+               <> if null @errs
+                  then empty
+                  else text ", either: "
+               )
+               $+$ @loc.errsPP
+
+  | TypeMismatch
+      lhs.pp = (   text (show @pos)
+               <>  text ": type mismatch"
+               <+> @loc.ctxPP
+               <>  text ", types for "
+               <>  text (show @itemNm)
+               <>  text ":"
+               )
+               $+$ nest 2 (   (text "Actual type:   " <> text (show @actualTp))
+                          $+$ (text "Expected type: " <> text (show @expectedTp))
+                          )
+

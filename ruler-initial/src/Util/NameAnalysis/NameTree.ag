@@ -1,0 +1,24 @@
+MODULE {Util.NameAnalysis.NameTree} {} {}
+
+PRAGMA gendatas
+
+optpragmas {
+{-# OPTIONS_GHC -fglasgow-exts #-}
+}
+
+
+INCLUDE "Util/NameAnalysis/AST.ag"
+
+
+import
+{
+import Util.Common
+}
+
+DERIVING * : Show
+
+{
+scopes :: sc -> [sp] -> [Property nm sc sp]
+scopes sc = map (\sp -> Property_Scope sc sp)
+}
+

@@ -1,0 +1,55 @@
+MODULE {Util.Format.Pretty} {ppFormat} {}
+
+PRAGMA gentypesigs
+PRAGMA gencatas
+PRAGMA gensems
+
+INCLUDE "Util/Format/AST.ag"
+
+imports
+{
+import Text.PrettyPrint
+import qualified Data.Map as Map
+import Data.Map(Map)
+import Text.PrettyPrint
+
+import Util.Common
+import Util.Format.Format
+}
+
+
+WRAPPER Format
+
+
+--
+-- Interface
+--
+
+{
+ppFormat :: Format -> Map Identifier Doc -> Doc
+ppFormat format exprs
+  = let inhs = Inh_Format { exprs_Inh_Format = exprs }
+        syns = wrap_Format (sem_Format format) inhs
+    in pp_Syn_Format syns
+}
+
+
+ATTR Format [ exprs : {Map Identifier Doc} | | ]
+ATTR Format [ | | pp : Doc ]
+
+SEM Format
+  | Empty
+      lhs.pp = empty
+  | Tail
+      lhs.pp = braces @left.pp <> text "_" <> braces @sub.pp <> text "^" <> braces @sup.pp
+  | Identifier
+      lhs.pp = Map.findWithDefault (error ("No pp of expr in map for: " ++ show @nm)) @nm @lhs.exprs
+  | Symbol --- hmm, unused?
+      lhs.pp = text "\\mathtt" <> braces (text (show @str))
+  | Primitive
+      lhs.pp = text @str
+  | Seq
+      lhs.pp = @left.pp <+> @right.pp
+  | Above
+      lhs.pp = braces (braces @top.pp <+> text "\\atop" <+> braces @bottom.pp)
+

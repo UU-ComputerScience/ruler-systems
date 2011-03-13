@@ -1,0 +1,73 @@
+--
+-- Ruler Core Language
+--
+
+DATA Module
+  | Mod
+      nm        : {Identifier}
+      types     : Types
+      relations : Relations
+
+TYPE Types     = [Type]
+TYPE Relations = [Relation]
+
+DATA Type
+  | Tp
+      nm     : {Identifier}
+      alts   : Alternatives
+      format : Format
+
+TYPE Alternatives = [Alternative]
+
+DATA Alternative
+  | Alt
+      nm     : {Identifier}
+      fields : Holes
+      format : Format
+
+TYPE Holes = [Hole]
+
+DATA Hole
+  | Hole
+      nm  : {Identifier}
+      tp  : {Identifier}
+
+DATA Relation
+  | Rel
+      nm     : {Identifier}
+      holes  : Holes
+      format : Format
+      rules  : Rules
+
+TYPE Rules = [Rule]
+
+DATA Rule
+  | Rule
+      nm     : {Identifier}
+      idents : Idents
+      prems  : Judgements
+      conc   : Judgement
+
+TYPE Idents = [Ident]
+
+DATA Ident
+  | Ident
+      nm     : {Identifier}
+      tp     : {Identifier}
+      format : Format
+
+TYPE Judgements = [Judgement]
+
+DATA Judgement
+  | Judge
+      nm       : {Identifier}
+      tp       : {Identifier}
+      bindings : Bindings
+
+TYPE Bindings = [Binding]
+
+DATA Binding
+  | Assign
+      nm   : {Identifier}
+      expr : Expr
+

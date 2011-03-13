@@ -1,0 +1,13 @@
+MODULE {Util.Format.Format} {} {}
+
+PRAGMA gendatas
+
+INCLUDE "Util/Format/AST.ag"
+
+DERIVING Format : Show
+
+imports
+{
+import Util.Common
+}
+

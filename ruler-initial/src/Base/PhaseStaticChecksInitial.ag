@@ -1,0 +1,137 @@
+-- =============================================================================
+-- Phase 1: Static checks: Build tree for name analysis
+-- =============================================================================
+
+ATTR Decls Decl TypeDecls TypeDecl RelDecls RelDecl
+     AltDecls AltDecl RuleDecls RuleDecl
+     PatternInfo Pattern Format
+  [ | | nmTrees1 USE {++} {[]} : AnaTrees ]
+
+SEM Decl
+  | *  lhs.nmTrees1 = [NA.Tree_Node @loc.props (@loc.extraNodes ++ @decls.nmTrees1)]
+
+SEM Decl
+  | Type
+      loc.identName  = mkIdentName IdType @nm
+      loc.props = NA.Property_Def @loc.identName NsTypes :
+                  NA.Property_Def @loc.identName NsTypesAndRelations :
+                  NA.scopes (ScType @nm) [NsAlts, NsHoles, NsFormats, NsPatterns]
+  | Relation
+      loc.identName  = mkIdentName IdRel @nm
+      loc.props = NA.Property_Def @loc.identName NsRelations :
+                  NA.Property_Def @loc.identName NsTypesAndRelations :
+                  NA.scopes (ScRel @nm) [NsHoles, NsJudgements, NsIdentsAndJudgements, NsIdents, NsRules, NsFormats, NsPatterns, NsRuleConclusions]
+
+SEM Decl
+  | Type
+      loc.extraNodes = [ NA.Tree_Node [NA.Property_Use @loc.identName NsFormats] [] ]
+  | Relation
+      loc.extraNodes = [ NA.Tree_Node [NA.Property_Use @loc.identName NsFormats] []
+                       , NA.Tree_Node [NA.Property_Use @loc.identName NsPatterns] [] ]
+
+ATTR TypeDecls TypeDecl [ typeNm : Identifier | | ]
+
+SEM Decl
+  | Type
+      decls.typeNm = @nm
+
+SEM TypeDecl
+  | Format
+      lhs.nmTrees1 = [NA.Tree_Node [NA.Property_Def (mkIdentPos IdFormat @pos @lhs.typeNm) NsFormats] @format.nmTrees1]
+
+SEM TypeDecl
+  | Alt
+      lhs.nmTrees1   = [NA.Tree_Node @loc.props (@loc.extraNodes ++ @decls.nmTrees1)]
+      loc.props      = NA.Property_Def @loc.identName NsAlts : NA.scopes (ScAlt @nm) [NsHoles, NsFormats, NsPatterns ]
+      loc.identName  = mkIdentName IdAlt @nm
+      loc.extraNodes = [ NA.Tree_Node [NA.Property_Use @loc.identName NsFormats] []
+                       , NA.Tree_Node [NA.Property_Use @loc.identName NsPatterns] [] ]
+
+ATTR RelDecls RelDecl AltDecls AltDecl [ ctxNm : Identifier | | ]
+
+SEM TypeDecl
+  | Alt
+      decls.ctxNm = @nm
+
+SEM Decl
+  | Relation
+      decls.ctxNm = @nm
+
+SEM AltDecl RelDecl
+  | Pattern
+      lhs.nmTrees1 = [NA.Tree_Node [NA.Property_Def (mkIdentPos IdPat @pos @lhs.ctxNm) NsPatterns] @pat.nmTrees1]
+  | Format
+      lhs.nmTrees1 = [NA.Tree_Node [NA.Property_Def (mkIdentPos IdFormat @pos @lhs.ctxNm) NsFormats] @format.nmTrees1]
+  | Hole
+      lhs.nmTrees1 = [NA.Tree_Node @loc.props []]
+      loc.props    = [ NA.Property_Def (mkIdentName IdHole @nm) NsHoles
+                     , NA.Property_Use (mkIdentName IdType @tp) NsTypes ]
+
+SEM RelDecl
+  | Rule
+      lhs.nmTrees1 = [ NA.Tree_Node @loc.props1 (@loc.extraNodes ++ @decls.nmTrees1) ]
+      loc.props1   = NA.Property_Def (mkIdentName IdRule @nm) NsRules :
+                     NA.scopes (ScRule @nm) [NsJudgements, NsIdentsAndJudgements, NsIdents, NsFormats, NsPatterns, NsRuleConclusions]
+      loc.extraNodes = [ NA.Tree_Node [NA.Property_Use (mkIdentPos IdRuleConcRef (identPos @nm) @nm) NsRuleConclusions] [] ]
+
+SEM RuleDecl
+  | Ident
+      lhs.nmTrees1 = [NA.Tree_Node @loc.props1 []]
+      loc.identNm  = mkIdentName IdIdent @nm
+      loc.props1   = [ NA.Property_Def @loc.identNm NsIdents
+                     , NA.Property_Def @loc.identNm NsIdentsAndJudgements
+                     , NA.Property_Use (mkIdentName IdType @tp) NsTypes
+                     ]
+  | Judge
+      lhs.nmTrees1 = [NA.Tree_Node @loc.props1 []]
+      loc.identNm  = mkIdentName IdJudge @nm
+      loc.props1   = @loc.concProps ++
+                     [ NA.Property_Def @loc.identNm NsJudgements
+                     , NA.Property_Def @loc.identNm NsIdentsAndJudgements
+                     , NA.Property_Use (mkIdentName IdType @kind.judgeTp) NsRelations 
+                     ]
+      loc.concProps = if @kind.isConclusion
+                      then [ NA.Property_Def @loc.identNm NsRuleConclusions ]
+                      else []
+
+ATTR Kind [ | | isConclusion : Bool ]
+SEM Kind
+  | Premise     lhs.isConclusion = False
+  | Conclusion  lhs.isConclusion = True
+
+ATTR Format PatternInfo Pattern [ identInfo : IdentInfo identNs : Namespace | | ]
+
+SEM AltDecl RelDecl
+  | Pattern Format
+      loc.identInfo = IdHole
+      loc.identNs   = NsHoles
+
+SEM TypeDecl
+  | Format
+      loc.identInfo = IdHole
+      loc.identNs   = NsHoles
+
+SEM RuleDecl
+  | Ident
+      loc.identInfo = IdIdent
+      loc.identNs   = NsIdents
+
+SEM Pattern
+  | Identifier
+      lhs.nmTrees1 = [NA.Tree_Node [NA.Property_Use (mkIdentName @lhs.identInfo @nm) @lhs.identNs] []]
+
+SEM Format
+  | Identifier
+      lhs.nmTrees1 = [NA.Tree_Node [NA.Property_Use (mkIdentName @lhs.identInfo @nm) @lhs.identNs] []]
+
+
+--
+-- Collect name errors
+--
+
+SEM Module
+  | Mod
+      loc.nmTree1      = NA.Tree_Node [] @decls.nmTrees1
+      loc.nameErrs1    = analysis @loc.spaceConfig1 dupTest1 mkMissingDefErr mkDupDefErr @loc.nmTree1
+      loc.spaceConfig1 = Map.fromList $ map (\x -> (x, True)) [ NsPatterns, NsTypes, NsRelations, NsAlts, NsRules ]
+

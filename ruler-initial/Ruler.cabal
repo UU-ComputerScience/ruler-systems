@@ -1,0 +1,20 @@
+cabal-version: >=1.2
+build-type: Simple
+name: ruler
+version: 0.1
+license: GPL
+maintainer: Arie Middelkoop <ariem@cs.uu.nl>
+homepage: http://www.cs.uu.nl/wiki/HUT/WebHome
+description: Ruler for Programming Type Rules
+synopsis: Ruler System of Universiteit Utrecht
+category: Development
+stability: Experimental
+copyright: Universiteit Utrecht
+
+executable ruler
+  build-depends: base >= 3, containers, directory, pretty, array
+  build-depends: haskell98
+  main-is: Ruler.hs
+  ghc-options: -fglasgow-exts
+  hs-source-dirs: src, derived
+

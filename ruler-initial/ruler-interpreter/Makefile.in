@@ -1,0 +1,52 @@
+# Makefile for Ruler
+
+ag-files :=		RulerExpr.ag LambdaExpr.ag RulesExpr.ag
+alex-files := 		Scanner.x
+
+
+all: ruler
+
+ruler: dist/build/ruler-interpreter/ruler-interpreter
+	cp dist/build/ruler-interpreter/ruler-interpreter ./ruler
+
+dist/build/ruler-interpreter/ruler-interpreter: populate-derived invoke-cabal
+	./setup build
+
+
+populate-derived: ag-derived alex-derived
+ag-derived: $(ag-files:%.ag=derived/%.hs)
+alex-derived: $(alex-files:%.x=derived/%.hs)
+
+
+derived/%.hs : src/%.ag
+	mkdir -p $(dir $@)
+	cd src; @UUAGC@ -mr --strictdata --strictwrap --genlinepragmas --Werrors -o ../$@ $(patsubst src/%,%,$<)
+
+derived/%.hs : src/%.x
+	mkdir -p $(dir $@)
+	@ALEX@ -o $@ -g $<
+
+
+invoke-cabal: setup dist/setup-config
+
+setup: ruler-interpreter.cabal
+	ghc -O2 --make Setup.hs -o setup
+
+dist/setup-config: ruler-interpreter.cabal
+	./setup configure
+
+
+clean:
+	rm -rf derived/*
+	test ./setup && ./setup clean
+	rm -f setup
+	rm -f Makefile.depend
+	rm -rf dist
+	rm -f Setup.o Setup.hi
+
+
+Makefile.depend:
+	UUAGC=@UUAGC@ ./gendeps.sh $(ag-files:%.ag=%)
+
+-include Makefile.depend
+

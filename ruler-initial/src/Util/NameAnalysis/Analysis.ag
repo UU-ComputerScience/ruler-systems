@@ -1,0 +1,154 @@
+--
+-- Performs name analysis on an abstract syntax tree with names in it
+--
+
+MODULE {Util.NameAnalysis.Analysis} {analysis} {}
+
+optpragmas {
+{-# OPTIONS_GHC -fglasgow-exts #-}
+}
+
+PRAGMA gentypesigs
+PRAGMA gencatas
+PRAGMA gensems
+
+
+INCLUDE "Util/NameAnalysis/AST.ag"
+
+imports
+{
+import Data.List
+import Data.Map(Map)
+import qualified Data.Map as Map
+import Data.Set(Set)
+import qualified Data.Set as Set
+
+import Util.Common
+import Util.NameAnalysis.NameTree
+import Util.Error.Err
+import Util.Merge
+}
+
+
+WRAPPER Root
+
+{
+analysis :: (Ord sc, Ord sp) => Map sp Bool -> (sp -> nm -> nm -> Bool) -> (sp -> [sc] -> nm -> e) -> (sp -> [sc] -> [nm] -> e) -> Tree nm sc sp -> [e]
+analysis allowDuplicatesMap dupTest missing dup tree
+  = let root = Root_Root tree
+        inh  = Inh_Root { allowDuplicatesMap_Inh_Root = allowDuplicatesMap, dupTest_Inh_Root = dupTest, mkMissingErr_Inh_Root = missing, mkDupErr_Inh_Root = dup }
+        syn  = wrap_Root (sem_Root root) inh
+    in errs_Syn_Root syn
+}
+
+
+--
+-- Ord-requirements
+--
+
+SEM Ord {sc}, Ord {sp} => Root Tree Trees Properties Property
+
+
+ATTR Root [ mkMissingErr : {@sp -> [@sc] -> @nm -> @e} | | ]
+ATTR Root [ mkDupErr : {@sp -> [@sc] -> [@nm] -> @e} | | ]
+ATTR Root [ allowDuplicatesMap : {Map @sp Bool} | | ]
+ATTR Root [ dupTest : {@sp -> @nm -> @nm -> Bool} | | ]
+
+
+--
+-- Push down scope.
+--
+
+{
+type ScopeEnv sp sc = Map sp [sc]
+
+addScope :: (Ord sp, Ord sc) => ScopeEnv sp sc -> sp -> sc -> [sc]
+addScope env space scope = scope : Map.findWithDefault [] space env
+}
+
+ATTR Trees Tree Properties Property [ scopes : {ScopeEnv @sp @sc} | | ]
+
+SEM Root
+  | Root
+      tree.scopes = Map.empty
+
+ATTR Properties Property [ | | scopesGath USE {`Map.union`} {Map.empty} : {Map @sp @sc} ]
+
+SEM Property
+  | Scope
+      lhs.scopesGath = Map.singleton @space @nm
+
+SEM Tree
+  | Node
+      children.scopes = (Map.mapWithKey (addScope @lhs.scopes) @props.scopesGath) `Map.union` @lhs.scopes
+
+
+--
+-- Gather all defined and used names organized by scope and namespace
+--
+
+{
+type NameEnv nm sc sp = Map sp (Map [sc] [nm])
+}
+
+ATTR Trees Tree Properties Property [ | | usesGath USE {`merge`} {Map.empty} : {NameEnv @nm @sc @sp} ]
+ATTR Trees Tree Properties Property [ | | defsGath USE {`merge`} {Map.empty} : {NameEnv @nm @sc @sp} ]
+
+SEM Property
+  | Def Use  loc.scope = Map.findWithDefault [] @space @lhs.scopes
+  | Def  lhs.defsGath = Map.singleton @space (Map.singleton @loc.scope [@nm])
+  | Use  lhs.usesGath = Map.singleton @space (Map.singleton @loc.scope [@nm])
+
+
+--
+-- Check: missing defs for a use
+--
+
+SEM Root
+  | Root
+      loc.missingDefsErrs : {[@e]}
+      loc.missingDefsErrs = concatZip2 (missingErrs @lhs.dupTest @lhs.mkMissingErr) @tree.usesGath @tree.defsGath
+
+{
+missingErrs :: Ord sc => (sp -> nm -> nm -> Bool) -> (sp -> [sc] -> nm -> e) -> sp -> Map [sc] [nm] -> Map [sc] [nm] -> [e]
+missingErrs dupTest mkMissingErr sp uses defs
+  = let missing scopes ident errs
+          | any exists (tails scopes) = errs
+          | otherwise                 = mkMissingErr sp scopes ident : errs
+          where exists scs = any (dupTest sp ident) $ Map.findWithDefault [] scs defs
+    in Map.foldWithKey (\scopes idents errs -> foldr (missing scopes) errs idents) [] uses
+}
+
+{
+concatZip2 f m1 m2 = Map.foldWithKey (\k m1' es -> f k m1' (Map.findWithDefault Map.empty k m2) ++ es) [] m1
+}
+
+
+--
+-- Check: duplicate defs
+--
+
+SEM Root
+  | Root
+      loc.dupDefsErrs : {[@e]}
+      loc.dupDefsErrs = Map.foldWithKey (\space defs errs ->
+                          if Map.findWithDefault False space @lhs.allowDuplicatesMap
+                          then errs
+                          else Map.foldWithKey (\scopes defs errs ->
+                                 foldr (\g errs ->
+                                   if length g == 1
+                                   then errs
+                                   else @lhs.mkDupErr space scopes g : errs
+                                   ) errs (groupBy (@lhs.dupTest space) defs) ) errs defs) [] @tree.defsGath
+
+
+--
+-- Combine errors
+--
+
+ATTR Root [ | | errs : {[@e]} ]
+
+SEM Root
+  | Root
+      lhs.errs = @loc.dupDefsErrs ++ @loc.missingDefsErrs
+

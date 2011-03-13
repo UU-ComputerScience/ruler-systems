@@ -1,0 +1,28 @@
+--
+-- AST for representing trees with names and static checks on them
+--
+
+DATA Root nm sc sp e
+  | Root
+      tree : (Tree nm sc sp)
+
+TYPE Trees nm sc sp = [(Tree nm sc sp)]
+
+DATA Tree nm sc sp
+  | Node
+      props    : (Properties nm sc sp)
+      children : (Trees nm sc sp)
+
+TYPE Properties nm sc sp = [(Property nm sc sp)]
+
+DATA Property nm sc sp
+  | Scope
+      nm    : {sc}
+      space : {sp}
+  | Def
+      nm    : {nm}
+      space : {sp}
+  | Use
+      nm    : {nm}
+      space : {sp}
+

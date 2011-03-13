@@ -1,0 +1,88 @@
+module TypeCheck
+
+type Env
+  alt Ext
+    hole nm  :: Nm
+    hole ty  :: Ty
+    hole env :: Env
+    pattern nm :-> ty , env
+    format nm \mapsto ty, env
+
+type Ty
+  alt Arr
+    hole a :: Ty
+    hole r :: Ty
+    pattern a -> r
+    format a \rightarrow r
+  alt Int
+    pattern Int
+    format Int
+
+type Expr
+  alt Con
+    hole nm :: Nm
+    pattern nm
+    format nm
+  alt Var
+    hole nm :: Nm
+    pattern nm
+    format nm
+  alt App
+    hole f :: Expr
+    hole a :: Expr
+    pattern f a
+    format f a
+  alt Lam
+    hole nm :: Nm
+    hole b :: Expr
+    pattern \nm "." b
+    format {\backslash}nm . b
+  alt Let
+    hole nm :: Nm
+    hole e :: Expr
+    hole b :: Expr
+    pattern let nm = e in b
+    format \mathbf{let} nm = e \mathbf{in} b
+
+relation Tc
+  hole env :: Env
+  hole e :: Expr
+  hole ty :: Ty
+  pattern env :- e : ty
+  format env :- e : ty
+
+  rule Var
+    ident env :: Env format \Gam
+    ident nm  :: Nm format x
+    ident ty  :: Ty format \tau
+    ident ty' :: Ty format \tau'
+
+    prem L :: Lookup
+      (nm,ty) in env
+
+    conc R :: Tc
+      env :- nm : ty
+
+  rule App
+    ident env  :: Env format \Gam
+    ident f    :: Expr format f
+    ident a    :: Expr format a
+    ident ty.a :: Ty format \tau.a
+    ident ty   :: Ty format \tau
+
+    prem F :: Tc
+      env :- f : ty.a -> ty
+
+    prem A :: Tc
+      env :- a : ty.a
+
+    conc R :: Tc
+      env :- f a : ty.f
+
+external relation Lookup
+  hole env :: Env
+  hole nm :: Nm
+  hole ty :: Ty
+  pattern "(" nm "|->" ty ")" "in" env
+  format "(" nm "|->" ty ")" "in" env
+

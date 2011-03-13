@@ -1,0 +1,199 @@
+parse fresh;
+!parse == \args -> case length args of
+  { 1 -> let { filename = head args; }
+         in abstract parse inputs filename
+              ( case parseExpFile filename of
+                  { parseSuccess expr -> expr;
+                    parseFail msg     -> abort msg;
+                  });
+    _ -> abort "usage: ./ruler test.rul <file.exp>";
+  };
+
+
+equal fresh;
+!equal == \a b -> abstract equal inputs a, b
+                    ( inst (derivation outputs res
+                             { branch equal:   a == b;
+                                               this.res == true;
+                               branch unequal: this.res == false;
+                             }) as test;
+                      establish test;
+                      test.res
+                    );
+
+replace fresh;
+!replace == \nm rep ty -> case ty of
+{ tyVar x -> if equal nm x
+             then rep
+             else ty;
+  tyArrow f a -> tyArrow (replace nm rep f) (replace nm rep a);
+  tyForall x t -> if equal nm x
+                  then t
+                  else tyForall x (replace nm rep t);
+  _       -> ty;
+};
+
+instantiate fresh;
+!instantiate == \ty -> abstract instantiate inputs ty
+  ( case ty of
+      { tyForall nm t -> ( t' fresh;
+                           replace nm t' (instantiate t)
+                         );
+        _             -> ty;
+    });
+
+foldr fresh;
+!foldr == \f ini xs -> case xs of
+{ @{nil} -> ini;
+  cons z zs -> f z (foldr f ini zs);
+};
+
+elem fresh;
+!elem == \x ys -> foldr (\y r -> if equal x y
+                                 then true
+                                 else r
+                        ) false ys;
+
+difference fresh;
+!difference == \xs ys -> foldr (\x r -> if elem x ys
+                                        then r
+                                        else cons x r
+                              ) nil xs;
+
+subst fresh;
+!subst == \g x t -> case t of
+                    { tyArrow a r  -> tyArrow (subst g x a) (subst g x r);
+                      tyForall n b -> tyForall n (subst g x b);
+                      _            -> if equal (fromguess t) g
+                                      then x
+                                      else t;
+                    };
+
+generalize fresh;
+!generalize == \env ty -> let { vars = abstract nonoverlap inputs ty, env (difference (fgv ty) (fgv env));
+                                trans = \g -> let { n = ident (show g); }
+                                              in \t -> tyForall n (subst g (tyVar (ident (show g))) t);
+                              }
+                          in abstract generalize inputs ty, env (foldr trans ty vars);
+
+
+inferBase fresh;
+!inferBase == \rec -> derivation inputs e
+{ branch var exposes nm:
+    var !nm == this.e;
+
+  branch con exposes nm:
+    var !nm == this.e;
+
+  branch const exposes val:
+    const !val == this.e;
+
+  branch app exposes fderiv, aderiv:
+    app !f !a == this.e;
+
+    inst rec as fderiv;
+    fderiv.e == f;
+    establish fderiv;
+
+    inst rec as aderiv;
+    aderiv.e == a;
+    establish aderiv;
+
+  branch lam exposes x, bderiv:
+    lam !x !b == this.e;
+
+    inst rec as bderiv;
+    bderiv.e == b;
+    establish bderiv;
+
+  branch sigLam exposes x, t, bderiv:
+    sigLam !x !t !b == this.e;
+
+    inst rec as bderiv;
+    bderiv.e == b;
+    establish bderiv;
+
+  branch bind exposes x, xderiv, bderiv:
+    bind !x !ex !b == this.e;
+
+    inst rec as xderiv;
+    xderiv.e == ex;
+    establish xderiv;
+
+    inst rec as bderiv;
+    bderiv.e == b;
+    establish bderiv;
+
+  branch fix exposes fderiv:
+    fix !f == this.e;
+
+    inst rec as fderiv;
+    fderiv.e == f;
+    establish fderiv;
+};
+
+inferEnv fresh;
+!inferEnv == derivation inputs env
+{ branch app requires fderiv, aderiv:
+    fderiv.env == this.env;
+    aderiv.env == this.env;
+
+  branch lam requires x, bderiv exposes tyx:
+    tyx fresh;
+    bderiv.env == hide (extend x tyx this.env);
+
+  branch sigLam requires x, t, bderiv:
+    bderiv.env == extend x t this.env;
+
+  branch bind requires x, tyx, xderiv, bderiv:
+    xderiv.env == this.env;
+    bderiv.env == extend x tyx this.env;
+
+  branch fix requires fderiv:
+    fderiv.env == this.env;
+};
+
+inferTy fresh;
+!inferTy == derivation inputs env outputs ty
+{ branch var requires nm:
+    this.ty == instantiate (lookup nm this.env);
+
+  branch con requires nm:
+    this.ty == lookup nm this.env;
+
+  branch const:
+    this.ty == tyCon (ident "Int");
+
+  branch app requires fderiv, aderiv:
+    fderiv.ty == tyArrow aderiv.ty this.ty;
+
+  branch lam requires tyx, bderiv:
+    this.ty == tyArrow tyx bderiv.ty;
+
+  branch sigLam requires t, bderiv:
+    this.ty == tyArrow t bderiv.ty;
+
+  branch bind requires xderiv, bderiv exposes tyx:
+    !tyx == generalize this.env xderiv.ty;
+    this.ty == bderiv.ty;
+
+  branch fix requires fderiv:
+    tyr fresh;
+    fderiv.ty == tyArrow tyr tyr;
+    this.ty == tyr;
+};
+
+infer fresh;
+!infer == merge { inferBase infer, inferEnv, inferTy };
+
+
+derivation inputs args outputs ty
+{ branch main:
+    !expr == parse this.args;
+
+    inst infer as deriv;
+    deriv.e   == expr;
+    deriv.env == emptyenv;
+    establish deriv;
+    this.ty   == deriv.ty;
+}
