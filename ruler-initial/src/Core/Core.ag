@@ -1,0 +1,17 @@
+MODULE {Core.Core} {} {}
+
+PRAGMA gendatas
+
+INCLUDE "Core/AST.ag"
+INCLUDE "Util/Expr/AST.ag"
+INCLUDE "Util/Expr/WithTypeAST.ag"
+
+DERIVING * : Show
+
+imports
+{
+import Util.Common
+import Util.Format.Format
+import Util.Parsing.Token
+}
+

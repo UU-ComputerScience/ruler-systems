@@ -1,0 +1,54 @@
+Small change to ruler to overrule the pretty-print order of judgements.
+
+For example, suppose you have the following rule file:
+
+> viewhierarchy = V
+> 
+> scheme expr "Expr" =
+>   view V =
+>     holes [ node e : Expr | | ty : Type ]
+>     judgespec :- e : ty
+> 
+> ruleset expr.base scheme expr "Expression" =
+>   rule e.app "App" =
+>     view V =
+>       judge A : expr = :- a : ty
+>       judge F : expr = :- f : ty
+>       judge B : expr = :- b : ty
+>       ---
+>       judge R : expr = :- (f a b) : ty
+
+Since the judgements A, F and B are independent on each other, the order is arbitrary (probably the order of appearance in the source file).
+
+Suppose we now want to group B and F together, such that B is pp'd directly above F. Now you can write:
+
+> ruleset expr.base scheme expr "Expression" =
+>   rule e.app "App" =
+>     view V =
+>       judge A : expr = :- a : ty
+>       judge F : expr = :- f : ty
+>       judge B : expr = :- b : ty
+>       ---
+>       judge R : expr = :- (f a b) : ty
+>       group B F
+
+This forces B in front of F, and A can either occur after B and F or in front.
+
+Likewise, you can write:
+
+> viewhierarchy = V < W
+>
+> ruleset expr.base scheme expr "Expression" =
+>   rule e.app "App" =
+>     view V =
+>       judge A : expr = :- a : ty
+>       judge F : expr = :- f : ty
+>       judge B : expr = :- b : ty
+>       ---
+>       judge R : expr = :- (f a b) : ty
+>       group B A F
+>     view W =
+>       ---
+>       group F B A
+
+to totally control the order of appearance of the judgements.

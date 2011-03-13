@@ -1,0 +1,221 @@
+MODULE {Base.Main} {} {}
+
+PRAGMA gentypesigs
+PRAGMA gencatas
+PRAGMA gensems
+
+INCLUDE "Base/AST.ag"
+INCLUDE "Util/Format/AST.ag"
+INCLUDE "Util/Pattern/AST.ag"
+INCLUDE "Util/Expr/AST.ag"
+INCLUDE "Base/PhaseStaticChecksInitial.ag"
+INCLUDE "Base/PhaseCompileJudgements.ag"
+INCLUDE "Base/PhaseStaticChecksPreTyping.ag"
+INCLUDE "Base/PhaseStaticChecksTyping.ag"
+INCLUDE "Base/Transform.ag"
+
+imports
+{
+import Data.Maybe
+import qualified Data.Set as Set
+import Data.Set(Set)
+import qualified Data.Map as Map
+import Data.Map(Map)
+
+import Base.Base
+import Base.Parser
+
+import Util.Common
+import Util.Merge
+import Util.Grammar.Grammar
+import Util.Grammar.Compile
+import Util.Parsing.Parser
+import Util.Parsing.Support
+import Util.Parsing.Token
+import Util.Pattern.Pattern
+import Util.Error.Err
+import Util.Error.Pretty
+import Util.Format.Format
+import qualified Util.NameAnalysis.NameTree as NA
+import Util.NameAnalysis.Analysis
+
+import qualified Base.FlexScanner as Flex
+import qualified Core.Core as C
+}
+
+
+WRAPPER Module
+
+{
+compile :: String -> IO (Either Errs C.Module)
+compile filename
+  = do pRes <- parseModule filename
+       return $ case pRes of
+                  Left errs -> Left [Err_ParseErrors errs]
+                  Right m   -> process m
+
+
+process :: Module -> Either Errs C.Module
+process m
+  = let inh  = Inh_Module {}
+        syn  = wrap_Module (sem_Module m) inh
+        errs = gathErrs_Syn_Module syn
+    in if null errs
+       then Right $ transformed_Syn_Module syn
+       else Left errs
+}
+
+--
+-- Data types for name analysis
+--
+
+{
+data AnaIdent
+  = AnaIdent !Identifier !IdentInfo
+
+data IdentInfo
+  = IdType
+  | IdAlt
+  | IdRel
+  | IdRule
+  | IdJudge
+  | IdHole
+  | IdIdent
+  | IdFormat      !Pos
+  | IdPat         !Pos
+  | IdRuleConcRef !Pos
+  deriving Eq
+
+instance Show IdentInfo where
+  show IdType = "type"
+  show IdAlt  = "alternative"
+  show IdRel  = "relation"
+  show IdRule = "rule"
+  show IdJudge = "judgement"
+  show IdHole  = "hole"
+  show IdIdent = "identifier"
+  show (IdFormat p)      = "format at " ++ show p ++ " for"
+  show (IdPat p)         = "pattern at " ++ show p ++ " for"
+  show (IdRuleConcRef p) = "conclusion at " ++ show p
+
+instance Eq AnaIdent where
+  (AnaIdent i1 _) == (AnaIdent i2 _) = i1 == i2
+
+instance Show AnaIdent where
+  show (AnaIdent i _) = show i
+
+dupTest1 :: Namespace -> AnaIdent -> AnaIdent -> Bool
+dupTest1 sp
+  | sp `elem` [NsTypesAndRelations, NsIdentsAndJudgements] = \(AnaIdent i1 t1) (AnaIdent i2 t2) -> i1 == i2 && t1 /= t2
+  | sp == NsRuleConclusions                                = \(AnaIdent i1 t1) (AnaIdent i2 t2) -> i1 /= i2
+  | otherwise                                              = (==)
+
+dupTest2 :: Namespace -> AnaIdent -> AnaIdent -> Bool
+dupTest2 _ = (==)
+
+mkIdentName :: IdentInfo -> Identifier -> AnaIdent
+mkIdentName t nm = AnaIdent nm t
+
+mkIdentPos :: (Pos -> IdentInfo) -> Pos -> Identifier -> AnaIdent
+mkIdentPos f p i = AnaIdent i (f p)
+
+data Scope
+  = ScType !Identifier
+  | ScAlt  !Identifier
+  | ScRel  !Identifier
+  | ScRule !Identifier
+  deriving (Eq, Ord)
+
+instance Show Scope where
+  show (ScType nm) = "type " ++ show nm
+  show (ScAlt nm)  = "alternative " ++ show nm
+  show (ScRel nm)  = "relation " ++ show nm
+  show (ScRule nm) = "rule " ++ show nm
+
+data Namespace
+  = NsTypes
+  | NsRelations
+  | NsTypesAndRelations
+  | NsAlts
+  | NsHoles
+  | NsRules
+  | NsJudgements
+  | NsIdentsAndJudgements
+  | NsIdents
+  | NsBindingIdents
+  | NsFormats
+  | NsPatterns
+  | NsRuleConclusions
+  deriving (Eq, Ord)
+
+instance Show Namespace where
+  show NsTypes         = "types"
+  show NsRelations     = "relations"
+  show NsAlts          = "alternatives"
+  show NsHoles         = "holes"
+  show NsRules         = "rules"
+  show NsJudgements    = "judgements"
+  show NsIdents        = "identifiers"
+  show NsBindingIdents = "identifiers"
+  show NsFormats       = "formats"
+  show NsPatterns      = "patterns"
+  show _               = ""
+
+type AnaTrees = NA.Trees AnaIdent Scope Namespace
+
+mkMissingDefErr :: Namespace -> [Scope] -> AnaIdent -> Err
+mkMissingDefErr ns scopes (AnaIdent nm tp) = Err_MissingDefinition (show ns) (map show scopes) (show tp) nm
+
+mkDupDefErr :: Namespace -> [Scope] -> [AnaIdent] -> Err
+mkDupDefErr ns scopes idents = Err_DuplicateDefinition (show ns) (map show scopes) (map (\(AnaIdent nm tp) -> (show tp, nm)) idents)
+}
+
+
+--
+-- Transfer context names downward
+--
+
+ATTR RelDecls RelDecl RuleDecls RuleDecl Kind Bindings Binding Expr Exprs [ relNm : Identifier | | ]
+ATTR RuleDecls RuleDecl Bindings Binding Expr Exprs [ rulNm : Identifier | | ]
+ATTR Bindings Binding Expr Exprs [ judgeNm : Identifier | | ]
+
+SEM Decl | Relation   decls.relNm = @nm
+SEM RelDecl | Rule    decls.rulNm = @nm
+SEM RuleDecl | Judge  bindings.judgeNm = @nm
+
+
+--
+-- The type of a judgement
+--
+
+ATTR Kind [ | | judgeTp : Identifier ]
+
+SEM Kind
+  | Premise     lhs.judgeTp = @judgeTp
+  | Conclusion  lhs.judgeTp = @lhs.relNm
+
+
+--
+-- Gather errors
+--
+
+ATTR Module [ | | gathErrs : {Errs} ]
+
+SEM Module
+  | Mod
+      lhs.gathErrs = takeFirstNonemptyErr [ @loc.nameErrs1, @loc.parseErrs, @loc.nameErrs2, @decls.gathErrs ]
+
+ATTR Decls Decl RelDecls RelDecl RuleDecls RuleDecl [ | | gathErrs USE {++} {[]} : {Errs} ]
+
+SEM RuleDecl
+  | Judge
+      lhs.gathErrs = @bindings.gathTypeErrs
+
+{
+takeFirstNonemptyErr :: [Errs] -> Errs
+takeFirstNonemptyErr errs
+  = case dropWhile null errs of
+      []    -> []
+      (x:_) -> x
+}
+

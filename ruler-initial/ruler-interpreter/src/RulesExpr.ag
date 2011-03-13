@@ -1,0 +1,118 @@
+MODULE {RulesExpr} {} {}
+
+PRAGMA gendatas
+PRAGMA gentypesigs
+PRAGMA gencatas
+PRAGMA gensems
+
+imports {
+import RulerExpr
+import UU.Scanner.Position
+import LambdaExpr
+}
+
+
+--
+-- Output patterns of rules
+--
+
+DATA PatOutput
+  | App
+      fun  : PatOutput
+      arg  : PatOutput
+  | Var
+      nm   : Ident
+  | Field
+      fld  : Ident
+      nm   : Ident
+  | Prim
+      pos  : Pos
+      val  : PrimVal
+  | Underscore
+      pos  : Pos
+  | Escape
+      pos  : Pos
+      expr : Expr
+
+
+ATTR PatOutput [ | | expr : Expr ]
+SEM PatOutput
+  | App
+      lhs.expr  = sem_Lambda_App @fun.expr @arg.expr
+  | Var
+      lhs.expr  = if @lhs.isLhsOfApp
+                  then Expr_Var Mode_Ref @nm
+                  else Expr_Var Mode_Def @nm
+  | Field
+      lhs.expr  = Expr_Field @fld @nm
+  | Prim
+      lhs.expr  = Expr_Prim @pos @val
+  | Underscore
+      loc.ident = Ident "__fresh" @pos
+      lhs.expr  = Expr_Seq [Stmt_Fresh @pos [@loc.ident]] (Expr_Var Mode_Ref @loc.ident)
+  | Escape
+      lhs.expr  = @expr
+
+
+ATTR PatOutput [ isLhsOfApp : Bool | | ]
+
+SEM Augment
+  | Output
+         body.isLhsOfApp = False
+
+SEM PatOutput
+  | App  fun.isLhsOfApp  = True
+         arg.isLhsOfApp  = False
+
+
+--
+-- Agument-exprs
+--
+
+DATA EqStmt
+  | Augment
+      pos    : Pos
+      deriv  : Ident
+      body   : Augments
+  | Establish
+      pos    : Pos
+      source : Ident
+      body   : Augments
+  | Conclusion
+      pos    : Pos
+      body   : Augmentss
+
+TYPE Augmentss = [Augments]
+TYPE Augments = [Augment]
+DATA Augment
+  | Input
+      pos  : Pos
+      nm   : String
+      expr : Expr
+  | Output
+      pos  : Pos
+      nm   : String
+      body : PatOutput
+
+ATTR EqStmt [ | | stmts : Stmts ]
+ATTR Augmentss Augments Augment [ deriv : Ident pos : Pos | | stmts USE {++} {[]} : Stmts ]
+
+SEM EqStmt
+  | Augment
+      body.deriv = @deriv
+      body.pos   = @pos
+  | Establish
+      loc.deriv  = Ident (identName @source ++ "-" ++ show (line @pos) ++ "d" ++ show (column @pos)) @pos
+      body.deriv = @loc.deriv
+      body.pos   = @pos
+      lhs.stmts  = [ Stmt_Inst @pos (Expr_Var Mode_Ref @source) @loc.deriv ]
+                   ++ @body.stmts
+                   ++ [ Stmt_Establish @pos @loc.deriv Nothing ]
+  | Conclusion
+      body.deriv = Ident "__this" @pos
+      body.pos   = @pos
+
+SEM Augment
+  | Input  lhs.stmts = [ Stmt_Equiv @lhs.pos (Expr_Field @lhs.deriv (Ident @nm @lhs.pos)) @expr ]
+  | Output lhs.stmts = [ Stmt_Bind @lhs.pos @body.expr (Expr_Field @lhs.deriv (Ident @nm @lhs.pos)) ]
+

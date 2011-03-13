@@ -1,0 +1,25 @@
+--
+-- Abstract syntax for expressions
+-- Refers to a Nonterminal for Bindings
+--
+-- Note that we only share the definition of this syntax, not the instantation
+-- to a Haskell data type. This has to be done for each choice of the
+-- Bindings-nonterminal.
+--
+
+DATA Expr
+  | String
+      pos : {Pos}
+      str : {String}
+  | Int
+      pos : {Pos}
+      n   : {Int}
+  | Ident
+      nm : {Identifier}
+  | Alt
+      pos      : {Pos}
+      nm       : {Identifier}
+      bindings : Bindings
+  | Parens
+      expr : Expr
+

@@ -1,0 +1,55 @@
+# Makefile for Ruler
+
+ag-files :=		Core/Core.ag Core/Pretty.ag \
+			Base/Base.ag Base/Main.ag \
+			Util/Error/Err.ag Util/Error/Pretty.ag \
+			Util/Format/Format.ag Util/Format/Pretty.ag \
+			Util/Pattern/Pattern.ag \
+			Util/Grammar/Grammar.ag Util/Grammar/Compile.ag \
+			Util/NameAnalysis/NameTree.ag Util/NameAnalysis/Analysis.ag
+
+alex-files := 		Base/Scanner.x Base/FlexScanner.x
+
+
+all: build/ruler
+
+build/ruler: populate-derived invoke-cabal
+	./setup build
+
+
+populate-derived: ag-derived alex-derived
+ag-derived: $(ag-files:%.ag=derived/%.hs)
+alex-derived: $(alex-files:%.x=derived/%.hs)
+
+
+derived/%.hs : src/%.ag
+	mkdir -p $(dir $@)
+	cd src; @UUAGC@ -mr --strictdata --strictwrap --genlinepragmas --Werrors -o ../$@ $(patsubst src/%,%,$<)
+
+derived/%.hs : src/%.x
+	mkdir -p $(dir $@)
+	@ALEX@ -o $@ -g $<
+
+
+invoke-cabal: setup dist/setup-config
+
+setup: Ruler.cabal
+	ghc -O2 --make Setup.hs -o setup
+
+dist/setup-config: Ruler.cabal
+	./setup configure
+
+
+clean:
+	rm -rf derived/*
+	test ./setup && ./setup clean
+	rm -f setup
+	rm -f Makefile.depend
+	rm -rf dist
+
+
+Makefile.depend:
+	UUAGC=@UUAGC@ ./gendeps.sh $(ag-files:%.ag=%)
+
+-include Makefile.depend
+

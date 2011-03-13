@@ -1,0 +1,126 @@
+--
+-- Compile a grammar into a parser
+--
+
+MODULE {Util.Grammar.Compile} {compileGrammar, TreeParsers, TreeParser} {}
+
+PRAGMA gentypesigs
+PRAGMA gencatas
+PRAGMA gensems
+
+INCLUDE "Util/Grammar/AST.ag"
+
+imports
+{
+import Data.Map(Map)
+import qualified Data.Map as Map
+import Data.Set(Set)
+import qualified Data.Set as Set
+
+import Util.Common
+import Util.Grammar.Grammar
+import Util.Parsing.Parser hiding (Symbol)
+import Util.Parsing.Support
+import Util.Parsing.Token
+}
+
+
+{
+type TreeParsers = Map NtIdent TreeParser
+type TreeParser = TokenParser ParseResult
+}
+
+
+ATTR GrammarRoot [ | | parsers : {TreeParsers} ]
+
+SEM GrammarRoot
+  | Root
+      loc.parsers = @gram.parsersGath
+
+ATTR GrammarRoot Grammar Productions Production Symbols Symbol [ pIdent : {TokenParser Identifier} | | ]
+
+ATTR Grammar [ | | parsersGath : {TreeParsers} ]
+
+SEM Grammar
+  | Entry
+      lhs.parsersGath = Map.insert @key @val.parser @tl.parsersGath
+  | Nil
+      lhs.parsersGath = Map.empty
+
+ATTR Grammar Productions Production Symbols Symbol [ parsers : {TreeParsers} | | ]
+ATTR Productions [ | | parser USE {<|>} {pFail} : {TreeParser} ]
+ATTR Production Symbol [ | | parser : {TreeParser} ]
+ATTR Symbols [ | parserList : {[TreeParser]} | ]
+
+SEM Production
+  | Prod
+      lhs.parser = joinTrees @sem <$> pSequence @symbols.parserList
+      symbols.parserList = []
+--  | Amb
+--      lhs.parser = ParseResult_Amb <$> amb @symbol.parser
+
+SEM Symbols
+  | Cons
+      lhs.parserList = @hd.parser : @tl.parserList
+
+SEM Symbol
+  | Term
+      lhs.parser = (\pos -> ParseResult_Tree $ ParseTree_Terminal $ Ident @token pos) <$> pKey @token
+  | Nonterm
+      lhs.parser = joinAmbs <$> amb (Map.findWithDefault (error ("no such parser: " ++ show @ref)) @ref @lhs.parsers)
+  | PrimString
+      lhs.parser = (\(p,s) -> ParseResult_Tree $ ParseTree_PrimString p s) <$> pString
+  | PrimInt
+      lhs.parser = (\(p,s) -> ParseResult_Tree $ ParseTree_PrimInt p s) <$> pInt
+  | PrimIdent
+      lhs.parser = (ParseResult_Tree . ParseTree_PrimIdent) <$> @lhs.pIdent
+  | Root
+      lhs.parser = pFail
+
+{
+joinAmbs :: [ParseResult] -> ParseResult
+joinAmbs []  = error "joinAmbs: no parse results"
+joinAmbs xs@(x:_)
+  = case x of
+      ParseResult_Tree _ -> ParseResult_Tree $ merge $ ParseTree_Amb $ treesFromResult xs
+      ParseResult_Function _ -> ParseResult_Function $ \prefix -> joinAmbs $ map (\(ParseResult_Function f) -> f prefix) xs
+  where
+    merge = join . expand
+
+    join [x] = x
+    join xs = ParseTree_Amb xs
+
+    expand (ParseTree_Amb xs) = concatMap expand xs
+    expand r                  = [r]
+
+joinTrees :: ProdSem -> [ParseResult] -> ParseResult
+joinTrees ProdSem_Identity [tree]
+  = tree
+joinTrees ProdSem_Parentheses [_, ParseResult_Tree tree, _]
+  = ParseResult_Tree $ ParseTree_Parentheses tree
+joinTrees (ProdSem_Name nm fields) forest
+  = ParseResult_Tree $ let trees    = treesFromResult forest
+                           pos      = getPosFromTree (head trees)
+                           children = Map.fromList [ (f, t) | (Just f, t) <- zip fields trees ]
+                       in ParseTree_Alternative pos nm children
+joinTrees (ProdSem_Lam sem) forest
+  = ParseResult_Function $ \prefix -> joinTrees sem (prefix ++ forest)
+joinTrees (ProdSem_App sem) forest
+  = let (ParseResult_Function f) = last forest
+    in f [joinTrees sem (init forest)]
+
+treesFromResult :: [ParseResult] -> [ParseTree]
+treesFromResult = map (\(ParseResult_Tree t) -> t)
+}
+
+
+WRAPPER GrammarRoot
+
+{
+compileGrammar :: TokenParser Identifier -> Grammar -> TreeParsers
+compileGrammar p g
+  = let inh = Inh_GrammarRoot { pIdent_Inh_GrammarRoot = p }
+        syn = wrap_GrammarRoot (sem_GrammarRoot $ GrammarRoot_Root g) inh
+    in parsers_Syn_GrammarRoot syn
+}
+

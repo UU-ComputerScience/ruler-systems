@@ -1,0 +1,6 @@
+-- Hello World example
+
+derivation inputs args
+{ branch main:
+    eval message 3;
+}

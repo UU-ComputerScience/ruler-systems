@@ -1,0 +1,48 @@
+--
+-- Representation of errors
+--
+
+TYPE Errs = [Err]
+
+DATA Err
+
+  | ParseErrors
+      errs    : {Errors}
+
+  | JudgeParseErrors
+      relNm   : {Identifier}
+      rulNm   : {Identifier}
+      judgeNm : {Identifier}
+      judgeTp : {Identifier}
+      errs    : {Errors}
+
+  | MissingDefinition
+      space : {String}
+      scope : {[String]}
+      type  : {String}
+      nm    : {Identifier}
+
+  | DuplicateDefinition
+      space : {String}
+      scope : {[String]}
+      nms   : {[(String, Identifier)]}
+
+  | Ambiguity
+      pos     : {Pos}
+      relNm   : {Identifier}
+      rulNm   : {Identifier}
+      judgeNm : {Identifier}
+      ctxTp   : {Identifier}
+      ctxAlt  : {Maybe Identifier}
+      fieldNm : {Identifier}
+      errs    : {[Errs]}
+
+  | TypeMismatch
+      pos        : {Pos}
+      relNm      : {Identifier}
+      rulNm      : {Identifier}
+      judgeNm    : {Identifier}
+      itemNm     : {Identifier}
+      actualTp   : {Identifier}
+      expectedTp : {Identifier}
+

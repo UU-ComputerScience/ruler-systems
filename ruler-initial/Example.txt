@@ -1,0 +1,211 @@
+module TypeCheck
+
+type Env
+  alt Ext
+    nm  :: Nm
+    ty  :: Ty
+    env :: Env
+
+type Ty
+  alt Arr
+    a :: Ty
+    r :: Ty
+  alt Int
+
+type Expr
+  alt Con
+    nm :: Nm
+  alt Var
+    nm :: Nm
+  alt App
+    f  :: Expr
+    a  :: Expr
+  alt Lam
+    nm :: Nm
+    b  :: Expr
+  alt Let
+    nm :: Nm
+    e  :: Expr
+    b  :: Expr
+
+relation
+  signature Tc
+    hole env :: Env
+    hole e   :: Expr
+    hole ty  :: Ty
+
+  rule Con
+    ident env :: Env
+    ident nm  :: Nm
+    ident ty  :: Ty
+
+    prem L :: Lookup
+      eqn env = env
+      eqn nm  = nm
+      eqn ty  = ty
+
+    conc R :: Tc
+      eqn env = env
+      eqn e   = Con { nm = nm }
+      eqb ty  = ty
+
+  rule Var
+    ident env :: Env
+    ident nm  :: Nm
+    ident ty  :: Ty
+
+    prem L :: Lookup
+      eqn env = env
+      eqn nm  = nm
+      eqn ty  = ty
+
+    conc R :: Tc
+      eqn env = env
+      eqn e   = Con { nm = nm }
+      eqb ty  = ty
+
+  rule App
+    ident env  :: Env
+    ident f    :: Expr
+    ident a    :: Expr
+    ident ty.a :: Ty
+    ident ty   :: Ty
+
+    prem F :: Tc
+      eqn env = env
+      eqn e   = f
+      eqn ty  = (ty.a -> ty)
+
+    prem A :: Tc
+      eqn env = env
+      eqn e   = a
+      eqn ty  = ty.a
+
+    conc R :: Tc
+      eqn env = env
+      eqn e   = App { f = f, a = a }
+      eqn ty  = ty
+
+  rule Lam
+    ident env  :: Env
+    ident nm   :: Nm
+    ident b    :: Expr
+    ident ty.a :: Ty
+    ident ty.b :: Ty
+
+    prem B :: Tc
+      eqn env = Ext { nm = nm, ty = ty.a, env = env }
+      eqn e   = b
+      eqn ty  = ty.b
+
+    conc R :: Tc
+      eqn env = env
+      eqn e   = Lam { nm = nm, b = b }
+      eqn ty  = Arr { a = ty.a, r = ty.b }
+
+  rule Let
+    ident env  :: Env
+    ident nm   :: Nm
+    ident e    :: Expr
+    ident b    :: Expr
+    ident ty.b :: Ty
+    ident ty.e :: Ty
+    ident env' :: Env
+
+    prem A :: Alias
+      eqn a = env'
+      eqn b = Ext { nm = nm, ty = ty.e, env = env }
+
+    prem E :: Tc
+      eqn env = env'
+      eqn e   = e
+      eqn ty  = ty.e
+
+    prem B :: Tc
+      eqn env = env'
+      eqn e   = b
+      eqn ty  = ty.b
+
+    prem R :: Tc
+      eqn env = env
+      eqn e   = Let { nm = nm, e = e, b = b }
+      eqn ty  = ty.b
+
+
+presentation symbol :-    layout "\vdash"
+presentation symbol :     layout ":"
+presentation symbol con   layout "\mbox{con}"
+presentation symbol var   layout "\mbox{var}"
+presentation symbol app   layout "\mbox{app}"
+presentation symbol lam   layout "\mbox{lam}"
+presentation symbol let   layout "\mbox{let}"
+presentation symbol gamma layout "\Gamma"
+presentation symbol tau   layout "\tau"
+
+presentation relation Tp
+  layout env >#< symbol :- >#< e >#< symbol : >#< tp
+
+  hole env layout symbol gamma
+  hole e   layout "e"
+  hole tp  layout symbol tau
+
+  rule Con
+    layout symbol con
+
+    layout L >-< I
+    layout R
+
+    ident env layout symbol gamma
+    ident nm  layout "x"
+    ident ty  layout symbol tau
+    ident ty' layout symbol tau >|< "'"
+
+  rule Var
+    layout symbol var
+
+    layout L >-< I
+    layout R
+
+    ident env layout symbol gamma
+    ident nm layout "x"
+    ident ty layout symbol tau
+    ident ty' layout symbol tau >|< "'"
+
+  rule App
+    layout symbol app
+
+    layout F >-< A
+    layout R
+
+    ident env  layout symbol gamma
+    ident f    layout "f"
+    ident a    layout "a"
+    ident ty.a layout (symbol tau).a
+    ident ty   layout symbol tau
+
+  rule Lam
+    layout symbol lam
+
+    layout B
+    layout R
+
+    ident env  layout symbol gamma
+    ident nm   layout symbol "x"
+    ident b    layout symbol "b"
+    ident ty.a layout (symbol tau)."a"
+    ident ty.b layout (symbol tau)."b"
+
+  rule Let
+    layout symbol let
+
+    layout A >-< E >-< B
+    layout R
+
+    ident env  layout symbol gamma
+    ident nm   layout "x"
+    ident e    layout "e"
+    ident b    layout "b"
+    ident ty.b layout (symbol tau)."b"
+    ident ty.e layout (symbol tau)."e"
+    ident env' layout symbol gamma >|< "'"
+

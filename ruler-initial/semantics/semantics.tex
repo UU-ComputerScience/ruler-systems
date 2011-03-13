@@ -1,0 +1,200 @@
+\documentclass[10pt]{article}
+
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{stmaryrd}
+\usepackage{mathpartir}
+\usepackage{float}
+
+\newcommand\Rules{r^*}
+\newcommand\Rule[1]{r_{#1}}
+\newcommand\Judgements{j^*}
+\newcommand\Judgement{j}
+\newcommand\Judgescheme[1]{j_{#1}}
+\newcommand\Bindings{\Delta}
+\newcommand\Signature[1]{\Sigma_{#1}}
+\newcommand\Env{\Gamma}
+\newcommand\Type{\tau}
+\newcommand\Substitution{\theta}
+\newcommand\Heap{H}
+\newcommand\BindingsIn[1]{\Bindings_{\mbox{in},#1}}
+\newcommand\BindingsOut[1]{\Bindings_{\mbox{out},#1}}
+\newcommand\Unify{\mathcal{U}}
+\newcommand\Dom{\mbox{dom}\;}
+\newcommand\CommitE{\mbox{commit}\;}
+
+\newcommand\Execution{\mathbf{exec}\;}
+\newcommand\Defer{\mathbf{defer}\;}
+\newcommand\Fixate{\mathbf{fixate}\;}
+\newcommand\Equal{\mathbf{equal}\;}
+\newcommand\Pipeline{\mathbf{pipeline}\;}
+\newcommand\Deferred{\mathbf{defr}\;}
+\newcommand\Commit{\mathbf{commit}\;}
+
+\newcommand\RulerCore{\ensuremath{\mathtt{Ruler Core}}}
+
+\floatstyle{boxed}
+\restylefloat{figure}
+
+\title{Semantics for \RulerCore}
+\author{Arie Middelkoop}
+
+\begin{document}
+
+\maketitle
+
+\section{Syntax and Notation}
+
+The syntax of the \RulerCore-language is given in
+Figure~\ref{fig:ruler-core-syntax}. A ruler program is a set of inferencer
+rules $\Rules$. Each particular rule $\Rule{s}$ is associated with a scheme $s$.
+Such a rule consists of a number conditions $\Judgements$, and a conclusion
+$\Judgescheme{s}$.
+
+\begin{figure}[htp]
+\begin{displaymath} 
+  \begin{array}[t]{rrlr}
+    \Rules           &    =    &   \emptyset  \;\mid\;  \Rule{s}, \Rules            & (\mbox{rules})\\
+    \Rule{s}         &    =    &   \Judgements ; \Judgescheme{s}                & (\mbox{rule})\\
+    \Judgements      &    =    &   \emptyset  \;\mid\;  \Judgement, \Judgements     & (\mbox{judgements})\\
+    \Judgement       &    =    &   \Judgescheme{s} \;\mid\; n_1 \equiv n_2 \;\mid\;
+                                   \Execution e :: (\Env_{\mbox{in}},\Env_{\mbox{out}})\\
+                     &    \mid &   \Defer n \prec \Judgements_1, \ldots, \Judgements_k\\
+                     &    \mid &   \Commit(v,e) \;\mid\; \Fixate \Judgescheme{s}\\
+                     &    \mid &   \Pipeline \Judgescheme{s_0} \succ_{\Bindings_1} \Judgescheme{s_1} \succ_{\Bindings_2} \ldots \succ_{\Bindings_k} \Judgescheme{s_k} & (\mbox{judgement})\\
+    \Judgescheme{s}  &    =    &   (\Bindings_{\mbox{in}}, \Bindings_{\mbox{out}})_s   & (\mbox{scheme instance})\\
+    \Env             &    =    &   \emptyset  \mid  n :: \Type, \Env            & (\mbox{environment})\\
+    \Bindings        &    =    &   \emptyset  \mid  n_1 \mapsto n_2, \Bindings  & (\mbox{bindings})\\
+    \Substitution    &    =    &   \emptyset  \mid  v \mapsto e \mid  v \mapsto \Deferred \Heap \succ \Judgements_1, \ldots, \Judgements_k \mid v \mapsto \bot   & (\mbox{substitution})\\
+    \Heap            &    =    &   \emptyset  \mid  n \mapsto e, \Heap          & (\mbox{heap})\\
+  \end{array}
+\end{displaymath}
+\caption{Syntax for \RulerCore.}
+\label{fig:ruler-core-syntax}
+\end{figure}
+
+With expressions $e$, types $\Type$, variables $v$, and identifiers $n$ and $s$.
+
+\section*{Semantics}
+
+\begin{displaymath}
+  \begin{array}[t]{ll}
+    \Substitution_0; \Heap_0; \Judgement \rightarrow \Heap_1; \Substitution_1   &  \mbox{reduction} \\
+    \Substitution_0; \Heap_0; \Judgement \rightarrow^{*}_{\Bindings} \Heap_1; \Substitution_1   &  \mbox{rewrites} \\
+    e_0 \rightarrow_e e_1   &  \mbox{evaluation} \\
+    \Substitution_1 = \Unify(\Substitution_0, e_1, e_2)   &   \mbox{unification} \\
+    \Rule{s} \in R(s) & \mbox{rules}
+  \end{array}
+\end{displaymath}
+
+
+\begin{mathpar}
+\inferrule*[right=con]
+  {}
+  {\Substitution = \Unify(\Substitution, c, c)}
+
+\inferrule*[right=var]
+  {}
+  {\Substitution = \Unify(\Substitution, v, v)}
+
+\inferrule*[right=app]
+  { \Substitution_1 = \Unify(\Substitution_0, f_1, f_2) \\
+    \Substitution_2 = \Unify(\Substitution_1, a_1, a_2) \\
+  }
+  {\Substitution_2 = \Unify(\Substitution_0, f_1 a_1, f_2 a_2)}
+
+\inferrule*[right=lvar]
+  { v \not\in \mbox{defers}(e) \\
+    \Substitution_1 = \CommitE(\Substitution_0, v, e) \\
+  }
+  {\Substitution_1 = \Unify(\Substitution_0, v, e)}
+
+\inferrule*[right=rvar]
+  { v \not\in \mbox{defers}(e) \\
+    \Substitution_1 = \CommitE(\Substitution_0, v, e) \\
+  }
+  {\Substitution_1 = \Unify(\Substitution_0, e, v)}
+
+\inferrule*[right=compose]
+  { v_3, v_4 \mbox{ fresh} \\
+    d = \Deferred \emptyset \prec \{ \Commit(v_3, v_2), \Commit(v_4, v_3), v_2 \equiv v_4 \} \\
+    \Substitution_1 = [ v_3 \mapsto \Substitution_0(v_1), v_4 \mapsto \Substitution_0(v_2), v_1 \mapsto v_2, v_2 \mapsto d ] \Substitution_0 \\
+  }
+  {\Substitution_1 = \Unify(\Substitution_0, v_1, v_2)}
+\end{mathpar}
+
+
+\begin{mathpar}
+\inferrule*[right=apply]
+  { \Judgement_1, \ldots, \Judgement_k; (\BindingsIn{1}, \BindingsOut{1} )_s \in R(s) \\
+    \Heap_0 = \Heap(\BindingsIn{0} \BindingsIn{1}) \\
+    \Substitution_0; \Heap_0; \Judgement_1 \rightarrow \Heap_1, \Substitution_1 \ldots \Substitution_{k-1}; \Heap_{k-1}; \Judgement_i \rightarrow \Heap_k, \Substitution_k \\
+    \Heap_{k+1} = \Heap_k(\BindingsOut{1} \BindingsOut{0}) \Substitution_{i} \Heap \\
+  }
+  {\Substitution_0; \Heap; (\BindingsIn{0}, \BindingsOut{0} )_s \rightarrow \Heap_{k+1}, \Substitution_k}
+
+\inferrule*[right=unify]
+  {\Substitution_1 = \Unify(\Substitution_0, \Heap(n_1), \Heap(n_2))}
+  {\Substitution_0; \Heap; n_1 \equiv n_2 \rightarrow \Substitution_1 \Heap; \Substitution_1}
+
+\inferrule*[right=exec]
+  { n_{\mbox{in,1}}, \ldots, n_{\mbox{in,k}} \in \Dom(\Env_{\mbox{in}}) \\
+    n_{\mbox{out,1}}, \ldots, n_{\mbox{out,m}} \in dom(\Env_{\mbox{out}}) \\
+    e @ \Substitution_0 @ \Heap(n_{\mbox{in},1}) @ \ldots @ \Heap(n_{\mbox{in},k}) \rightarrow_e (\Substitution_1, \Heap'(n_{\mbox{out},1}), \ldots, \Heap'(n_{\mbox{out},m})) \\
+  }
+  {\Substitution_0; \Heap; e :: (\Env_{\mbox{in}},\Env_{\mbox{out}}) \rightarrow \Heap' \Substitution_1 \Heap; \Substitution_1 }
+
+\inferrule*[right=defer]
+  { o_1, \ldots, o_k \in \mbox{outputs}(\Judgements_1) \cup \ldots \cup \mbox{outputs}(\Judgements_k) \\
+    v_1, \ldots, v_k \mbox{ fresh} \\
+    \Substitution_1(v_1), \ldots, \Substitution(v_k) = \bot \\
+    \Heap'(o_1) = v_1 \ldots \Heap'(o_k) = v_k \\
+    \Substitution_2 = v_j \mapsto \Deferred \Heap' \Heap \succ \Judgements_1, \ldots, \Judgements_k \\
+  }
+  {\Substitution_0; \Heap; \Defer n_j \prec \Judgements_1, \ldots, \Judgements_k \rightarrow \Heap' \Heap; \Substitution_2 \Substitution_1 \Substitution_0}
+
+\inferrule*[right=commit]
+  {\Substitution_1 = \CommitE(\Substitution_0,v,e)}
+  {\Substitution_0; \Heap; \Commit (v,e) \rightarrow \Substitution_1 \Heap; \Substitution_1}
+
+\inferrule*[right=fixate]
+  { \Substitution_0; \Heap_0; \Judgescheme{s} \rightarrow \Heap_1; \Substitution_1 \\
+    v_1, \ldots, v_k \in \mbox{defers}(\Substitution_1 - \Substitution) \\
+    \Substitution_{2} = \Commit(\Substitution_1, v_1, \bot) \ldots \Substitution_{k+1} = \Commit(\Substitution_k, v_k, \top)\\
+  }
+  {\Substitution_0; \Heap_0; \Fixate \Judgescheme{s} \rightarrow \Heap_1; \Substitution_k}
+
+\inferrule*[right=pipeline]
+  { \Substitution_0; \Heap_0; \Judgescheme{s_0} \rightarrow \Heap_1; \Substitution_1 \\
+    \Substitution_1; \Heap_1; \Judgescheme{s_1} \rightarrow^{*}_{\Bindings_1} \Heap_2; \Substitution_2 \;\ldots\; \Substitution_k; \Heap_k; \Judgescheme{s_k} \rightarrow^{*}_{\Bindings_k} \Heap_{k+1}; \Substitution_{k+1} \\
+  }
+  {\Substitution_0; \Heap_0; \Pipeline \Judgescheme{s_0} \succ_{\Bindings_1} \Judgescheme{s_1} \succ_{\Bindings_2} \ldots \succ_{\Bindings_k} \Judgescheme{s_k} \rightarrow \Heap_{k+1}; \Substitution_{k+1}}
+\end{mathpar}
+
+
+\begin{mathpar}
+\inferrule*[right=finish]
+  {}
+  {\Substitution;\Heap;\Judgescheme{s} \rightarrow^{*}_{\Bindings} \Heap(\Bindings) \Heap ; \Substitution}
+
+\inferrule*[right=step]
+  { \Substitution_0; \Heap_0; \Judgescheme{s} \rightarrow \Heap_1; \Substitution_1 \\
+    \Substitution_1; \Heap_1(\Bindings) \Heap_1; \Judgescheme{s} \rightarrow^{*}_{\Bindings} \Heap_2; \Substitution_2 \\
+  }
+  {\Substitution_0; \Heap_0; \Judgescheme{s} \rightarrow^{*}_{\Bindings} \Heap_2; \Substitution_2}
+\end{mathpar}
+
+
+\begin{mathpar}
+\inferrule*[right=commit]
+  { \Deferred \Heap \prec \Judgements_1, \ldots, \Judgements_k = \Substitution_0(v) \\
+    \Substitution_1 = [v \mapsto e] \Substitution_0 \\
+    \Heap_1 = \Substitution_1 \Heap \\
+    (\Judgement_1, \ldots, \Judgement_m) \in \Judgements_1, \ldots, \Judgements_k \\
+    \Substitution_1; \Heap_1; \Judgement_1 \rightarrow \Heap_2; \Substitution_2 \;\ldots\; \Substitution_m; \Heap_m; \Judgement_m \rightarrow \Heap_{m+1}; \Substitution_{k+m} \\
+  }
+  {\Substitution_{k+1} = \CommitE(\Substitution_0, v, e)}
+\end{mathpar}
+
+\end{document}

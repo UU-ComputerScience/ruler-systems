@@ -1,0 +1,100 @@
+module ExampleHM
+
+external type Ident format "x"
+
+type Gam
+  general
+    format \Gam
+  alt Extend
+    hole env :: Gam
+    hole x   :: Ident
+    hole ty  :: Ty
+    pattern infixr 2 env "," x ":->" ty
+    format env , x \mapsto ty
+
+type Subst
+  general
+    format \theta
+  alt App
+    hole l :: Subst
+    hole r :: Subst
+    pattern infixl 9 l r
+    format l r
+  alt Single
+    hole x  :: Ident
+    hole ty :: Ident
+    pattern "[" x ":->" ty "]"
+    format "[" x \mapsto ty "]"
+  alt Empty
+    pattern "empty"
+    format \emptyset
+
+type Ty
+  general
+    format \tau
+  alt Var
+    hole nm :: Ident
+    pattern nm
+    format nm
+  alt Arr
+    hole a :: Ty
+    hole r :: Ty
+    pattern infixr 4 a -> r
+    format a \rightarrow r
+  alt Univ
+    hole a :: Ident
+    hole t :: Ty
+    pattern infixr 1 "forall" a "." t
+    format "forall" a "." t
+
+type Expr
+  general
+    format "e"
+  alt Var
+    hole nm :: Ident
+    pattern nm
+    format nm
+  alt App
+    hole f :: Expr
+    hole a :: Expr
+    pattern infixl 9 f a
+    format f a
+  alt Lam
+    hole x :: Ident
+    hole b :: Expr
+    pattern infixr 2 \ x "." b
+    format "\\" x "." b
+  alt Let
+    hole x :: Ident
+    hole e :: Expr
+    hole b :: Expr
+    pattern infixr 1 "let" x = e "in" b
+    format "let" x = e "in" b
+
+external relation Lookup
+  hole env :: Gam
+  hole x   :: Ident
+  hole ty  :: Ty
+  pattern env "(" x ")" = ty
+  format env "(" x ")" = ty
+
+relation Tc
+  hole sin  :: Subst
+  hole sout :: Subst
+  hole env  :: Gam
+  hole e    :: Expr
+  hole ty   :: Ty
+  pattern sin ; env :- e : ty ; sout
+  format sin ; env \vdash e  : ty ; sout
+
+  rule Var
+    ident env :: Gam   format \Gam
+    ident x   :: Ident format "x"
+    ident ty  :: Ty    format \tau
+    ident s   :: Subst format \theta
+
+    prem L :: Lookup
+      env(x) = ty
+    conc R
+      s ; env :- x : ty ; s
+

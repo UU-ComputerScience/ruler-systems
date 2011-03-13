@@ -1,0 +1,158 @@
+-- =============================================================================
+-- Phase 4: Static checks: Type checking of judgements
+-- =============================================================================
+
+
+--
+-- Pass down the binding environment, which contains the types of each
+-- component in the bindings (based on the relation or on the data type).
+--
+-- We use this to discover the expected type of the expression.
+--
+
+ATTR Bindings Binding [ bindingEnv : {Map Identifier Identifier} | | ]
+ATTR Bindings Binding Exprs Expr [ expTp : Identifier | | ]
+
+SEM Binding
+  | Assign
+      exprs.expTp = Map.findWithDefault (error "name not in bindingEnv") @nm @lhs.bindingEnv
+
+SEM RuleDecl
+  | Judge
+      bindings.expTp = @kind.judgeTp
+
+
+--
+-- Obtain the binding environments from the collected fields of data types and
+-- relations.
+--
+
+ATTR Decls Decl RelDecls RelDecl RuleDecls RuleDecl Bindings Binding Expr Exprs [ allFields : {Map Identifier (Map Identifier (Map Identifier Identifier))} | | ]
+
+SEM Module
+  | Mod
+      decls.allFields = @loc.fields
+
+SEM Expr
+  | Alt
+      bindings.bindingEnv = Map.findWithDefault Map.empty @nm $ Map.findWithDefault Map.empty @lhs.expTp @lhs.allFields
+
+SEM RuleDecl
+  | Judge
+      bindings.bindingEnv = Map.findWithDefault Map.empty relationNm $ Map.findWithDefault Map.empty @kind.judgeTp @lhs.allFields
+
+
+--
+-- Get all the types of the local identifiers of a rule
+--
+
+ATTR RuleDecls RuleDecl [ | | gathRuleIdents USE {`merge`} {Map.empty} : {Map Identifier [Identifier]} ]
+
+SEM RuleDecl
+  | Ident
+      lhs.gathRuleIdents = Map.singleton @nm [@tp]
+
+ATTR RelDecls RelDecl [ | | gathRuleIdents USE {`merge`} {Map.empty} : {Map Identifier (Map Identifier [Identifier])} ]
+
+SEM RelDecl
+  | Rule
+      lhs.gathRuleIdents = Map.singleton @nm @decls.gathRuleIdents
+
+ATTR Decls Decl [ | | gathRuleIdents USE {`merge`} {Map.empty} : {Map Identifier (Map Identifier (Map Identifier [Identifier]))} ]
+
+SEM Decl
+  | Relation
+      lhs.gathRuleIdents = Map.singleton @nm @decls.gathRuleIdents
+
+
+--
+-- Obtain the known type of an identifier from the type declaration of this identifier
+--
+
+ATTR Decls Decl [ allRuleIdents : {Map Identifier (Map Identifier (Map Identifier Identifier))} | | ]
+ATTR RelDecls RelDecl [ allRuleIdents : {Map Identifier (Map Identifier Identifier)} | | ]
+ATTR RuleDecls RuleDecl Bindings Binding Expr Exprs [ allRuleIdents : {Map Identifier Identifier} | | ]
+
+SEM Module
+  | Mod
+      loc.ruleIdents = snd $ dups @decls.gathRuleIdents
+      decls.allRuleIdents = @loc.ruleIdents
+
+SEM Decl
+  | Relation
+      decls.allRuleIdents = Map.findWithDefault Map.empty @nm @lhs.allRuleIdents
+
+SEM RelDecl
+  | Rule
+      decls.allRuleIdents = Map.findWithDefault Map.empty @nm @lhs.allRuleIdents
+
+SEM Expr
+  | Ident
+      loc.tp = Map.findWithDefault (error "allRuleIdents: ident type not in map") @nm @lhs.allRuleIdents
+
+
+--
+-- Type checking: verify that the expected type matches the known type
+--
+
+ATTR Bindings Binding Expr [ | | gathTypeErrs USE {++} {[]} : {Errs} ]
+ATTR Exprs [ | | gathTypeErrs : {[Errs]} ]
+
+SEM Exprs
+  | Cons  lhs.gathTypeErrs = @hd.gathTypeErrs : @tl.gathTypeErrs
+  | Nil   lhs.gathTypeErrs = []
+
+SEM Binding
+  | Assign
+      lhs.gathTypeErrs = if length @exprs.gathTypeErrs == 1
+                         then head @exprs.gathTypeErrs
+                         else if length (filter null @exprs.gathTypeErrs) == 1
+                              then []
+                              else [ Err_Ambiguity @exprs.pos @lhs.relNm @lhs.rulNm @lhs.judgeNm @lhs.expTp @lhs.ctxAlt @nm @exprs.gathTypeErrs ]
+
+
+SEM Expr
+  | String
+      loc.nm = Ident "string" @loc.pos
+      loc.tp = Ident "String" @loc.pos
+  | Int
+      loc.nm = Ident "integer" @loc.pos
+      loc.tp = Ident "Int" @loc.pos
+  | Ident
+      loc.nm = @nm
+  | String Int Ident
+      lhs.gathTypeErrs
+        = if @loc.tp /= @lhs.expTp
+          then [ Err_TypeMismatch @loc.pos @lhs.relNm @lhs.rulNm @lhs.judgeNm @loc.nm @lhs.expTp @loc.tp ]
+          else []
+
+
+--
+-- Position information of expressions
+--
+
+ATTR Exprs Expr [ | | pos : {Pos} ]
+
+SEM Exprs
+  | Cons lhs.pos = @hd.pos
+  | Nil  lhs.pos = noPos
+
+SEM Expr
+  | String Int Alt  loc.pos = @pos
+  | Ident           loc.pos = identPos @nm
+
+
+--
+-- The "alternative name" of a list of bindings
+--
+
+ATTR Bindings Binding [ ctxAlt : {Maybe Identifier} | | ]
+
+SEM Expr
+  | Alt
+      bindings.ctxAlt = Just @nm
+
+SEM RuleDecl
+  | Judge
+      bindings.ctxAlt = Nothing
+

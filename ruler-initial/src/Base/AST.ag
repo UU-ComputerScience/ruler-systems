@@ -1,0 +1,88 @@
+-- =============================================================================
+--   Ruler base language
+-- =============================================================================
+
+DATA Module
+  | Mod
+      nm    : {Identifier}
+      decls : Decls
+
+TYPE Decls = [Decl]
+
+DATA Decl
+  | Type
+      nm         : {Identifier}
+      decls      : TypeDecls
+      isExternal : {Bool}        -- Invariant: external types do not have alternatives.
+  | Relation
+      nm         : {Identifier}
+      decls      : RelDecls
+      isExternal : {Bool}        -- Invariant: external relations do not have rules.
+
+TYPE TypeDecls = [TypeDecl]
+
+DATA TypeDecl
+  | Alt
+      nm     : {Identifier}
+      decls  : AltDecls
+  | Format
+      pos    : {Pos}
+      format : Format
+
+TYPE AltDecls = [AltDecl]
+
+DATA AltDecl
+  | Pattern
+      pos : {Pos}
+      pat : PatternInfo
+  | Format
+      pos    : {Pos}
+      format : Format
+  | Hole
+      nm : {Identifier}
+      tp : {Identifier}
+
+TYPE RelDecls = [RelDecl]
+
+DATA RelDecl
+  | Hole
+      nm : {Identifier}
+      tp : {Identifier}
+  | Pattern
+      pos : {Pos}
+      pat : PatternInfo
+  | Format
+      pos    : {Pos}
+      format : Format
+  | Rule
+      nm    : {Identifier}
+      decls : RuleDecls
+
+TYPE RuleDecls = [RuleDecl]
+
+DATA RuleDecl
+  | Ident
+      nm     : {Identifier}
+      tp     : {Identifier}
+      format : Format
+  | Judge
+      kind  : Kind
+      nm    : {Identifier}
+      pos   : {Pos}
+      str   : {String}
+      -- has virtual child: bindings : Bindings
+
+DATA Kind
+  | Premise
+      judgeTp : {Identifier}
+  | Conclusion
+
+TYPE Bindings = [Binding]
+
+DATA Binding
+  | Assign
+      nm    : {Identifier}
+      exprs : Exprs
+
+TYPE Exprs = [Expr]
+

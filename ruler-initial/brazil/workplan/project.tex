@@ -1,0 +1,32 @@
+\documentclass[a4paper]{article}
+
+\title{Workplan: Generating implementation of higher-ranked types from type rules}
+\author{Arie Middelkoop\\Universiteit Utrecht\\ariem@cs.uu.nl}
+
+\begin{document}
+
+\maketitle
+
+\paragraph{Introduction} {\it Typed programming languages} have the important property that certain types of errors cannot be present when a program writing in such a language is well typed. A {\it type system} for such a language defines when a program is well typed. A compiler contains an implementation of this type system to either verify that a program is well typed if types are already provided as part of the source program in terms of type signatures by the programmer ({\it type checking}) or reconstruct missing types if types are not provided together with the source language ({\it type inference}). Explicitly specifying all types is a tedious job, which can be saved by type inference, but unfortunately, type inference is often undecidable. The type system of the programming language Haskell can only deal with types of a certain shape, called rank-one types, and can be implemented. However, there are many programs that can be written in a more concise way if the type system supports so called {\it higher-ranked types}. Unfortunately, for type systems that fully support types of rank three and higher, it is known that type inference is undecidable. Type checking, on the other hand, is just a trivial extension.
+
+The past years, many algorithms were proposed that perform type checking at those places in the program where type inference is not possible, and require the programmer to specify type annotations for a portion of the program only. Although successful, these algorithms have the downside that their specification in terms of algorithmic {\it type rules} is complicated and overly detailed, in contrast to declarative type rules, which makes it hard to reason formally with them. Also, it makes it hard for a programmer to predict when a type annotation is needed and when it can be omitted. Finally, the actual implementation of the type inferencer is even more complex, and not directly related to the type rules that specified it, which makes it hard to maintain and hard to explain.
+
+\paragraph{Ph.D.~research at UU, Utrecht, The Netherlands}
+
+We intent to solve the problems mentioned above by taking the type rules as a blue print of the type system, and {\it generate} the implementation of this type system from these type rules. As part of a Ph.D.~research (supervised by Doaitse Swierstra and Atze Dijkstra), the UU hosts the Ruler project, which is about the development of {\it Ruler}, a domain specific language for type rules, out of which an implementation of a type inferencer for {\it EHC}, the Haskell compiler being developed in Utrecht, is generated. The key idea is that the specification of a type system in Ruler starts with declarative type rules (suitable for formal reasoning and publishing). Then, by specifying transformations on these type rules, the specification is augmented with additional information until an (efficient) implementation can be derived. This way, the specification is more concise, explainable at different levels of detail, and more robust against changes.
+
+\paragraph{Project at UFMG, Belo Horizonte, Brazil} At the UFMG, Luc\'{i}lia Camarao works on a formal specification of a type system for higher-ranked types for Haskell, in collaboration with Atze Dijkstra. Some of the ideas resulting from the Ruler project are being put into a concrete tool, also called Ruler. This tool then forms a practical basis for the research at the UFMG, while at the same time resulting in a concrete use case for the Ph.D. research at the UU: to discover what abstractions and notation with respect to the Ruler language are needed for a concise formulation of rules for higher-ranked types, and the derivation of an implementation for EHC. The Ruler project is therefore carried out for half a year at the UFMG, to improve collaboration and stimulate both the research at the UFMG and at the UU. It also provides the means to share some of the compiler construction knowledge of the UU, and the involvement of students with the project, to make them enthausiastic for potential follow-up master studies in Europe.
+
+\paragraph{Time table}
+
+\begin{itemize}
+\item September and October 08: Arrival in Brazil. Meeting researchers and students of the UFMG. Teaching at the UFMG about the compiler construction tools in Utrecht. Formulating student projects.
+\item October 08: Parallel track: continuing development of a type system for higher-ranked types.
+\item November 08: Initial version of Ruler that produces \LaTeX~formatting of the type rules suitable for publishing.
+\item December 08: Generation of a simplified type system for higher-ranked types.
+\item January 08: Generation of a concrete type system for EHC for higher-ranked types.
+\item February 09: Improving abstractions, measuring and improving performance.
+\item March 09: Return from Brazil. Publishing results.
+\end{itemize}
+
+\end{document}

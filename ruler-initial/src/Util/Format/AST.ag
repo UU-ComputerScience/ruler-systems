@@ -1,0 +1,18 @@
+DATA Format
+  | Empty
+  | Tail
+      left   : Format
+      sub    : Format
+      sup    : Format
+  | Identifier
+      nm     : {Identifier}
+  | Symbol
+      str    : {Identifier}
+  | Primitive
+      str    : {String}
+  | Seq
+      left   : Format
+      right  : Format
+  | Above
+      top    : Format
+      bottom : Format

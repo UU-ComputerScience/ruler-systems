@@ -1,0 +1,278 @@
+\documentclass[preprint,natbib]{sigplanconf}
+
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{stmaryrd}
+\usepackage{txfonts}
+\usepackage{float}
+\usepackage{mathpartir}
+\usepackage{xcolor}
+\usepackage{natbib}
+
+\floatstyle{boxed}
+\restylefloat{figure}
+\setlength{\fboxsep}{1.4pt}
+
+\newcommand\trans[1]{ \textcolor{blue}{\mathtt{transact} \: [\;} #1 \textcolor{blue}{\;]} }
+
+\begin{document}
+
+\title{Type Inference with Transactions}
+
+\authorinfo{Arie Middelkoop}
+           {Universiteit Utrecht}
+           {ariem@cs.uu.nl}
+
+\section{Introduction}
+
+  A typed language has a type system that specifies which types are valid for
+  an expression. A type checker checks if a given type for an expression is
+  valid, whereas a type inferencer finds a permissible type if it exists. In the
+  latter case the types are not known beforehand. Therefore, types contain place
+  holders, commonly known as {\it type variables}, which are gradually filled in
+  during inference. These type variables represent write-once mutable state.
+  However, we argue that a more complex representation is necessary.
+
+  \paragraph{Challenges.}
+  We first give a list of challenges that an inference algorithm faces, and
+  describe what ad-hoc techniques inference algorithms use to deal with these
+  challenges. We later show an elegant innovative technique to deal with all of these
+  challenges, based on a more complex representation of type variables, and
+  transactional techniques to hide this additional complexity.
+
+  \begin{description}
+  \item[Absence of principality.]
+    First-class polymorphism has become desired property of functional languages
+    such as Haskell. The classical formal system in this setting, System F,
+    lacks principal types. There may be multiple type derivations for an
+    expression resulting in incomparable types. There are variations on System F
+    that have principal types that either have more expressive types encoding
+    the disjunction of the possibilities~[HML], disallowing all but one of the
+    possibilities~[FPH], or a hybrid approach where expressions may have more
+    complex types but the types of bindings must be System F types.
+
+    During inference, the absence of principality relates directly to
+    more than one possible type for a type variable. In the covariant case by
+    discovering that there is more than one rule possible to derive a type for
+    this variable. In the contravariant case when conflicting types are
+    discovered for a type variable, which either indicates a type error, or
+    that the actual type for this variable is more general than the conflicting
+    types discovered so far.
+
+    Since only a single type for a variable is allowed, inference algorithms
+    for such systems use several type signature propagation techniques to know
+    beforehand some of the types that are discovered later, and have complex
+    unification procedures that integrate instantiation and generalization
+    [EH,HML], defer decisions about variables by recording constrains about them
+    in global environments [HML,FPH], and force decisions at certain places
+    [FPH]. Polluting the unification procedure is already undesirable, and on
+    top of that deals each inference algorithm with these subproblems in their
+    own way, using specific and hard to combine infrastructure.
+
+    Moreover, there are type-based analyses (such as usage analysis) that
+    benefit from a (partially, i.e. module level) closed-world. For such
+    analyses having more than one incomparable type for an expression may even
+    be desired for specialization purposes.
+  \item[Allowing local type variable assumptions.]
+    Some language features allow for stronger assumptions about type variables
+    in a certain scope:
+    \begin{itemize}
+    \item When defining an existential, locally the exact type of the existential
+      is known, but hidden globally.
+    \item Functional dependencies is a type class extension in which one can express
+      that selecting an instance has as side effect that more information about
+      some types becomes known. These extra demands may then lead to more
+      context reduction, until a fixpoint is reached.
+    \item With Generalized Algebraic Data Types, hidden type information can be
+      recovered. For example, suppose
+      that we can only construct a GADT value with a certain constructor if
+      the type of this value is $Expr\;Int$. Furthermore, suppose that we are
+      in a context where we encounter such a value, but it has the type
+      $Expr\;a$ with $a$ a rigid type. We are not allowed to make any
+      assumptions about this $a$. What type it actually has is hidden. Unless
+      we match against the constructor again, which proves that in the scope of
+      the match the $a$ is actually an $Int$.
+    \end{itemize}
+
+    We now focus on two typical techniques used by inference algorithms to deal
+    with GADT. One solution is to clone the state of the type
+    variables, insert the stronger assumptions about the type variables,
+    perform inference on the subexpression, and finally merge the results~[GHC].
+    Unfortunately, deferring a portion of the type inference to a more
+    appropriate time is hard in this case, because the local memory must be
+    reconstructed and merged at the appropriate places. This drawback arises
+    when inference algorithms use multi-pass techniques.
+    
+    Another solution is to use a single memory space and at those places where
+    conflicts occur, generate proof obligations that the types are the
+    same~[my GADT paper]. Efficiency is a drawback, and it complicates
+    instance selection when combining with Functional Dependencies.
+  \item[Concurrency.]
+    Due to the local nature of type inference, a type inferencer is a suitable
+    candidate for parallelism. However, the global mutable state of type
+    variables is a problem. Access to these variables must be properly
+    synchronized, and the concurrent process properly coordinated such that
+    for example resolving of overloading is done only after the required
+    type information has become available. There are standard techniques
+    to deal with the first case, but not for the latter.
+%%  \item[Integrating custom unification algorithms.]
+%%    hmm, this is more like a side-effect.
+  \end{description}
+
+  The ad-hoc solutions to these challenges influence each other, blowing up the
+  implementation complexity. Therefore, it is clear that abstractions are needed
+  in order to take the above challenges properly into account. However, we are
+  not willing to pay for it in terms of performance: a less ad-hoc solution
+  must still run in the same order of magnitude considering time and space.
+
+  We present an elegant and novel approach to deal with all of the above. We
+  present the idea in abstract terms first and show concrete examples of this
+  idea.
+  
+  \paragraph{Type inference.}
+  We first p
+  
+  In order to explain our idea without limiting ourselves to particular type
+  inference technology, 
+  
+  we first model type inference.
+  
+  We consider type inference to be the evaluation of type rules.
+  
+  
+  Inference is evaluating type rules.
+  
+  
+  \paragraph{Transactions.}
+  The first.
+  
+  
+  
+  
+  \begin{description}
+    \item[Idea 1: type variables represent a tree.]
+      Instead of a single type, the mutable state of a type variables is a
+      \emph{rose tree} of types. The types in this tree are related to each
+      other by means of a consistency relation between the type contained in
+      a node of the tree, and the types contained in its direct children. An
+      individual consistency relation may be defined for each node.
+
+      Examples of such consistency relations are: the parent type is more
+      general than those of the children, the parent type and those of the
+      children are equal, the parent type is totally unrelated to the types
+      of the children, or the parent type is the disjunction of the types of
+      the children.
+
+      The structure of the tree reflects the idea of a \emph{scope} mentioned in
+      the above challenges, and the enforcement of the consistency relation to
+      the propagation of type information between scopes. Also, the tree
+      represents multiple possible types for a type variable.
+    \item[Idea 2: transactional access of type variables.]
+      Inference rules are evaluated in the context of a transaction. In this
+      context, the mutable state of a type variable is the type contained in a
+      single node of the tree associated with the type variable.
+
+      There is one root transaction. A premise of a rule can have a
+      transaction-annotation, which causes the evaluation of that premise in
+      a nested transaction. There is a unique node for each transaction in the
+      tree of a type variable. Inside a transaction, there can be only one type
+      for a variable. However, across transactions these types are allowed to
+      differ. To what extend is entirely up to the consistency relations of the
+      trees in question.
+
+      Transactions can fail, restart, commit or be deferred.
+      \begin{itemize}
+      \item A transaction fails if the
+        evaluation of its premise fails. The effects of the transaction on the
+        tree are undone and the subtree removed. This may lead to restarts of
+        parent transactions (and their nested transactions).
+      \item A transaction restarts when a type that it observed during its
+        evaluation changes (due to enforcement of the consistency relations). The
+       effects of a restarting transaction are not undone, and it therefore may
+        only refine choices it made before.
+      \item Premises can be annotated with a fixate-annotation. Transactions
+        encountered during the evaluation of such a premise are conceptually
+        alive since evaluation entered the premise. The transactions commit
+        when evaluation of the premise finishes. A transaction commits by fixing
+        its values in the trees. All transactions must commit, except for
+        deferred transactions.
+      \item A transaction can be deferred until some particular types becomes
+        known. A deferred transaction actually represents multiple transactions:
+        one for each instantiation of this particular type.
+      \end{itemize}
+  \end{description}
+  
+\section{Examples}
+
+  \begin{figure}[htp]
+  \begin{mathpar}
+    \inferrule*[right=VAR/INST]
+      { (x :: \forall \overline{\alpha} . \tau) \in \Gamma }
+      { \Gamma \vdash x : [ \overline{\alpha \coloneqq \tau'} ] \: \tau }
+
+    \inferrule*[right=APP/GEN]
+      { \Gamma \vdash f : \forall \overline{\alpha} . \tau_a \rightarrow \tau_r \\\\
+        \Gamma \vdash a : \tau_a \\
+        \overline{\alpha} \not\in \Gamma \\
+      }
+      { \Gamma \vdash f \: a : \tau_r }
+    
+    \inferrule*[right=LET]
+      { \Gamma \vdash e : \tau_x \\\\
+        x :: \forall \overline{\alpha} . \tau_x, \Gamma \vdash b : \tau_b \\\\
+        \overline{\alpha} = \mbox{ftv} \: \tau_x - \mbox{ftv} \: \Gamma \\
+      }
+      { \Gamma \vdash \mbox{let} \: x = e \: \mbox{in} \: b : \tau_b }
+
+    \inferrule*[right=LAM]
+      { x :: \tau_x, \Gamma \vdash e : \tau_e }
+      { \Gamma \vdash \lambda x . e : \tau_x \rightarrow \tau_e }
+  \end{mathpar}
+  
+  \label{fig:example-impred-ts}
+  \caption{Impredicative type system.}
+  \end{figure}
+
+  Figure~\ref{fig:example-impred-ts} shows a syntax directed type system for
+  first class polymorphism. Figure~\ref{fig:example-impred-trans} is a sound
+  but incomplete (because it cannot type $\lambda x \:.\; x \: x$, which
+  requires invention of polymorphism) transactional
+  inference algorithm for this type system.
+
+  \begin{figure}[htp]
+  \begin{mathpar}
+    \inferrule*[right=VAR/INST]
+      { (x :: \tau_1) \in \Gamma \\\\
+        \trans{ \tau_1 \equiv \forall \overline{\alpha} . \tau  \hspace{1em}  \tau_2 \equiv [ \overline{\alpha \coloneqq \tau'} ] \: \tau } \\
+      }
+      { \Gamma \vdash x :  \tau_2 }
+
+    \inferrule*[right=APP/GEN]
+      { \Gamma \vdash f : \tau_{a_g} \rightarrow \tau_r \\\\
+        \Gamma \vdash a : \tau_a \\\\
+        \trans{ \tau_{a_g} \equiv \forall \overline{\alpha} . \tau_a'  \hspace{1em}  \tau_a \equiv \tau_a'  \hspace{1em}  \overline{\alpha} \not\in \Gamma } \\
+      }
+      { \Gamma \vdash f \: a : \tau_r }
+    
+    \inferrule*[right=LET]
+      { \Gamma \vdash e : \tau_x \\
+        x :: \tau_x', \Gamma \vdash b : \tau_b \\\\
+        \trans{ \overline{\alpha} = \mbox{ftv} \: \tau_x - \mbox{ftv} \: \Gamma  \hspace{1em} \tau_x' \equiv \forall \overline{\alpha} . \tau_x } \\
+      }
+      { \Gamma \vdash \mbox{let} \: x = e \: \mbox{in} \: b : \tau_b }
+
+    \inferrule*[right=LAM]
+      { x :: \tau_x, \Gamma \vdash e : \tau_e }
+      { \Gamma \vdash \lambda x . e : \tau_x \rightarrow \tau_e }
+  \end{mathpar}
+  
+  \label{fig:example-impred-trans}
+  \caption{Transactional inferencer.}
+  \end{figure}
+
+
+
+
+\end{document}

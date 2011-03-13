@@ -1,0 +1,61 @@
+module TypeCheck
+
+external type Var format "Var"
+external type Gam format "Gam"
+
+type Ty
+  general
+    format "Ty"
+  alt Ident
+    hole nm :: Var
+    pattern nm
+    format nm
+  alt App
+    hole f :: Ty
+    hole a :: Ty
+    pattern infixl 9 f a
+    format f a
+  alt Univ
+    hole a :: Var
+    hole t :: Ty
+    pattern infixr 1 "forall" a "." t
+    format "forall" a "." t
+
+type Expr
+  general
+    format "Expr"
+  alt Ident
+    hole nm :: Var
+    pattern nm
+    format nm
+  alt App
+    hole f :: Expr
+    hole a :: Expr
+    pattern infixl 9 f a
+    format f a
+  alt Lam
+    hole x :: Var
+    hole b :: Expr
+    pattern infixr 2 "\\" x "." b
+    format "\\" x "." b
+  alt Let
+    hole x :: Var
+    hole e :: Expr
+    hole b :: Expr
+    pattern infixr 1 "let" x "=" e "in" b
+    format "let" x "=" e "in" b
+
+relation Tc
+  hole env :: Gam
+  hole e   :: Expr
+  hole ty  :: Ty
+  pattern env ":-" e ":" ty
+  format env :- e "bla" : ty
+
+  rule Var
+    ident env :: Gam  format \Gam
+    ident x   :: Expr format "x"
+    ident ty  :: Ty   format \tau
+    conc R
+      env :- x : ty
+

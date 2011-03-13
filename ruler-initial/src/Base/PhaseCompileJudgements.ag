@@ -1,0 +1,193 @@
+-- =============================================================================
+-- Phase 2: Parsing: Replace judgement strings by bindings AST
+-- =============================================================================
+
+
+
+--
+-- Gather patterns
+--
+
+ATTR AltDecls AltDecl [ | | gathPatInfo USE {`merge`} {[]} : {[PatternInfo]} ]
+
+SEM AltDecl
+  | Pattern
+      lhs.gathPatInfo = [@pat.self]
+
+ATTR PatternInfo Pattern [ | | self : SELF ]
+
+ATTR TypeDecls TypeDecl [ | | gathPatInfo USE {`merge`} {Map.empty} : {Map Identifier [PatternInfo]} ]
+
+SEM TypeDecl
+  | Alt
+      lhs.gathPatInfo = Map.singleton @nm @decls.gathPatInfo
+
+ATTR RelDecls RelDecl [ | | gathPatInfo USE {`merge`} {[]} : {[PatternInfo]} ]
+
+SEM RelDecl
+  | Pattern
+      lhs.gathPatInfo = [@pat.self]
+
+ATTR Decls Decl [ | | gathPatInfo USE {`merge`} {Map.empty} : {Map Identifier (Map Identifier [PatternInfo])} ]
+
+SEM Decl
+  | Type
+      lhs.gathPatInfo = Map.singleton @nm @decls.gathPatInfo
+  | Relation
+      lhs.gathPatInfo = Map.singleton @nm (Map.singleton relationNm @decls.gathPatInfo)
+
+
+--
+-- Gather fields
+--
+
+ATTR AltDecls AltDecl [ | | gathFields USE {`merge`} {Map.empty} : {Map Identifier [Identifier]} ]
+
+SEM AltDecl
+  | Hole
+      lhs.gathFields = Map.singleton @nm [@tp]
+
+ATTR TypeDecls TypeDecl [ | | gathFields USE {`merge`} {Map.empty} : {Map Identifier (Map Identifier [Identifier])} ]
+
+SEM TypeDecl
+  | Alt
+      lhs.gathFields = Map.singleton @nm @decls.gathFields
+
+ATTR RelDecls RelDecl [ | | gathFields USE {`merge`} {Map.empty} : {Map Identifier [Identifier]} ]
+
+SEM RelDecl
+  | Hole
+      lhs.gathFields = Map.singleton @nm [@tp]
+
+ATTR Decls Decl [ | | gathFields USE {`merge`} {Map.empty} : {Map Identifier (Map Identifier (Map Identifier [Identifier]))} ]
+
+SEM Decl
+  | Type
+      lhs.gathFields = Map.singleton @nm @decls.gathFields
+  | Relation
+      lhs.gathFields = Map.singleton @nm (Map.singleton relationNm @decls.gathFields)
+
+
+--
+-- Gather names for pattern alternatives
+--
+
+ATTR TypeDecls TypeDecl [ | | gathPatAlts USE {`merge`} {Set.empty} : {Set Identifier} ]
+
+SEM TypeDecl
+  | Alt
+      lhs.gathPatAlts = Set.singleton @nm
+
+ATTR Decls Decl [ | | gathPatAlts USE {`merge`} {Map.empty} : {Map Identifier (Set Identifier)} ]
+
+SEM Decl
+  | Type
+      lhs.gathPatAlts = Map.singleton @nm @decls.gathPatAlts
+  | Relation
+      lhs.gathPatAlts = Map.singleton @nm (Set.singleton relationNm)
+
+
+--
+-- Gather relation names
+--
+
+ATTR Decls Decl [ | | gathRelationNames USE {`Set.union`} {Set.empty} : {Set Identifier} ]
+
+SEM Decl
+  | Relation
+      lhs.gathRelationNames = Set.singleton @nm
+
+
+--
+-- Gather atomic types (external types)
+--
+
+ATTR Decls Decl [ | | gathAtoms USE {`Set.union`} {Set.empty} : {Set Identifier} ]
+
+SEM Decl
+  | Type
+      lhs.gathAtoms = if @isExternal
+                      then Set.singleton @nm
+                      else Set.empty
+
+
+--
+-- Construct a pattern environment
+--
+
+SEM Module
+  | Mod
+      loc.fields = snd $ dups @decls.gathFields
+
+      loc.patEnv : {PatternsEnv}
+      loc.patEnv = [ ( tp
+                     , con
+                     , Map.findWithDefault Map.empty con $ Map.findWithDefault Map.empty tp @loc.fields
+                     , Map.findWithDefault [] con (Map.findWithDefault Map.empty tp @decls.gathPatInfo)
+                     ) | (tp, cons) <- Map.assocs @decls.gathPatAlts, con <- Set.elems cons ]
+
+      loc.grammar : {Grammar}
+      loc.grammar = patternsToGrammar (Set.elems @decls.gathAtoms) @loc.patEnv
+
+      loc.scanner : {Scanner}
+      loc.scanner = patternsToScanner Flex.nextToken @loc.patEnv
+
+      loc.unsafeSymbols = Set.map (SymReserved . identName) $ unsafeSymbolsOfPatterns @loc.patEnv
+
+      loc.identParser : {TokenParser Identifier}
+      loc.identParser = uncurry (flip Ident) <$> pIdent
+
+      loc.parsers : {TreeParsers}
+      loc.parsers = compileGrammar @loc.identParser @loc.grammar
+
+      loc.parsingMap : {Map Identifier (Pos -> String -> Either Errors Bindings)}
+      loc.parsingMap = Map.fromList [ (nm, \pos -> resultToBindings . run pos p @loc.scanner @loc.unsafeSymbols) | (NtIdent_Ident nm 1 [Symbol_Root], p) <- Map.assocs @loc.parsers ]
+
+{
+resultToBindings :: (ParseResult, Errors) -> Either Errors Bindings
+resultToBindings (ParseResult_Tree t@(ParseTree_Alternative _ _ chldren), errs)
+  | null errs = Right $ [ Binding_Assign nm (getExprs c) | (nm, c) <- Map.assocs chldren ]
+  where
+    getExprs (ParseTree_Alternative pos alt cs) = [Expr_Alt pos alt [Binding_Assign nm (getExprs c) | (nm, c) <- Map.assocs cs ]]
+    getExprs (ParseTree_PrimIdent nm)           = [Expr_Ident nm]
+    getExprs (ParseTree_PrimString pos str)     = [Expr_String pos str]
+    getExprs (ParseTree_PrimInt pos n)          = [Expr_Int pos n]
+    getExprs (ParseTree_Amb ts)                 = concatMap getExprs ts
+    getExprs (ParseTree_Parentheses tree)       = map Expr_Parens (getExprs tree)
+resultToBindings (_, errs)
+  = Left errs
+}
+
+
+--
+-- Parse judgements
+--
+
+ATTR Decls Decl RelDecls RelDecl RuleDecls RuleDecl [ parsingMap : {Map Identifier (Pos -> String -> Either Errors Bindings)} | | ]
+
+SEM RuleDecl
+  | Judge
+      loc.parser = Map.findWithDefault (error ("no such parser: " ++ show @kind.judgeTp)) @kind.judgeTp @lhs.parsingMap
+      inst.bindings : Bindings
+      (inst.bindings, loc.parseErrs) = case @loc.parser @pos @str of
+                                         Left errs   -> (error ("no bindings: " ++ show errs), errs)
+                                         Right bndgs -> (bndgs, [])
+
+
+--
+-- Collect errors
+--
+
+ATTR Decls Decl RelDecls RelDecl RuleDecls RuleDecl [ | | gathParseErrs USE {++} {[]} : {Errs} ]
+
+SEM Module
+  | Mod
+      loc.parseErrs = @decls.gathParseErrs
+
+SEM RuleDecl
+  | Judge
+      lhs.gathParseErrs
+        = if null @loc.parseErrs
+          then []
+          else [ Err_JudgeParseErrors @lhs.relNm @lhs.rulNm @nm @kind.judgeTp @loc.parseErrs ]
+

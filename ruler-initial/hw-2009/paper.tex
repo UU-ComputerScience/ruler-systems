@@ -1,0 +1,2723 @@
+\documentclass[preprint,natbib]{sigplanconf}
+
+%% ODER: format ==         = "\mathrel{==}"
+%% ODER: format /=         = "\neq "
+%
+%
+\makeatletter
+\@ifundefined{lhs2tex.lhs2tex.sty.read}%
+  {\@namedef{lhs2tex.lhs2tex.sty.read}{}%
+   \newcommand\SkipToFmtEnd{}%
+   \newcommand\EndFmtInput{}%
+   \long\def\SkipToFmtEnd#1\EndFmtInput{}%
+  }\SkipToFmtEnd
+
+\newcommand\ReadOnlyOnce[1]{\@ifundefined{#1}{\@namedef{#1}{}}\SkipToFmtEnd}
+\usepackage{amstext}
+\usepackage{amssymb}
+\usepackage{stmaryrd}
+\DeclareFontFamily{OT1}{cmtex}{}
+\DeclareFontShape{OT1}{cmtex}{m}{n}
+  {<5><6><7><8>cmtex8
+   <9>cmtex9
+   <10><10.95><12><14.4><17.28><20.74><24.88>cmtex10}{}
+\DeclareFontShape{OT1}{cmtex}{m}{it}
+  {<-> ssub * cmtt/m/it}{}
+\newcommand{\texfamily}{\fontfamily{cmtex}\selectfont}
+\DeclareFontShape{OT1}{cmtt}{bx}{n}
+  {<5><6><7><8>cmtt8
+   <9>cmbtt9
+   <10><10.95><12><14.4><17.28><20.74><24.88>cmbtt10}{}
+\DeclareFontShape{OT1}{cmtex}{bx}{n}
+  {<-> ssub * cmtt/bx/n}{}
+\newcommand{\tex}[1]{\text{\texfamily#1}}	% NEU
+
+\newcommand{\Sp}{\hskip.33334em\relax}
+
+
+\newcommand{\Conid}[1]{\mathit{#1}}
+\newcommand{\Varid}[1]{\mathit{#1}}
+\newcommand{\anonymous}{\kern0.06em \vbox{\hrule\@width.5em}}
+\newcommand{\plus}{\mathbin{+\!\!\!+}}
+\newcommand{\bind}{\mathbin{>\!\!\!>\mkern-6.7mu=}}
+\newcommand{\sequ}{\mathbin{>\!\!\!>}}
+\renewcommand{\leq}{\leqslant}
+\renewcommand{\geq}{\geqslant}
+\usepackage{polytable}
+
+%mathindent has to be defined
+\@ifundefined{mathindent}%
+  {\newdimen\mathindent\mathindent\leftmargini}%
+  {}%
+
+\def\resethooks{%
+  \global\let\SaveRestoreHook\empty
+  \global\let\ColumnHook\empty}
+\newcommand*{\savecolumns}[1][default]%
+  {\g@addto@macro\SaveRestoreHook{\savecolumns[#1]}}
+\newcommand*{\restorecolumns}[1][default]%
+  {\g@addto@macro\SaveRestoreHook{\restorecolumns[#1]}}
+\newcommand*{\aligncolumn}[2]%
+  {\g@addto@macro\ColumnHook{\column{#1}{#2}}}
+
+\resethooks
+
+\newcommand{\onelinecommentchars}{\quad-{}- }
+\newcommand{\commentbeginchars}{\enskip\{-}
+\newcommand{\commentendchars}{-\}\enskip}
+
+\newcommand{\visiblecomments}{%
+  \let\onelinecomment=\onelinecommentchars
+  \let\commentbegin=\commentbeginchars
+  \let\commentend=\commentendchars}
+
+\newcommand{\invisiblecomments}{%
+  \let\onelinecomment=\empty
+  \let\commentbegin=\empty
+  \let\commentend=\empty}
+
+\visiblecomments
+
+\newlength{\blanklineskip}
+\setlength{\blanklineskip}{1mm}
+
+\newcommand{\hsindent}[1]{\quad}% default is fixed indentation
+\newcommand{\NB}{\textbf{NB}}
+\newcommand{\Todo}[1]{$\langle$\textbf{To do:}~#1$\rangle$}
+
+\makeatother
+\EndFmtInput
+%
+%
+%
+%
+%
+%
+% This package provides two environments suitable to take the place
+% of hscode, called "plainhscode" and "arrayhscode". 
+%
+% The plain environment surrounds each code block by vertical space,
+% and it uses \abovedisplayskip and \belowdisplayskip to get spacing
+% similar to formulas. Note that if these dimensions are changed,
+% the spacing around displayed math formulas changes as well.
+% All code is indented using \leftskip.
+%
+% Changed 19.08.2004 to reflect changes in colorcode. Should work with
+% CodeGroup.sty.
+%
+\ReadOnlyOnce{polycode.fmt}%
+\makeatletter
+
+\newcommand{\hsnewpar}[1]%
+  {{\parskip=0pt\parindent=0pt\par\vskip #1\noindent}}
+
+% can be used, for instance, to redefine the code size, by setting the
+% command to \small or something alike
+\newcommand{\hscodestyle}{}
+
+% The command \sethscode can be used to switch the code formatting
+% behaviour by mapping the hscode environment in the subst directive
+% to a new LaTeX environment.
+
+\newcommand{\sethscode}[1]%
+  {\expandafter\let\expandafter\hscode\csname #1\endcsname
+   \expandafter\let\expandafter\endhscode\csname end#1\endcsname}
+
+% "compatibility" mode restores the non-polycode.fmt layout.
+
+\newenvironment{compathscode}%
+  {\par\noindent
+   \advance\leftskip\mathindent
+   \hscodestyle
+   \let\\=\@normalcr
+   \(\pboxed}%
+  {\endpboxed\)%
+   \par\noindent
+   \ignorespacesafterend}
+
+\newcommand{\compaths}{\sethscode{compathscode}}
+
+% "plain" mode is the proposed default.
+
+\newenvironment{plainhscode}%
+  {\hsnewpar\abovedisplayskip
+   \advance\leftskip\mathindent
+   \hscodestyle
+   \let\\=\@normalcr
+   \(\pboxed}%
+  {\endpboxed\)%
+   \hsnewpar\belowdisplayskip
+   \ignorespacesafterend}
+
+% Here, we make plainhscode the default environment.
+
+\newcommand{\plainhs}{\sethscode{plainhscode}}
+\plainhs
+
+% The arrayhscode is like plain, but makes use of polytable's
+% parray environment which disallows page breaks in code blocks.
+
+\newenvironment{arrayhscode}%
+  {\hsnewpar\abovedisplayskip
+   \advance\leftskip\mathindent
+   \hscodestyle
+   \let\\=\@normalcr
+   \(\parray}%
+  {\endparray\)%
+   \hsnewpar\belowdisplayskip
+   \ignorespacesafterend}
+
+\newcommand{\arrayhs}{\sethscode{arrayhscode}}
+
+% The mathhscode environment also makes use of polytable's parray 
+% environment. It is supposed to be used only inside math mode 
+% (I used it to typeset the type rules in my thesis).
+
+\newenvironment{mathhscode}%
+  {\parray}{\endparray}
+
+\newcommand{\mathhs}{\sethscode{mathhscode}}
+
+% texths is similar to mathhs, but works in text mode.
+
+\newenvironment{texthscode}%
+  {\(\parray}{\endparray\)}
+
+\newcommand{\texths}{\sethscode{texthscode}}
+
+% The framed environment places code in a framed box.
+
+\def\codeframewidth{\arrayrulewidth}
+\RequirePackage{calc}
+
+\newenvironment{framedhscode}%
+  {\parskip=\abovedisplayskip\par\noindent
+   \hscodestyle
+   \arrayrulewidth=\codeframewidth
+   \tabular{@{}|p{\linewidth-2\arraycolsep-2\arrayrulewidth-2pt}|@{}}%
+   \hline\framedhslinecorrect\\{-1.5ex}%
+   \let\endoflinesave=\\
+   \let\\=\@normalcr
+   \(\pboxed}%
+  {\endpboxed\)%
+   \framedhslinecorrect\endoflinesave{.5ex}\hline
+   \endtabular
+   \parskip=\belowdisplayskip\par\noindent
+   \ignorespacesafterend}
+
+\newcommand{\framedhslinecorrect}[2]%
+  {#1[#2]}
+
+\newcommand{\framedhs}{\sethscode{framedhscode}}
+
+% The inlinehscode environment is an experimental environment
+% that can be used to typeset displayed code inline.
+
+\newenvironment{inlinehscode}%
+  {\(\def\column##1##2{}%
+   \let\>\undefined\let\<\undefined\let\\\undefined
+   \newcommand\>[1][]{}\newcommand\<[1][]{}\newcommand\\[1][]{}%
+   \def\fromto##1##2##3{##3}%
+   \def\nextline{}}{\) }%
+
+\newcommand{\inlinehs}{\sethscode{inlinehscode}}
+
+% The joincode environment is a separate environment that
+% can be used to surround and thereby connect multiple code
+% blocks.
+
+\newenvironment{joincode}%
+  {\let\orighscode=\hscode
+   \let\origendhscode=\endhscode
+   \def\endhscode{\def\hscode{\endgroup\def\@currenvir{hscode}\\}\begingroup}
+   %\let\SaveRestoreHook=\empty
+   %\let\ColumnHook=\empty
+   %\let\resethooks=\empty
+   \orighscode\def\hscode{\endgroup\def\@currenvir{hscode}}}%
+  {\origendhscode
+   \global\let\hscode=\orighscode
+   \global\let\endhscode=\origendhscode}%
+
+\makeatother
+\EndFmtInput
+%
+
+\usepackage{mathptmx}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{stmaryrd}
+\usepackage{txfonts}
+\usepackage{float}
+\usepackage{mathpartir}
+\usepackage{xcolor}
+\usepackage{natbib}
+\usepackage{comicsans}
+
+\newcommand\Rule{r}
+\newcommand\Rules{\Rule^*}
+\newcommand\Statement{c}
+\newcommand\Statements{\Statement^*}
+\newcommand\Bindings{\Delta}
+\newcommand\Env{\Gamma}
+\newcommand\Scheme{\Sigma}
+\newcommand\Schemes{\Scheme^*}
+\newcommand\SchemeName{s}
+\newcommand\Type{\tau}
+\newcommand\Idents[1]{{#1}^{\!*}}
+\newcommand\In{\mbox{in}}
+\newcommand\Out{\mbox{out}}
+\newcommand\Return{\mathsf{return}}
+\newcommand\Abort{\mathsf{error}}
+\newcommand\Fail{\mathsf{fail}}
+\newcommand\Unify{\mathsf{unify}}
+\newcommand\Do{\mathsf{do}}
+\newcommand\Haskell{H_{\!\lambda}}
+\newcommand\Execution{\mathsf{exec}}
+\newcommand\Defer{\mathsf{defer}}
+\newcommand\Fixate{\mathsf{fixate}}
+\newcommand\Equal{\mathsf{equal}}
+\newcommand\Fixpoint{\mathsf{fixpoint}}
+\newcommand\Commit{\mathsf{commit}}
+\newcommand\Onebyone{\mathsf{onebyone}}
+\newcommand\Force{\mathsf{force}}
+\newcommand\Let{\mathsf{let}}
+\newcommand\Update{\mathbf{update}}
+\newcommand\typeofinput{\lhd}
+\newcommand\typeofoutput{\rhd}
+\newcommand\Heap{\mathcal{H}}
+\newcommand\Prop{\rho}
+\newcommand\Props{\Prop^{*}}
+\newcommand\Substitution{\theta}
+\newcommand\Scope{\zeta}
+\newcommand\Deferred{\mathbf{deferred}}
+\newcommand\Deriv{\pi}
+\newcommand\Derivs{\pi^*}
+\newcommand\DerivsEnv{\Pi}
+\newcommand\RuleIdent{\iota}
+\newcommand\sembrack[1]{\llbracket #1 \rrbracket}
+\newcommand\attrsep{\;\textcolor{blue}{;}\;}
+\newcommand\derivref[1]{!#1}
+\newcommand\transition[2]{\;\;\textcolor{blue}{\rightarrow}^{#1}_{#2}\;\;}
+\newcommand\erasure[1]{\lfloor #1 \rfloor}
+\newcommand\lightbrack[1]{\;\textcolor{gray}{(} #1 \textcolor{gray}{)}\;}
+\newcommand\tybox[1]{\fbox{$#1$}}
+\newcommand\removeboxes[1]{\lfloor #1 \rfloor}
+\newcommand\boxexpr[2]{\tybox{#1}_{\: #2}}
+
+\newcommand\RulerCore{\ensuremath{\mathsf{Ruler Core}}}
+\newcommand\RulerBase{\ensuremath{\mathsf{Ruler Base}}}
+
+\newtheorem{thm}{Theorem}[section]
+\newtheorem{lem}[thm]{Lemma}
+
+\floatstyle{boxed}
+\restylefloat{figure}
+\setlength{\fboxsep}{1.4pt}
+
+\bibpunct();A{}
+
+
+\begin{document}
+
+\conferenceinfo{HW '09}{September 3, 2009, Edinburgh.} 
+\copyrightyear{2009} 
+\copyrightdata{[to be supplied]}
+
+%% \titlebanner{banner above paper title}        % These are ignored unless
+%% \preprintfooter{short description of paper}   % 'preprint' option specified.
+
+\title{Controlling Non-Determinism in Type Rules using First-Class Guessing}
+
+\authorinfo{Arie Middelkoop \and Atze Dijkstra \and S.~Doaitse Swierstra}
+           {Universiteit Utrecht}
+           {\{ariem, atze, doaitse\}@cs.uu.nl}
+\authorinfo{Luc\'{\i}lia Camar\~{a}o de Figueiredo}
+           {Universidade Federal de Ouro Preto}
+           {lucilia@dcc.ufmg.br}
+
+\maketitle
+
+\begin{abstract} 
+Given a type system written as a collection of type rules, we
+investigate the automatic derivation of inference algorithms
+from these rules.
+A minor challenge are the side effects of a rule, which need to
+be expressed algorithmically. A major challenge are
+non-deterministic aspects of rules that cannot be directly mapped
+to an algorithm.
+
+We present Ruler, a language for type inferencers, to meet these
+challenges. An inferencer is written as a collection of rules
+with side conditions explicitly expressed in Haskell, and with
+annotations for the scheduling of the rules.
+
+This paper includes an extensive case study of an inferencer
+for the ``First Class Polymorphism for Haskell'' type
+system~\cite{DBLP:conf/icfp/VytiniotisWJ08}.
+\end{abstract}
+
+% \category{CR-number}{subcategory}{third-level}
+
+% \terms
+% term1, term2
+
+% \keywords
+% keyword1, keyword2
+
+\section{Introduction}
+
+A type system is ``a tractable syntactic method for proving the absence
+of certain program behaviors by classifying phrases according to the
+kinds of value they compute''~\cite{509043}. Given a type
+system, it is often not immediately clear whether there exists an algorithm that can
+automatically infer a valid type for a (type correct) program. More
+specifically, if the type system has principal types, is there an
+algorithm that can infer the most general type of each expression? 
+
+Most type systems have a declarative specification in the form of a collection of type rules. How to effectively and efficiently use these rules for building type correctness proofs is a separate issue, and having a systematic way in building such type inferencers from such a collection of rules is still an open issue.
+The benefits of having such a method are:
+
+\begin{description}
+\item[Consistency.] A strong coupling between formal description and implementation makes it easier to show how certain
+  properties proved for the type system carry over to the inferencer.
+\item[Rapid prototyping.] Experimenting with type systems leads to a deeper understanding. However,
+  language developers are currently discouraged to do so as it is cumbersome to write inferencers from scratch. 
+  A framework will relieve programmers from this burden and hence support rapid prototyping.
+\item[Abstraction.] Interacting language features obscure and complicate language semantics. In many inference
+  algorithms, the unification procedure makes the essential decisions about non-deterministic aspects. This requires context-information to
+  be carried to and into the place where unification is performed, and complicates the inferencer. 
+  Instead, we would like to be able to deal
+  with the decision making process at the places where the non-deterministic aspects occur in the type rules.
+\item[Documentation.] In comparison with the type rules, the type inference algorithms are often not completely documented and explained. Often they are specified by a concrete (and sometimes obscure) implementation.
+\end{description}
+
+This paper shows that it is possible to semi-automatically obtain inference
+algorithms from type rules. We do not get them entirely for free. A
+major problem is that type rules generally contain non-deterministic
+aspects. For example, more than a single rule may be applicable at the
+same time. Even when the rules are syntax directed, they may state
+demands in the form of side conditions about a type (or other value),
+of which concrete information is not easily available from the context.
+
+A solution to this challenge are {\it annotations} which control the
+scheduling of the resolution of non-deterministic aspects by
+manipulating guesses. A {\it guess} is an opaque value representing a
+derivation that has not been constructed yet.  It also serves as a place
+holder for a concrete value. We can pass such a guesses around, observe
+them, impose requirements on them. When a sufficient number of requirements
+have been accumulated, the actual value of the guess is revealed and we can
+attempt to construct the derivation.
+
+Therefore, we contribute the following:
+\begin{itemize} 
+\item We present a typed domain specific language for type inferencers called Ruler. One of its distinguishing features is
+  the possibility to provide annotation for type rules. Also, side expressions are expressed using conventional Haskell code.
+\item We give examples of increasing complexity of inferencers for type systems with non-deterministic aspects,
+  and show how manipulating guesses leads to their resolution (Section~\ref{sect:examples}). We demonstrate the power of these annotations by providing an inferencer for the type system of FPH \cite{DBLP:conf/icfp/VytiniotisWJ08} that is directly based on FPH's collection of declarative type rules (Section~\ref{sect:example-fph}).
+\item We formalize the notation (Section~\ref{sect:syntax}), the operational semantics (Section~\ref{sect:operational-semantics}) and the static semantics (Appendix~\ref{sect:static-semantics}) of Ruler.
+\item We discuss the rationale of our design compared to prior work on the construction of type inferencers (Section~\ref{sect:related-work}).
+\item We have proof-of-concept Haskell-based implementation for a meta-typed front-end in which inferencer rules with custom syntax can be encoded.
+  Furthermore we provide an executable version of the operational semantics which interprets the inference rules and produces a derivation
+  in terms of the original type rules for all expressions it manages to type.
+\end{itemize}
+
+The reason that we have chosen Haskell as the target language for our generated inferencers are:
+\begin{itemize}
+\item We can use the expressiveness of Haskell for writing the semantics
+  of side conditions in type rules.
+\item There are many libraries available for Haskell that provide efficient data structures and external constraint solvers.
+\item We can integrate the inferencer with other Haskell projects, in particular the Utrecht
+  Haskell Compiler~\cite{DBLP:conf/ifl/DijkstraFS07}. We have compiler technology readily
+  available (parsers, tree-walk generators, pretty printers, etc.) to facilitate
+  rapid prototyping.
+\end{itemize}
+
+
+\section{Examples}
+\label{sect:examples}
+
+  In this section we show how to use Ruler in describing a series of type inferencers of increasing complexity.
+  We took the examples such
+  that each example builds on the previous one. We start from an
+  inferencer for the explicitly typed lambda calculus in
+  Section~\ref{sect:example-explicit}. Admittedly, the inferencer
+  in this case does only type checking, but we use it to informally
+  introduce the Ruler inferencer language (formally in
+  Section~\ref{sect:syntax}) and informally describe its evaluation
+  model (formally in Section~\ref{sect:operational-semantics}). Then,
+  in Section~\ref{sect:example-poly}, we move on to an inferencer for
+  implicitly typed System F, in which several cases of
+  non-determinism arise. Finally, we show the inferencer for FPH in
+  Section~\ref{sect:example-fph}, which demonstrates the expressive power of the
+  annotations.
+
+  For each example we show the type rules and the actual inferencer
+  code. As they have a tight resemblance, be warned not to confuse the
+  two!
+
+  \begin{figure}[htp]
+    Syntax:
+    \begin{displaymath}
+    \begin{array}{lll}
+    e     & = & x  \;\mid\;  \ensuremath{\Varid{f}\;\Varid{a}} \;\mid\;  \lambda (x :: \tau) . \: e \;\mid\; \ensuremath{\mathbf{let}\;\Varid{x}\mathrel{=}\Varid{e}\;\mathbf{in}\;\Varid{b}}  \;\mid\;  \mathbf{fix} \: f \\
+    \tau  & = & \alpha \;\mid\; \tau_1 \rightarrow \tau_2
+    \end{array}
+    \end{displaymath}
+    Rules:
+    \begin{mathpar}
+        \inferrule*[right=var]
+      { (x, \tau) \in \Gamma }
+      { \Gamma \vdash x : \tau }
+
+    \inferrule*[right=app]
+      { \Gamma \vdash f : \tau_f \\
+        \Gamma \vdash a : \tau_a \\\\
+        \tau_f \equiv \tau_a \rightarrow \tau_r \\
+      }
+      { \Gamma \vdash f \: a : \tau_r }
+
+    \inferrule*[right=lam.expl]
+      { x :: \tau_x, \Gamma \vdash e : \tau }
+      { \Gamma \vdash \lambda (x :: \tau_x) . e : \tau_x \rightarrow \tau }
+
+    \inferrule*[right=let]
+      { \Gamma \vdash e : \tau_x \\\\
+        x :: \tau_x, \Gamma \vdash b : \tau \\
+      }
+      { \Gamma \vdash \ensuremath{\mathbf{let}\;\Varid{x}\mathrel{=}\Varid{e}\;\mathbf{in}\;\Varid{b}} : \tau }
+
+    \inferrule*[right=fix]
+      { \Gamma \vdash f : \tau_f \\
+        \tau_f \equiv \tau \rightarrow \tau \\
+      }
+      { \Gamma \vdash \mathbf{fix} \; f : \tau }
+    \end{mathpar}
+    \caption{Type system for explicitly typed lambda calculus.}
+    \label{fig:example-ts-explicit}
+    \end{figure}
+
+  \subsection{Explicitly Typed Lambda Calculus}
+  \label{sect:example-explicit} 
+
+Figure ~\ref{fig:example-ts-explicit} gives the type system for the
+explicitly typed lambda
+calculus~\cite{DBLP:journals/jsyml/Church40,509043}. The rules define
+a {\it relation} between an environment $\Gamma$, expression $e$, and
+type $\tau$. 
+
+For the inferencer, this corresponds to a {\it function} (we call it a
+{\it scheme}) that takes an environment $\Gamma$ and expression $e$ as
+inputs and produces a valid type $\tau$, if there exist such a type
+according to the rules. The Ruler code of the inferencer of this type
+system is given in Figure~\ref{fig:example-explicit}.  We discuss each
+part further below.
+
+  \begin{figure}[htp]
+  Scheme declarations:
+  \begin{displaymath}
+    \begin{array}{lll}
+    \mathsf{tc:}  &                              & \lightbrack{\Gamma \typeofinput \mathsf{Map}\:\mathsf{String}\:\mathsf{Ty}} \vdash \lightbrack{e \typeofinput \mathsf{Expr}} \;:\; \lightbrack{\Type \typeofoutput_{\mbox{d}} \mathsf{Ty}} \\
+    \mathsf{fr:}  & \forall \alpha .\;\;         & \lightbrack{v \typeofoutput_{\mbox{d}} \alpha} \; \mbox{fresh} \\
+    \mathsf{lk:}  & \forall \alpha \beta .\;\;   & (\lightbrack{k \typeofinput \alpha}, \lightbrack{v \typeofoutput \beta}) \in \lightbrack{\Gamma \typeofinput \mathsf{Map}\;\alpha\;\beta} \\
+    \end{array}
+  \end{displaymath}
+  Inferencer rules:
+  \begin{mathpar}
+    \inferrule*[right=var]
+      { (x, \tau) \in \Gamma }
+      { \Gamma \vdash x : \tau }
+
+    \inferrule*[right=lookup]
+      { \ensuremath{\Varid{v}\leftarrow \Varid{lookup}\;\Varid{x}} \; \Gamma }
+      { (x, v) \in \Gamma }
+
+    \inferrule*[right=app]
+      { \Gamma \vdash f : \tau_f \\
+        \Gamma \vdash a : \tau_a \\\\
+        \tau_r \; \mbox{fresh} \\
+        \tau_f \equiv \tau_a \rightarrow \tau_r \\
+      }
+      { \Gamma \vdash f \: a : \tau_r }
+    
+    \inferrule*[right=fresh]
+      { \Defer_v \; [\: \emptyset \:] }
+      { v \; \mbox{fresh} }
+    
+    \inferrule*[right=lam.expl]
+      { x :: \tau_x, \Gamma \vdash e : \tau }
+      { \Gamma \vdash \lambda (x :: \tau_x) . e : \tau_x \rightarrow \tau } \\
+    
+    \inferrule*[right=let]
+      { \Gamma \vdash e : \tau_x \\\\
+        x :: \tau_x, \Gamma \vdash b : \tau \\
+      }
+      { \Gamma \vdash \ensuremath{\mathbf{let}\;\Varid{x}\mathrel{=}\Varid{e}\;\mathbf{in}\;\Varid{b}} : \tau }
+    
+    \inferrule*[right=fix]
+      { \tau \; \mbox{fresh} \\\\
+        \Gamma \vdash f : \tau_f \\
+        \tau_f \equiv \tau \rightarrow \tau \\
+      }
+      { \Gamma \vdash \mathbf{fix} \; f : \tau }
+    \end{mathpar}
+    Syntax and semantics:
+    \begin{hscode}\SaveRestoreHook
+\column{B}{@{}l@{}}
+\column{7}{@{}l@{}}
+\column{9}{@{}l@{}}
+\column{16}{@{}c@{}}
+\column{16E}{@{}l@{}}
+\column{19}{@{}l@{}}
+\column{20}{@{}l@{}}
+\column{27}{@{}l@{}}
+\column{30}{@{}l@{}}
+\column{32}{@{}l@{}}
+\column{34}{@{}l@{}}
+\column{37}{@{}l@{}}
+\column{39}{@{}c@{}}
+\column{39E}{@{}l@{}}
+\column{42}{@{}l@{}}
+\column{44}{@{}l@{}}
+\column{53}{@{}c@{}}
+\column{53E}{@{}l@{}}
+\column{54}{@{}l@{}}
+\column{56}{@{}l@{}}
+\column{62}{@{}l@{}}
+\column{E}{@{}l@{}}
+\>[7]{}\mathbf{data}\;\Conid{Ty}{}\<[16]
+\>[16]{}\mathrel{=}{}\<[16E]
+\>[19]{}\Conid{TGuess}\;{}\<[27]
+\>[27]{}\Conid{GuessVar}{}\<[39]
+\>[39]{}\;\;\;{}\<[39E]
+\>[42]{}\mathbf{data}\;\Conid{Expr}{}\<[53]
+\>[53]{}\mathrel{=}{}\<[53E]
+\>[56]{}\Conid{EVar}\;\Conid{String}{}\<[E]
+\\
+\>[16]{}\mid {}\<[16E]
+\>[19]{}\Conid{TConst}\;{}\<[27]
+\>[27]{}\Conid{GuessVar}{}\<[53]
+\>[53]{}\mid {}\<[53E]
+\>[56]{}\Conid{EApp}\;\Conid{Expr}\;\Conid{Expr}{}\<[E]
+\\
+\>[16]{}\mid {}\<[16E]
+\>[19]{}\Conid{TArr}\;{}\<[27]
+\>[27]{}\Conid{Ty}\;{}\<[32]
+\>[32]{}\Conid{Ty}{}\<[53]
+\>[53]{}\mid {}\<[53E]
+\>[56]{}\mathbin{...}{}\<[E]
+\\[\blanklineskip]
+\>[7]{}\mathbf{instance}\;\Conid{Container}\;\Conid{Ty}\;\mathbf{where}{}\<[E]
+\\
+\>[7]{}\hsindent{2}{}\<[9]
+\>[9]{}\Varid{appSubst}\;\Varid{rec}\;(\Conid{TArr}\;\Varid{f}\;\Varid{a}){}\<[34]
+\>[34]{}\mathrel{=}\Varid{rec}\;\Varid{f}\gg\Varid{rec}\;\Varid{a}{}\<[E]
+\\
+\>[7]{}\hsindent{2}{}\<[9]
+\>[9]{}\Varid{deferVars}\;(\Conid{TConst}\;\anonymous ){}\<[34]
+\>[34]{}\mathrel{=}\Varid{empty}{}\<[E]
+\\
+\>[7]{}\hsindent{2}{}\<[9]
+\>[9]{}\Varid{deferVars}\;(\Conid{TGuess}\;\Varid{v}){}\<[34]
+\>[34]{}\mathrel{=}\Varid{single}\;\Varid{v}{}\<[E]
+\\
+\>[7]{}\hsindent{2}{}\<[9]
+\>[9]{}\Varid{deferVars}\;(\Conid{TArr}\;\Varid{a}\;\Varid{r}){}\<[34]
+\>[34]{}\mathrel{=}\Varid{deferVars}\;\Varid{a}\mathbin{`\Varid{union}`}\Varid{deferVars}\;\Varid{r}{}\<[E]
+\\[\blanklineskip]
+\>[7]{}\mathbf{instance}\;\Conid{Unifyable}\;\Conid{Ty}\;\mathbf{where}{}\<[E]
+\\
+\>[7]{}\hsindent{2}{}\<[9]
+\>[9]{}\Varid{unify}\;\Varid{rec}\;{}\<[20]
+\>[20]{}(\Conid{TArr}\;\Varid{f}\;\Varid{a})\;{}\<[32]
+\>[32]{}(\Conid{TArr}\;\Varid{g}\;\Varid{b}){}\<[44]
+\>[44]{}\mathrel{=}\Varid{rec}\;\Varid{f}\;\Varid{g}\gg\Varid{rec}\;\Varid{a}\;\Varid{b}{}\<[E]
+\\
+\>[7]{}\hsindent{2}{}\<[9]
+\>[9]{}\Varid{unify}\;\anonymous \;{}\<[20]
+\>[20]{}\anonymous \;{}\<[32]
+\>[32]{}\anonymous {}\<[44]
+\>[44]{}\mathrel{=}\mathbf{fail}\;\text{\tt \char34 type~error\char34}{}\<[E]
+\\[\blanklineskip]
+\>[7]{}\mathbf{instance}\;\Conid{Deferrable}\;\Conid{Ty}\;\mathbf{where}{}\<[E]
+\\
+\>[7]{}\hsindent{2}{}\<[9]
+\>[9]{}\Varid{mkDeferValue}{}\<[37]
+\>[37]{}\mathrel{=}\Conid{TGuess}{}\<[E]
+\\
+\>[7]{}\hsindent{2}{}\<[9]
+\>[9]{}\Varid{mkFixedValue}{}\<[37]
+\>[37]{}\mathrel{=}\Conid{TConst}{}\<[E]
+\\
+\>[7]{}\hsindent{2}{}\<[9]
+\>[9]{}\Varid{matchDeferValue}\;(\Conid{TGuess}\;\Varid{v}){}\<[37]
+\>[37]{}\mathrel{=}\Conid{Just}\;\Varid{v}{}\<[E]
+\\
+\>[7]{}\hsindent{2}{}\<[9]
+\>[9]{}\Varid{matchFixedValue}\;(\Conid{TConst}\;\Varid{v}){}\<[37]
+\>[37]{}\mathrel{=}\Conid{Just}\;\Varid{v}{}\<[E]
+\\[\blanklineskip]
+\>[7]{}\mathbf{pattern}\;\Conid{Map}\;\Conid{String}\;\Conid{Ty}\;{}\<[30]
+\>[30]{}\mathbf{where}\;{}\<[37]
+\>[37]{}\Varid{x}\mathbin{::}\tau,\Gamma\;{}\<[54]
+\>[54]{}\mathbf{input}\;{}\<[62]
+\>[62]{}\Varid{insert}\;\Varid{x}\;\tau\;\Gamma{}\<[E]
+\\
+\>[7]{}\mathbf{pattern}\;\Conid{Expr}\;{}\<[30]
+\>[30]{}\mathbf{where}{}\<[37]
+\>[37]{}\lambda \Varid{x}\;.\;\;\Varid{e}\;{}\<[54]
+\>[54]{}\mathbf{output}\;{}\<[62]
+\>[62]{}\Conid{ELam}\;\Varid{x}\;\Varid{e}{}\<[E]
+\\
+\>[7]{}\mbox{\onelinecomment  other patterns omitted.}{}\<[E]
+\ColumnHook
+\end{hscode}\resethooks
+    \caption{Inferencer for explicitly typed lambda calculus.}
+    \label{fig:example-explicit}
+    \end{figure}
+
+\paragraph{Scheme declarations.}  To obtain an inferencer in Haskell,
+we actually want a Haskell function \ensuremath{\Varid{tc}} with the type: \ensuremath{\Conid{Map}\;\Conid{String}\;\Conid{Ty}\to \Conid{Expr}\to \Conid{I}\;\Conid{Ty}} where \ensuremath{\Conid{I}} is some monad encapsulating failure and
+state. Thus, concerning the meta variables, we need to know whether
+they serve as inputs or outputs, and what their meta type is. This is
+information is given in the scheme declaration. It defines the name of
+the function (i.e. \ensuremath{\Varid{tc}}), the syntax of the function call in the
+inferencer rules (scheme instantiation), the names and types of the
+meta variables, whether a meta variable is an input ($\typeofinput$)
+or an output ($\typeofoutput$), and a optional property $\mbox{d}$ or
+$\mbox{u}$ of a meta variable. In this case, the $\mbox{d}$-property
+requires that we supply an instance of \ensuremath{\Conid{Deferrable}} for the Haskell
+type \ensuremath{\Conid{Ty}}, and allows us to use the $\Defer$ statement on types (to be
+explained later).
+
+\paragraph{Inferencer rules.}  The inferencer rules provide the actual
+definition of the scheme. They consist of an ordered sequence of {\it
+statements}, related to the {\it premises} of the type rules, and a
+concluding statement. Such a statement can be:
+
+\begin{itemize}
+    \item A scheme invocation, i.e. $(x, \tau) \in \Gamma$, which executes the corresponding function with the given parameters when evaluated.
+    \item Haskell code in the \ensuremath{\Conid{I}} monad. This code is used to express side-conditions of type rules as statements
+          in the inferencer rules. For example, the type system in Figure~\ref{fig:example-explicit} implicitly mentions a
+          lookup-relation in the $\RefTirName{VAR}$ rule. This is explicitly defined in our inferencer code by means of some Haskell code
+          in the $\RefTirName{LOOKUP}$ rule.
+    \item An equality statement, i.e. $\tau_f \equiv \tau_a \rightarrow \tau_r$, stating that its two inputs will be the same after type
+          inference has finished.
+    \item Non-determinism annotations, such as $\Defer$ (explained later).
+\end{itemize}
+
+    The rules represent the actual definition of cases for functions \ensuremath{\Varid{tc}}, \ensuremath{\Varid{lk}}, and \ensuremath{\Varid{fr}}. For example, the $\RefTirName{APP}$, $\RefTirName{LOOKUP}$,
+    and $\RefTirName{FRESH}$ inferencer rules are projected to concrete Haskell code as follows:
+    \begin{hscode}\SaveRestoreHook
+\column{B}{@{}l@{}}
+\column{7}{@{}l@{}}
+\column{9}{@{}l@{}}
+\column{15}{@{}l@{}}
+\column{21}{@{}l@{}}
+\column{43}{@{}c@{}}
+\column{43E}{@{}l@{}}
+\column{48}{@{}l@{}}
+\column{50}{@{}l@{}}
+\column{56}{@{}l@{}}
+\column{63}{@{}l@{}}
+\column{E}{@{}l@{}}
+\>[7]{}\Varid{tc\char95 app}\;\Gamma\;\Varid{e}{}\<[43]
+\>[43]{} \hspace{1em}{}\<[43E]
+\>[48]{}\Varid{lk\char95 lookup}\;\Varid{x}\;\Gamma{}\<[E]
+\\
+\>[7]{}\hsindent{2}{}\<[9]
+\>[9]{}\mathrel{=}\mathbf{do}\;{}\<[15]
+\>[15]{}\mathbf{let}\;(\Conid{EApp}\;\Varid{f}\;\Varid{a})\mathrel{=}\Varid{e}{}\<[43]
+\>[43]{} \hspace{1em}{}\<[43E]
+\>[50]{}\mathrel{=}\mathbf{do}\;{}\<[56]
+\>[56]{}\Varid{v}\leftarrow \Varid{lookup}\;\Varid{x}\;\Gamma{}\<[E]
+\\
+\>[15]{}\tau_f{}\<[21]
+\>[21]{}\leftarrow \Varid{tc}\;\Gamma\;\Varid{f}{}\<[43]
+\>[43]{} \hspace{1em}{}\<[43E]
+\>[56]{}\mathbf{return}\;\Varid{v}{}\<[E]
+\\
+\>[15]{}\tau_a{}\<[21]
+\>[21]{}\leftarrow \Varid{tc}\;\Gamma\;\Varid{a}{}\<[43]
+\>[43]{} \hspace{1em}{}\<[43E]
+\>[48]{}\Varid{lk}\mathrel{=}\Varid{lk\char95 lookup}{}\<[E]
+\\
+\>[15]{}\tau_r{}\<[21]
+\>[21]{}\leftarrow \Varid{fr}{}\<[43]
+\>[43]{} \hspace{1em}{}\<[43E]
+\>[48]{}\Varid{fr\char95 fresh}\mathrel{=}\mathbf{do}\;{}\<[63]
+\>[63]{}(\Varid{v},())\leftarrow \mathbf{defer}\;\Varid{f}{}\<[E]
+\\
+\>[15]{}\mathbf{unif}\;\tau_f\;(\Conid{TArr}\;\tau_a\;\tau_r){}\<[43]
+\>[43]{} \hspace{1em}{}\<[43E]
+\>[63]{}\mathbf{return}\;\Varid{v}{}\<[E]
+\\
+\>[15]{}\mathbf{return}\;\tau_r{}\<[43]
+\>[43]{} \hspace{1em}{}\<[43E]
+\>[50]{}\mathbf{where}\;\Varid{f}\;\Varid{v'}\mathrel{=}\mathbf{return}\;(){}\<[E]
+\\
+\>[7]{}\Varid{tc}\mathrel{=}\Varid{tc\char95 var}\oplus\Varid{tc\char95 app}\oplus\mathbin{...}{}\<[43]
+\>[43]{} \hspace{1em}{}\<[43E]
+\>[48]{}\Varid{fr}\mathrel{=}\Varid{fr\char95 fresh}{}\<[E]
+\ColumnHook
+\end{hscode}\resethooks
+
+    The equivalence statement gets translated to a monadic expression \ensuremath{\mathbf{unif}} which is an API function provided by Ruler.
+
+    The statements are executed in the order of appearance.
+    Each statement may fail, causing the entire rule to fail. Rules that fail due to pattern matches or equality statements at the very beginning
+    of the statement sequence allow other applicable rules to be applied (offering a limited form of backtracking). Otherwise, the failure
+    is turned into an abort of the entire inference, with a type error as result.
+
+    \paragraph{Non-determinism.}
+
+    A major recurring problem is that not all relations are
+    functions. Sometimes a meta variable is required to be both an
+    input and an output.  For example, in the inferencer rule
+    $\RefTirName{APP}$, the value $\tau_r$ needs to be produced before
+    it can be passed to the equality statement. It is also an output
+    of the rule, not an input. This means that there is no indication
+    how to obtain it.  Therefore, we conceptually {\it guess}
+    the value of $\tau_r$. This value is kept hidden behind an opaque
+    guess-value, and is only revealed when we actually discover what
+    the value must be. The \ensuremath{\Varid{fr}}-scheme gives a function that
+    produces these values.
+
+    Ruler accomplishes this as follows. The rule $\RefTirName{FRESH}$
+    has a $\Defer$-statement, which is a non-determinism
+    annotation. It is parametrized with a list of statement
+    sequences, and produces a guess $v$. The statement sequences are
+    not executed immediately, but a closure is created for them which
+    is triggered once we discover concrete information about guess
+    $v$. At that point, one of the statement sequences is required to
+    execute successfully with $v$ as an input and the current
+    knowledge about guesses. The $\Defer$-statement in
+    $\RefTirName{FRESH}$ has only one statement sequence, the empty
+    sequence, which always succeeds. In later examples we have
+    non-trivial sequences of statements that allow us to defer and
+    control decision making.
+
+    So, a guess needs to get produced for $v$. Ruler requires
+    help in the form of a \ensuremath{\Conid{Deferrable}} instance on the type of $v$ to
+    construct this guess. Operationally, defer produces an opaque
+    guess variable, which is wrapped into the domain of $v$ by means
+    of \ensuremath{\Varid{mkDeferValue}}.  This guess is thus first class, and can be
+    passed around and end up in other data structures. Ruler maintains
+    information about these guess variables, such as the closures
+    produced by $\Defer$. When a concrete value is discovered about a
+    guess, all occurrences of this guess are replaced with this
+    concrete value (thus revealing the guess). Again, Ruler requires
+    help by means of a \ensuremath{\Conid{Container}} instance in order to deal with
+    values holding guesses. Furthermore, the inferencer rules may
+    check if certain values are still opaque variables and act on
+    that. This is also something we exploit later.
+
+    Concrete values for a guess are discovered by executing equality
+    statements. When comparing the two input values, if one value
+    contains a guess and the other a concrete value, then we {\it
+    commit} that concrete value to the guess. This leads to the
+    execution of the deferrable statements. We call this commit because it
+    is an irreversible action: a guess can be opaque for a while, a
+    commit conceptually only uncovers it. If both values are guesses,
+    the guesses are merged. In case both values are concrete values,
+    Ruler requires help in the form of a \ensuremath{\Conid{Unifyable}} instance, of
+    which \ensuremath{\Varid{unify}} is required to traverse one level through the values
+    and check that their heads are the same. Another requirement on
+    guesses is that the value committed to a guess may not contain the
+    guess itself (the infamous {\it occur check}). Therefore, the
+    function \ensuremath{\Varid{deferVars}} needs to be defined to tell Ruler which
+    guesses are contained in a value.
+
+    \paragraph{Data semantics.}  The last part of the Ruler code
+    consists of a definition of the data structures involved. One may
+    also define custom syntax to be used in the rules, for which
+    translations to either Haskell patterns (for inputs) or Haskell
+    expressions (for outputs) need to be given. This custom syntax may
+    be ambiguous as long as it can be resolved based on the meta types
+    of the meta variables.  Finally, we remark that these instances for
+    data types are likely to be automatically generated from the
+    structure of the data types, or readily available in a library
+    with support code.\\
+
+    Before we continue, consider the addition of an extra rule to the inferencer:
+    \begin{mathpar}
+      \inferrule*[right=lam.impl]
+        { \tau_x \; \mbox{fresh} \\
+          x :: \tau_x, \Gamma \vdash e : \tau \\
+        }
+        { \Gamma \vdash \lambda x . e : \tau_x \rightarrow \tau }
+    \end{mathpar}
+
+    With this addition, we obtain an inferencer for the simply typed
+    lambda calculus.  However, with this rule, there can be unresolved
+    guesses remaining after we finish inferencing. For example,
+    consider inferring the type of the expression \ensuremath{\lambda \Varid{x}\;.\;\;\Varid{x}}. We
+    obtain \ensuremath{\tau\to \tau}, where \ensuremath{\tau} is a guess.  However, at the end
+    of the inference, Ruler forces all remaining guesses to get
+    evaluated. Those guesses that remain are mapped to a {\it fixed}
+    value. A fixed value is an opaque value like a guess (created with
+    \ensuremath{\Varid{mkFixedValue}}), except that it is only equal to itself and cannot
+    be committed on.
+
+    %% Annette: I would leave this paragraph out
+%    We conclude this example by answering the question of why not
+%    writing an embedded domain specific language for Haskell. We have
+%    many reasons: the custom syntax, automatic insertion of fresh and
+%    |\equiv| based on meta variable direction, compilation to
+%    different backends (attribute grammars of the UHC for example),
+%    and analysis of pattern matches to discover which rules are syntax
+%    directed and which are overlapping.
+
+  \subsection{Implicitly Typed System F}
+  \label{sect:example-poly}
+
+    We give a sound but incomplete inferencer for implicitly typed System F~\cite{721503}, using a relaxation of Milner's
+    algorithm~\cite{DBLP:journals/jcss/Milner78} and exploiting type annotations to deal with higher-ranked types. Compilers
+    such as GHC and UHC utilize inference algorithms based on this type system, which makes it an interesting case study.
+    The inferencer algorithm described here is clearly inferior versus other algorithms in terms of completeness and
+    predictability, but is powerful and simple enough to serve as a basis for the inference algorithm of the next section.
+
+    \begin{figure}[htp]
+    Extra syntax:
+    \begin{displaymath}
+      \tau  =  \ldots  \;\mid\; \forall \overline{\alpha} .\: \tau
+    \end{displaymath}
+    Extra rules:
+    \begin{mathpar}
+      \inferrule*[right=inst]
+        { \Gamma \vdash e : \forall \overline{\alpha} . \:\tau_2 }
+        { \Gamma \vdash e : [\overline{\alpha \coloneqq \tau_1}] \: \tau_2 }
+      
+      \inferrule*[right=gen]
+        { \Gamma \vdash e : \tau_1 \\
+          \overline{\alpha} \not\in \ensuremath{\Varid{ftv}} \: \Gamma \\
+        }
+        { \Gamma \vdash e : \forall \overline{\alpha} . \: \tau_1 }
+    \end{mathpar}
+    \caption{Type system of implicitly typed System F.}
+    \label{fig:example-ts-poly}
+    \end{figure}
+
+    Implicitly typed System F (or polymorphic lambda calculus) extends the simply typed lambda calculus with two rules, and
+    a more expressive type language (Figure~\ref{fig:example-poly}). This change adds a lot of expressive
+    power. Consider the following expressions (assuming for the moment that we have \ensuremath{\Conid{Int}}s in the type language):
+    \begin{hscode}\SaveRestoreHook
+\column{B}{@{}l@{}}
+\column{5}{@{}l@{}}
+\column{8}{@{}l@{}}
+\column{66}{@{}l@{}}
+\column{E}{@{}l@{}}
+\>[5]{}\Varid{f}{}\<[8]
+\>[8]{}\mathrel{=}\lambda (\Varid{k}\mathbin{::}(\Conid{Int}\to \Conid{Int})\to \Conid{Int})\;.\;\;{}\<[66]
+\>[66]{}\Varid{k}\;(\lambda \Varid{x}\;.\;\;\Varid{x}){}\<[E]
+\\
+\>[5]{}\Varid{g}{}\<[8]
+\>[8]{}\mathrel{=}\lambda (\Varid{k}\mathbin{::}\forall\!\;\alpha\;.\;\;(\alpha\to \alpha)\to \Conid{Int})\;.\;\;\;\;{}\<[66]
+\>[66]{}\Varid{k}\;(\lambda \Varid{x}\;.\;\;\Varid{x}){}\<[E]
+\ColumnHook
+\end{hscode}\resethooks
+    The definition of \ensuremath{\Varid{f}} can be typed within the simply typed lambda calculus, but \ensuremath{\Varid{g}} cannot. In \ensuremath{\Varid{g}}'s case, the $\RefTirName{GEN}$
+    rule is needed after typing \ensuremath{\lambda \Varid{x}\;.\;\;\Varid{x}}.
+
+    There is no simple way to translate these rules to the type
+    inferencer rules. The problem lies in the decision when to apply
+    these rules, because this is not specified by the syntax. They
+    could be applied any time, even an arbitrary number of
+    times. However, we choose to only apply instantiation once
+    directly after the $\RefTirName{VAR}$ rule, and generalization
+    once for each let-binding, and once for the argument of each
+    application. Figure~\ref{fig:example-poly} lists the inferencer
+    rules. We partitioned the rules such that they belong
+    either to scheme $\vdash$, $\vdash_x$, $\vdash_g$, or $\vdash_l$,
+    and adapted the recursive invocations accordingly. This solves the
+    problem of when to apply the rules.  Also note that we have two
+    versions of the $\RefTirName{GEN}$ rule, one for the let-binding
+    ($\RefTirName{GEN.LET}$), and one for the argument of an
+    application ($\RefTirName{GEN.LAZY}$).
+
+    \begin{figure}[htp]
+    Inferencer rules:
+    \begin{mathpar}
+      \inferrule*[right=var]
+        { (x, \tau) \in \Gamma }
+        { \Gamma \vdash_x x : \tau }
+
+      \inferrule*[right=inst.v]
+        { \Gamma \vdash_x x : \forall \overline{\alpha} . \:\tau_2 \\
+          \overline{\tau_1} \; \mbox{fresh} \\
+        }
+        { \Gamma \vdash x : [\overline{\alpha \coloneqq \tau_1}] \: \tau_2 }
+
+      \inferrule*[right=gen.lazy]
+        { \Gamma \vdash e : \tau_1 \\
+          \Defer_{\tau_2} \: [[\; \Let \: (\forall \overline{\alpha} . \tau'_2) = \tau_2, \; \tau_1 \equiv \tau'_2, \; \overline{\alpha} \not\in \ensuremath{\Varid{ftv}} \: \Gamma \;]]
+        }
+        { \Gamma \vdash_g e : \tau_2 }
+
+      \inferrule*[right=app]
+        { \tau_r \; \mbox{fresh} \\\\
+          \Gamma \vdash f : \tau_f \\
+          \Gamma \vdash_g a : \tau_a \\\\
+          \tau_f \equiv \tau_a \rightarrow \tau_r \\
+        }
+        { \Gamma \vdash f \: a : \tau_r }
+
+      \inferrule*[right=gen.let]
+        { \Fixate_{\tau} \: [\; \Gamma \vdash e : \tau \;] \\\\
+          \Let \: \overline{\alpha} = \ensuremath{\Varid{ftv}} \: \tau \ensuremath{\mathbin{-}\Varid{ftv}}\: \Gamma \\
+        }
+        { \Gamma \vdash_l e : \forall \overline{\alpha} . \: \tau}
+
+      \inferrule*[right=let]
+        { \Gamma \vdash_l e : \tau_x \\\\
+          x :: \tau_x, \Gamma \vdash b : \tau \\
+        }
+        { \Gamma \vdash \ensuremath{\mathbf{let}\;\Varid{x}\mathrel{=}\Varid{e}\;\mathbf{in}\;\Varid{b}} : \tau }
+    \end{mathpar}
+    Syntax and semantics:
+    \begin{hscode}\SaveRestoreHook
+\column{B}{@{}l@{}}
+\column{5}{@{}l@{}}
+\column{E}{@{}l@{}}
+\>[5]{}\mathbf{data}\;\Conid{Ty}\mathrel{=}\mathbin{...} \hspace{1em}\mid  \hspace{1em}\Conid{TAll}\;[\mskip1.5mu \Conid{GuessVar}\mskip1.5mu]\;\Conid{Ty}{}\<[E]
+\ColumnHook
+\end{hscode}\resethooks
+    \begin{hscode}\SaveRestoreHook
+\column{B}{@{}l@{}}
+\column{5}{@{}l@{}}
+\column{21}{@{}l@{}}
+\column{34}{@{}c@{}}
+\column{34E}{@{}l@{}}
+\column{39}{@{}l@{}}
+\column{56}{@{}l@{}}
+\column{E}{@{}l@{}}
+\>[5]{}\Varid{ftv}\;(\Conid{TConst}\;\Varid{v}){}\<[21]
+\>[21]{}\mathrel{=}\Varid{single}\;\Varid{v}{}\<[34]
+\>[34]{} \hspace{1em}{}\<[34E]
+\>[39]{}\Varid{ftv}\;(\Conid{TArr}\;\Varid{a}\;\Varid{r}){}\<[56]
+\>[56]{}\mathrel{=}\Varid{ftv}\;\Varid{a}\mathbin{`\Varid{union}`}\Varid{ftv}\;\Varid{r}{}\<[E]
+\\
+\>[5]{}\Varid{ftv}\;(\Conid{TGuess}\;\anonymous ){}\<[21]
+\>[21]{}\mathrel{=}\Varid{empty}\;{}\<[39]
+\>[39]{}\Varid{ftv}\;(\Conid{TAll}\;\Varid{vs}\;\Varid{t}){}\<[56]
+\>[56]{}\mathrel{=}\Varid{ftv}\;\Varid{t}\mathbin{`\Varid{difference}`}\Varid{vs}{}\<[E]
+\ColumnHook
+\end{hscode}\resethooks
+    \caption{Inferencer for implicitly typed System F.}
+    \label{fig:example-poly}
+    \end{figure}
+
+    However, this leads us back to the non-determinism problems that
+    we encountered before.  The $\RefTirName{INST.V}$ rule requires us
+    to choose which bound variables to instantiate, and what type to
+    instantiate them to. Similarly, for both $\RefTirName{GEN}$ rules,
+    a decision needs to be made what variables to generalize
+    over. These are all examples of non-deterministic aspects. We use
+    the following tricks to resolve them:
+
+    \begin{itemize} 
+    \item Instantiation (rule $\RefTirName{INST.V}$)
+    is greedy and instantiates all bound variables that are know at
+    the time when instantiation is applied. We use the \ensuremath{\Varid{fr}}-relation
+    to guess the types to which they are instantiated.
+    \item Generalization of the argument of an application (rule
+    $\RefTirName{GEN.LAZY}$) is done on-demand. The result type
+    $\tau_2$ is guessed. At some point the head (or more) of $\tau_2$
+    is discovered. In case of our example: for \ensuremath{\Varid{f}} we
+    discover at some point that $\tau_2$ is \ensuremath{\Conid{Int}\to \Conid{Int}}, and for \ensuremath{\Varid{g}}
+    that it is $\forall \alpha . \alpha \rightarrow \alpha$. At that
+    moment the deferred statements are triggered.  
+
+    When these statements trigger, the requirement is that enough
+    information about the outermost quantifiers of $\tau_2$ is known.
+    Furthermore, with the greedy assumption about instantiation,
+    assume that $\tau_1$ does not have any outermost quantifiers. With
+    this knowledge in mind, consider the $\RefTirName{GEN}$ type rule
+    again in Figure~\ref{fig:example-ts-poly}. The type rule tells us
+    to take the portion of $\tau_1$ without outermost quantifiers,
+    this should then be equal to $\tau_2$. In that case, the variables
+    $\overline{\alpha}$ are not allowed to be in the environment. This
+    is exactly what the deferred statements of $\RefTirName{GEN.LAZY}$
+    establish.
+    \item Generalization just before the let-binding is also
+    greedy. It generalizes over all unbound variables in the type that
+    are not in the environment. However, since a guess can represent
+    an arbitrary type, we cannot generalize over them. Therefore, we
+    introduce the $\Fixate$-statement. It is parametrized with a
+    sequence of statements, and executes those.  The guesses
+    which are introduced during the execution and remain are forced to be
+    evaluated. Those for which no concrete value is discovered are
+    mapped to fixed types (\ensuremath{\Conid{TConst}} values). The order of this forcing
+    is undefined. These \ensuremath{\Conid{TConst}} values are real type variables and
+    can be generalized over (if free in the environment).
+    \end{itemize}
+
+    \begin{figure}[htp]
+    \small
+    \begin{mathpar}
+      \inferrule*
+        { q, \tau_x \: \mbox{fresh} \\\\
+          \Fixate \left[ \!\!\!\! \mbox{\begin{tabular}{l}
+                           $\Defer_{\ensuremath{\anonymous }} \: [ \tau_x \equiv \ensuremath{\Varid{pick}} \: q ]$ \\
+                           $(x, \tau_x, q), \Gamma \vdash e : \tau$ \\
+                         \end{tabular}} \!\!\!\! \right] \\
+        }
+        {\Gamma \vdash \lambda x . e : \tau_x \rightarrow \tau }
+
+      \inferrule*
+        { (x, \tau_1, q) \in \Gamma \\\\
+          \Defer_{\tau_2} [ q' \: \mbox{fresh}, \Commit_{(\ensuremath{\Varid{last}} \: q)} \: (\tau_2, q') ] \\\\
+          \Defer_{\tau_1'} \: [\; \tau_1' \leq \tau_2  \;] \\
+          \tau_1 \equiv \tau_1' \\
+        }
+        {\Gamma \vdash x : \tau_2 }
+    \end{mathpar}
+    We defer the instantiation $\leq$ until we have more information about all the types we want
+    to instantiate the left-hand side to.
+    Queue $q$ is a nested product, where each left component is a type, and each right component
+    is a queue. This queue is terminated with a guess. The queue stores all encountered values
+    for the type of the lambda parameter. Each time such a value is encountered, it gets appended
+    to the queue. When fixating the lambda term, the deferred statement
+    executes that traverses the queue and picks out the most general type, and matches it
+    with the type of the lambda parameter. This causes all deferred instantiations $\leq$ to execute.
+    The  $\leq$ relation is not affected by this complex scheduling.
+    \caption{Complex example: queuing all expected types.}
+    \label{fig:example-queing}
+    \end{figure}
+
+    Many variations on the above rules are possible that result in a
+    more complete inference algorithm (although no complete inference
+    algorithm exists). For example, making instantiation also happen
+    on demand, or queuing up all guesses of the type of lambda
+    parameters (see Figure~\ref{fig:example-queing}) before making a
+    final choice, thus emulating type propagation
+    algorithms~\cite{DBLP:journals/jfp/JonesVWS07, UUCS2006051}.  Such
+    algorithms are normally very hard to implement, because with
+    conventional approaches the unification algorithm has to deal with
+    it all. However, with Ruler, such algorithms can now be described
+    easily, and locally at the places in the rules where full
+    context-information is available, with only minimal effects on
+    modularity.  
+
+    \subsection{Summary} We have seen several examples of
+    non-determinism that are problematic when writing an inference
+    algorithm. In the end, these problems boil down to deferring
+    decisions and controlling the decision process. We have seen and
+    will see the following annotations to resolve them:
+
+    \begin{description}
+    \item [$\Defer$] introduces a guess with the promise that a sequence of statements will
+       be executed when the guess is revealed.
+    \item [$\Fixate$] introduces a scope for guesses and forces all guesses introduced in this
+       scope to be resolved when leaving the scope.
+    \item [$\Commit$] unveils the guess, causing the deferred statements to run.
+    \item [$\Force$] is syntactic sugar for a $\Commit$ with a fresh guess, followed by a
+      commit with a fixed value if the result was still a guess.
+    \end{description}
+    The driving force behind propagating the type information that slowly comes available are
+    the equality statements ($\equiv$).
+
+  \subsection{Example: FPH}
+  \label{sect:example-fph}
+
+    The FPH type system~\cite{DBLP:conf/icfp/VytiniotisWJ08} is a restriction of implicitly typed System F, such that there exist a principle
+    type for each binding, and a complete inference algorithm that finds these types. In this section, we give an alternative inference
+    algorithm. Compare the FPH's declarative rules (Figure~\ref{fig:example-ts-FPH}) with the inference algorithm (Figure~\ref{fig:example-FPH})
+    and be surprised how close the resemblance is.
+
+    Consider the following example where \ensuremath{\Varid{choose}} is instantiated predicatively and impredicatively:
+    \begin{hscode}\SaveRestoreHook
+\column{B}{@{}l@{}}
+\column{7}{@{}l@{}}
+\column{47}{@{}l@{}}
+\column{85}{@{}l@{}}
+\column{E}{@{}l@{}}
+\>[7]{}\Varid{f}\mathrel{=}\Varid{choose}\;\Varid{id}{}\<[E]
+\\
+\>[7]{}\Varid{f}\mathbin{::}\forall\!\;\alpha\;.\;\;(\alpha\to \alpha){}\<[47]
+\>[47]{}\to (\alpha\to \alpha){}\<[85]
+\>[85]{}\mbox{\onelinecomment  predicative inst}{}\<[E]
+\\
+\>[7]{}\Varid{f}\mathbin{::}(\forall\!\;\alpha\;.\;\;\alpha\to \alpha){}\<[47]
+\>[47]{}\to (\forall\!\;\alpha\;.\;\;\alpha\to \alpha){}\<[85]
+\>[85]{}\mbox{\onelinecomment  impredicative inst}{}\<[E]
+\ColumnHook
+\end{hscode}\resethooks
+    The observation underlying FPH is that impredicative instantiation may result in more than one incomparable most general System F type
+    for a binding. This is undesired for reasons of modularity and predictability. FPH dictates that impredicative instantiation is forbidden
+    if it has influence on the type of a binding.
+
+    To formalize this difference, FPH introduces the concept of a box. When a bound variable is instantiated with a polymorphic type in FPH, it is enclosed
+    within a box. A box expresses that the type it encloses may have been obtained through impredicative instantiation. FPH forbids the type of a
+    binding to have a box in the type, thus ensuring that these possible undesired effects have no influence on the type. This absence of boxes
+    can arise due to two reasons:
+    \begin{itemize}
+    \item The type with the box is simply not part of the type of the binding.
+    \item There is an unboxing relation ($\preceq\sqsubseteq$) that allows shrinking of boxes over the monomorphic spine of a type. When we discover that
+      the type in the box cannot influence the type of the result, we can remove the box.
+    \item The programmer can give an explicit type signature, which does not have boxes.
+    \end{itemize}
+    A particular invariant maintained by FPH is that there may not be a box within a box (the ``monomorphic substitution'' operator $\coloneqq$ takes care of this).
+
+    \begin{figure}[htp]
+    Types with boxes:
+    \begin{displaymath}
+      \tau = \ldots \;\mid\; \tybox{\tau}
+    \end{displaymath}
+    Type rules:
+    \begin{mathpar}
+      \inferrule*[right=inst]
+        { \Gamma \vdash x : \forall \overline{\alpha} . \:\tau_2 \\\\
+          \tau_1 \: \mbox{unboxed iff mono} \\
+        }
+        { \Gamma \vdash x : [\overline{\alpha \coloneqq \tau_1}] \: \tau_2 }
+
+      \inferrule*[right=subs]
+        { \Gamma \vdash e : \tau_1 \\\\
+          \tau_1 \preceq\sqsubseteq \tau_2 \\
+        }
+        { \Gamma \vdash e : \tau_2 }
+
+      \inferrule*[right=app]
+        { \Gamma \vdash f : \tau_f \\
+          \Gamma \vdash a : \tau_a \\\\
+          \removeboxes{\tau_a} \equiv \removeboxes{\tau'_a} \\
+          \tau_f \equiv \tau'_a \rightarrow \tau_r \\
+        }
+        { \Gamma \vdash f \: a : \tau_r }
+
+      \inferrule*[right=ann]
+        { \Gamma \vdash e : \tau_1 \\\\
+          \removeboxes{\tau_1} \equiv \tau_2
+        }
+        { \Gamma \vdash (e :: \tau_2) : \tau_2 }
+
+      \inferrule*[right=lam.impl]
+        { \ensuremath{\Varid{mono}} \:\tau_x \\\\
+          x :: \tau_x, \Gamma \vdash e : \tau \\
+        }
+        { \Gamma \vdash \lambda x . e : \tau_x \rightarrow \tau }
+
+      \inferrule*[right=lam.expl]
+        { x :: \tau_x, \Gamma \vdash e : \tau }
+        { \Gamma \vdash \lambda (x :: \tau_x) . e : \tau_x \rightarrow \tau }
+
+      \inferrule*[right=let]
+        { \Gamma \vdash e : \tau_x \\
+          \ensuremath{\Varid{noBoxes}} \:\tau_x \\
+          x :: \tau_x, \Gamma \vdash b : \tau \\
+        }
+        { \Gamma \vdash \ensuremath{\mathbf{let}\;\Varid{x}\mathrel{=}\Varid{e}\;\mathbf{in}\;\Varid{b}} : \tau }
+    \end{mathpar}
+    Boxy instantiation rules:
+    \begin{mathpar}
+      \inferrule*[right=bi]
+        {}
+        { \tybox{\forall \overline{\alpha} . \tau_1}  \preceq  \tybox{[\overline{\alpha \coloneqq \tau_2}] \tau_1} }
+      
+      \inferrule*[right=br]
+        {}
+        { \tau \preceq  \tau }
+    \end{mathpar}
+    Protected unboxing rules:
+    \begin{mathpar}
+      \inferrule*[right=tbox]
+        { \ensuremath{\Varid{mono}}\:\tau }
+        { \tybox{\tau} \sqsubseteq \tau }
+
+      \inferrule*[right=refl]
+        {}
+        { \tau \sqsubseteq \tau }
+
+      \inferrule*[right=poly]
+        {  \tau_1 \sqsubseteq \tau_2 \\\\
+           \ensuremath{\Varid{unboxed}} \: \overline{\alpha} \: \tau_1 \\\\
+           \ensuremath{\Varid{unboxed}} \: \overline{\alpha} \: \tau_2 \\
+        }
+        { \forall \overline{\alpha} . \tau_1 \sqsubseteq \forall \overline{\alpha} . \tau_2 }
+
+      \inferrule*[right=conbox]
+        { \tybox{\tau_1} \sqsubseteq \tau_3 \\
+          \tybox{\tau_2} \sqsubseteq \tau_4 \\
+        }
+        { \tybox{\tau_1} \rightarrow \tybox{\tau_2} \sqsubseteq \tau_3 \rightarrow \tau_4 }
+
+      \inferrule*[right=cong]
+        { \tau_1 \sqsubseteq \tau_3 \\
+          \tau_2 \sqsubseteq \tau_4 \\
+        }
+        { \tau_1 \rightarrow \tau_2 \sqsubseteq \tau_3 \rightarrow \tau_4 }
+    \end{mathpar}
+    \caption{The FPH type system.}
+    \label{fig:example-ts-FPH}
+    \end{figure}
+
+    The type rules for FPH contain many non-deterministic aspects, especially due to the interaction between types and boxes. Both the structure of the types, and
+    the demands on the boxes become only gradually available. In some cases, we may discover that the type is not allowed to have any boxes before the actual
+    type becomes known. Alternatively, in case of box-stripping ($\removeboxes{\cdot}$), we may know portions of the type structure, but nothing about the boxes yet.
+
+    \begin{figure}[htp]
+    Boxy types:
+    \begin{hscode}\SaveRestoreHook
+\column{B}{@{}l@{}}
+\column{7}{@{}l@{}}
+\column{17}{@{}l@{}}
+\column{E}{@{}l@{}}
+\>[7]{}\mathbf{type}\;\Conid{Ty}{}\<[17]
+\>[17]{}\mathrel{=}(\Conid{Ty'},\Conid{Box}){}\<[E]
+\\
+\>[7]{}\mathbf{data}\;\Conid{Box}{}\<[17]
+\>[17]{}\mathrel{=}\Conid{BYes}\mid \Conid{BNo}\mid \Conid{BVar}\;\Conid{GuessVar}{}\<[E]
+\\
+\>[7]{}\mathbf{data}\;\Conid{Ty'}{}\<[17]
+\>[17]{}\mathrel{=}\Conid{TArr}\;\Conid{Ty'}\;\Conid{Ty'}\mid \Conid{TGuess}\;\Conid{GuessVar}\mid \mathbin{...}{}\<[E]
+\ColumnHook
+\end{hscode}\resethooks
+    Scheme declarations:
+    \begin{displaymath}
+    \begin{array}{lr}
+    \lightbrack{\tau_1 \typeofinput_{\mbox{d}} Ty} \sqsubseteq \lightbrack{\tau_2 \typeofoutput_{\mbox{d}} Ty}   &  \lightbrack{\tau_1 \typeofinput_{\mbox{d}} Ty} \sqsubseteq' \lightbrack{\tau_2 \typeofinput_{\mbox{d}} Ty} \\
+    \lightbrack{\tau_1 \typeofinput_{\mbox{d}} Ty} \preceq \lightbrack{\tau_2 \typeofoutput_{\mbox{d}} Ty}       &  \lightbrack{\tau_1 \typeofinput_{\mbox{d}} Ty} \preceq' \lightbrack{\tau_2 \typeofoutput_{\mbox{d}} Ty} \\
+    \end{array}
+    \end{displaymath}
+    Inferencer rules:
+    \begin{mathpar}
+      \inferrule*[right=inst.v]
+        { \Gamma \vdash_x x : \forall \overline{\alpha} . \:\tau_2 \\
+          \overline{\tilde{\tau}_1} \; \mbox{fresh} \\\\
+          \Defer_{b_i} \: \mbox{\begin{tabular}{l}
+                                  $[\; \sembrack{v} = b,\; \Commit_{v} \: \ensuremath{\Conid{BYes}} \;]$, \\
+                                  $[\; b = \ensuremath{\Conid{BNo}},\; \ensuremath{\Varid{mono}} \: \tilde{\tau} \;]$, \\
+                                  $[\; b = \ensuremath{\Conid{BYes}} \;]$ \\
+                                \end{tabular}} \\
+        }
+        { \Gamma \vdash x : [\overline{\alpha \coloneqq \boxexpr{\tilde{\tau}_1}{b}}] \: \tau_2 }
+
+      \inferrule*[right=subs]
+        { \Gamma \vdash e : \tau_1 \\\\
+          \tau_1 \preceq\sqsubseteq \tau_2 \\
+        }
+        { \Gamma \vdash_s e : \tau_2 }
+
+      \inferrule*[right=gen.lazy]
+        { \Gamma \vdash_s e : \tau_1 \\\\
+          \ldots \\
+        }
+        { \Gamma \vdash_g e : \tau_2 }
+
+      \inferrule*[right=app]
+        { \Gamma \vdash_s f : \tau_f \\
+          \Gamma \vdash_g a : \tau_a \\\\
+          \removeboxes{\tau_a} \equiv \removeboxes{\tau'_a} \\
+          \tau_f \equiv \tau'_a \rightarrow \tau_r \\
+        }
+        { \Gamma \vdash f \: a : \tau_r }
+
+      \inferrule*[right=ann]
+        { \Gamma \vdash_g e : \tau_1 \\\\
+          \removeboxes{\tau_1} \equiv \tau_2
+        }
+        { \Gamma \vdash (e :: \tau_2) : \tau_2 }
+
+      \inferrule*[right=let]
+        { \Fixate_{b} \left[\; \Gamma \vdash_l e : \tau_x ,\; \ensuremath{\Varid{noBoxes}} \:\tau_x \;\right] \\\\
+          x :: \tau_x, \Gamma \vdash b : \tau \\
+        }
+        { \Gamma \vdash \ensuremath{\mathbf{let}\;\Varid{x}\mathrel{=}\Varid{e}\;\mathbf{in}\;\Varid{b}} : \tau }
+    \end{mathpar}
+    Boxy instantiation rules:
+    \begin{mathpar}
+      \inferrule*[right=boxy.inst]
+        { b_2 \: \mbox{fresh} \\
+          \Defer_{\tilde{\tau}_2} \: [\; b_1 \equiv b_2 ,\; \Force \: b_1,\: \boxexpr{\tilde{\tau}_1}{b_1} \preceq' \tau,\: \tau \equiv \boxexpr{\tilde{\tau}_2}{b_2} \;] \\
+        }
+        { \boxexpr{\tilde{\tau}_1}{b_1} \preceq \boxexpr{\tilde{\tau}_2}{b_2} }
+      
+      \inferrule*[right=bi]
+        { \overline{\tau_2} \: \mbox{fresh} }
+        { \tybox{\forall \overline{\alpha} . \tau_1}  \preceq'  \tybox{[\overline{\alpha \coloneqq \tau_2}] \tau_1} }
+      
+      \inferrule*[right=br]
+        {}
+        { \tilde{\tau} \preceq'  \tilde{\tau} }
+    \end{mathpar}
+    Protected unboxing rules:
+    \begin{mathpar}
+      \inferrule*
+        { \tilde{\tau}_2 \: \mbox{fresh} \\
+          \removeboxes{\tilde{\tau_1}} \equiv \removeboxes{\tilde{\tau_2}} \\
+          \Defer_{b_2} \mbox{\begin{tabular}{l}
+                                           $[\; \Let \: \sembrack{\ensuremath{\anonymous }} = b_2,\; b_1 \equiv b_2,\; \Force\:b_2 ,\; \boxexpr{\tilde{\tau}_1}{b_1} \sqsubseteq' \boxexpr{\tilde{\tau}_2}{b_2} \;]$, \\
+                                           $[\; \Let \: \sembrack{v} = b_1,\; \Commit_{v} \: b_2,\; \boxexpr{\tilde{\tau}_1}{b_1} \sqsubseteq' \boxexpr{\tilde{\tau}_2}{b_2} \;]$, \\
+                                           $[\; \boxexpr{\tilde{\tau}_1}{b_1} \sqsubseteq' \boxexpr{\tilde{\tau}_2}{b_2} \;]$ \\
+                                         \end{tabular}} \\
+        }
+        { \boxexpr{\tilde{\tau}_1}{b_1} \sqsubseteq \boxexpr{\tilde{\tau}_2}{b_2} }
+
+      \inferrule*[right=unbox.ty.defer]
+        { \Let \: \sembrack{v} = \tilde{\tau}_1 \\\\
+          \Defer_{\tilde{\tau}'_1} [ \boxexpr{\tilde{\tau}_1}{b} \sqsubseteq' \tau_2 ] \\\\
+          \tilde{\tau}_1 \equiv \tilde{\tau}'_1 \\
+        }
+        { \boxexpr{\tilde{\tau}_1}{b} \sqsubseteq' \tau_2 }
+
+      \inferrule*[right=tbox]
+        { \ensuremath{\Varid{mono}}\:\tilde{\tau} }
+        { \tybox{\tilde{\tau}} \sqsubseteq' \tilde{\tau} }
+
+      \inferrule*[right=refl]
+        {}
+        { \boxexpr{\forall \overline{\alpha} . \tau}{b} \sqsubseteq' \boxexpr{\forall \overline{\alpha} . \tau}{b} }
+
+      \inferrule*[right=poly]
+        {  \tau_1 \not\equiv \tau_2 \\
+           \tau_1 \sqsubseteq \tau'_2 \\
+           \tau'_2 \equiv \tau_2 \\\\
+           \ensuremath{\Varid{unboxed}} \: \overline{\alpha} \: \tau_1 \\
+           \ensuremath{\Varid{unboxed}} \: \overline{\alpha} \: \tau_2 \\
+        }
+        { \forall \overline{\alpha} . \tau_1 \sqsubseteq' \forall \overline{\alpha} . \tau_2 }
+
+      \inferrule*[right=conbox]
+        { \tybox{\tilde{\tau}_1} \sqsubseteq \tau_3 \\
+          \tau_3 \equiv \tau'_3 \\\\
+          \tybox{\tilde{\tau}_2} \sqsubseteq \tau_4 \\
+          \tau_4 \equiv \tau'_4 \\
+        }
+        { \tybox{\tilde{\tau}_1} \rightarrow \tybox{\tilde{\tau}_2} \sqsubseteq' \tau'_3 \rightarrow \tau'_4 }
+
+      \inferrule*[right=cong]
+        { \tilde{\tau}_1 \sqsubseteq \tau_3 \\
+          \tau_3 \equiv \tau'_3 \\\\
+          \tilde{\tau}_2 \sqsubseteq \tau_4 \\
+          \tau_4 \equiv \tau'_4 \\
+        }
+        { \tilde{\tau}_1 \rightarrow \tilde{\tau}_2 \sqsubseteq' \tau'_3 \rightarrow \tau'_4 }
+    \end{mathpar}
+    Semantics:
+    \begin{hscode}\SaveRestoreHook
+\column{B}{@{}l@{}}
+\column{5}{@{}l@{}}
+\column{E}{@{}l@{}}
+\>[5]{}\mathbf{instance}\;\Conid{Unifyable}\;\Conid{Box}\;\mathbf{where}\mathbin{...}{}\<[E]
+\\
+\>[5]{}\mathbf{instance}\;\Conid{Deferrable}\;\Conid{Box}\;\mathbf{where}\mathbin{...}\Varid{mkFixedValue}\mathrel{=}\Varid{const}\;\Conid{BNo}{}\<[E]
+\ColumnHook
+\end{hscode}\resethooks
+    \caption{Inferencer for FPH.}
+    \label{fig:example-FPH}
+    \end{figure}
+
+    \paragraph{Idea.}
+    We choose here to be able to guess the type independent of the boxes.
+    Each alternative of a type gets a box annotation. Types $\tau$ are of the form $\boxexpr{\tilde{\tau}}{b}$,
+    where $\tilde{\tau}$ is a regular type with types $\tau$ as components, and $b$ a box annotation. A box annotation is
+    either concrete (\ensuremath{\Conid{BYes}} or \ensuremath{\Conid{BNo}}), or a guess. Types in the environment have box-annotations \ensuremath{\Conid{BNo}}, and box-annotations
+    \ensuremath{\Conid{BYes}} are introduced by instantiation. The unboxing rules then relate boxes to types, and eliminate boxes as soon as
+    more type information becomes available. This unboxing (see subscript $s$ and $\RefTirName{Subs}$) is done for each
+    sub-expression. For an application, only the instantiation of the function type can cause boxes to appear in the result
+    type. Possible boxes in the type of the argument are stripped away (these would otherwise cause boxes inside boxes).
+    Also, annotations are considered safe and causes boxes to disappear. Finally, at a let-binding, we first generalize
+    and fixate the guesses in the types, and only then fixate the boxes. This ensures that when fixating the boxes, we
+    know that choices of the boxes do not influence the types in the local scope anymore.
+
+    Note the following notation. A $\sembrack{v}$ represents a guess containing variable $v$ (produced or obtained by means of \ensuremath{\Varid{mkDeferValue}} or \ensuremath{\Varid{matchDeferValue}} respectively).
+    A type $\tilde{\tau}$ (\ensuremath{\Conid{Ty'}}) at a place where a $\tau$ (\ensuremath{\Conid{Ty}}) is expected represents a pair of $\tilde{\tau}$ with a box annotation of \ensuremath{\Conid{BNo}}. A type
+    $\tybox{\tilde{\tau}}$ represents a pair of $\tilde{\tau}$ with a box annotation of \ensuremath{\Conid{BYes}}.
+
+    The boxy-instantiation rules allows instantiation inside an outermost box. The application of these rules is
+    controlled by $\RefTirName{Boxy.Inst}$, as follows. Decisions are delayed until more is known about the
+    result type. Then we force the decisions to have been made about a potential box surrounding it. We then know which
+    one the two actual instantiation rules is applicable. Note that we are not afraid of instantiation: the
+    $\RefTirName{Gen.Lazy}$ generalizes again if needed.
+    
+    For protected unboxing, rule $\RefTirName{unbox}$ controls how the rules are applied. It ensures that the input and output type
+    are matched together, disregarding boxes such that this information flow is independent of the information flow about boxes. Then,
+    applying the actual rules is deferred until the two box-annotations have been resolved. In case $b_2$ is still unknown, we default
+    it. If $b_2$ is known, but $b_1$ is not, we apparently have freedom in the choice and choose $b_2$ for $b_1$.
+    Finally, if we are in the situation that we know the annotations but not the type, we delay resolving the unboxing until we know the
+    type by means of $\RefTirName{unbox.ty.defer}$.
+
+    \begin{figure}[htp]
+    Box operations:
+    \begin{hscode}\SaveRestoreHook
+\column{B}{@{}l@{}}
+\column{5}{@{}l@{}}
+\column{25}{@{}l@{}}
+\column{E}{@{}l@{}}
+\>[5]{}\Varid{noBoxes}\mathbin{::}\Conid{Ty}\to \Conid{I}\;(){}\<[E]
+\\
+\>[5]{}\Varid{noBoxes}\;(\Varid{t},\Varid{b})\mathrel{=}\mathbf{do}\;{}\<[25]
+\>[25]{}\mathbf{unif}\;\Varid{b}\;\Conid{BNo}{}\<[E]
+\\
+\>[25]{}\Varid{traverse}\;\Varid{noBoxes}\;\Varid{t}{}\<[E]
+\ColumnHook
+\end{hscode}\resethooks
+    \begin{hscode}\SaveRestoreHook
+\column{B}{@{}l@{}}
+\column{5}{@{}l@{}}
+\column{22}{@{}l@{}}
+\column{40}{@{}l@{}}
+\column{46}{@{}l@{}}
+\column{E}{@{}l@{}}
+\>[5]{}\Varid{unboxed}\mathbin{::}\Conid{GuessVar}\to \Conid{Ty}\to \Conid{I}\;(){}\<[E]
+\\
+\>[5]{}\Varid{unboxed}\;\Varid{a}\;(\Varid{t},\Varid{b}){}\<[22]
+\>[22]{}\mid \Varid{a}\in \Varid{ftv}\;\Varid{t}{}\<[40]
+\>[40]{}\mathrel{=}\mathbf{do}\;{}\<[46]
+\>[46]{}\mathbf{unif}\;\Varid{b}\;\Conid{BNo}{}\<[E]
+\\
+\>[46]{}\Varid{traverse}\;(\Varid{unboxed}\;\Varid{a}){}\<[E]
+\\
+\>[22]{}\mid \Varid{otherwise}{}\<[40]
+\>[40]{}\mathrel{=}\mathbf{return}\;(){}\<[E]
+\ColumnHook
+\end{hscode}\resethooks
+    \begin{hscode}\SaveRestoreHook
+\column{B}{@{}l@{}}
+\column{5}{@{}l@{}}
+\column{23}{@{}l@{}}
+\column{E}{@{}l@{}}
+\>[5]{}\removeboxes{\tau}\mathrel{=}\Varid{strip}\;\tau{}\<[E]
+\\
+\>[5]{}\Varid{strip}\mathbin{::}\Conid{Ty}\to \Conid{Ty}{}\<[E]
+\\
+\>[5]{}\Varid{strip}\;(\Varid{t},\anonymous )\mathrel{=}\mathbf{do}\;{}\<[23]
+\>[23]{}\Varid{t'}\leftarrow \Varid{dtraverse}\;\Varid{strip}\;\Varid{t};\mathbf{return}\;(\Varid{t'},\Conid{BNo}){}\<[E]
+\ColumnHook
+\end{hscode}\resethooks
+    \begin{hscode}\SaveRestoreHook
+\column{B}{@{}l@{}}
+\column{5}{@{}l@{}}
+\column{30}{@{}l@{}}
+\column{36}{@{}l@{}}
+\column{E}{@{}l@{}}
+\>[5]{}\Varid{dtraverse}\;\Varid{f}\mathrel{=}\Varid{dwrap}\;(\Varid{traverse}\;\Varid{f}){}\<[E]
+\\
+\>[5]{}\Varid{traverse}\;\Varid{f}\;(\Conid{TArr}\;t_1\;t_2){}\<[30]
+\>[30]{}\mathrel{=}\mathbf{do}\;{}\<[36]
+\>[36]{}t_3\leftarrow \Varid{f}\;t_1;t_4\leftarrow \Varid{f}\;t_2{}\<[E]
+\\
+\>[36]{}\mathbf{return}\;(\Conid{TArr}\;t_3\;t_4){}\<[E]
+\\
+\>[5]{}\Varid{traverse}\;\Varid{f}\;(\Conid{TAll}\;\Varid{vs}\;t_1){}\<[30]
+\>[30]{}\mathrel{=}\mathbf{do}\;{}\<[36]
+\>[36]{}t_2\leftarrow \Varid{f}\;t_1;\mathbf{return}\;(\Conid{TAll}\;\Varid{vs}\;t_2){}\<[E]
+\\
+\>[5]{}\Varid{traverse}\;\Varid{f}\;\Varid{t}{}\<[30]
+\>[30]{}\mathrel{=}\mathbf{return}\;\Varid{t}{}\<[E]
+\ColumnHook
+\end{hscode}\resethooks
+    \begin{hscode}\SaveRestoreHook
+\column{B}{@{}l@{}}
+\column{5}{@{}l@{}}
+\column{25}{@{}l@{}}
+\column{E}{@{}l@{}}
+\>[5]{}\Varid{mono}\;\Varid{t}\mathrel{=}\mathbf{unif}\;\Varid{t}\;(\Varid{dcheck}\;\Varid{t}){}\<[E]
+\\
+\>[5]{}\Varid{dcheck}\mathrel{=}\Varid{dwrap}\;\Varid{check}{}\<[E]
+\\
+\>[5]{}\Varid{check}\;(\Conid{TArr}\;t_1\;t_2){}\<[25]
+\>[25]{}\mathrel{=}\Varid{check'}\;t_1\gg\Varid{check'}\;t_2{}\<[E]
+\\
+\>[5]{}\Varid{check}\;(\Conid{TAll}\;\anonymous \;\anonymous ){}\<[25]
+\>[25]{}\mathrel{=}\mathbf{fail}\;\text{\tt \char34 not~a~mono~type\char34}{}\<[E]
+\\
+\>[5]{}\Varid{check}\;\anonymous {}\<[25]
+\>[25]{}\mathrel{=}\mathbf{return}\;(){}\<[E]
+\\
+\>[5]{}\Varid{check'}\;(\Varid{t},\anonymous ){}\<[25]
+\>[25]{}\mathrel{=}\Varid{dcheck}\;\Varid{t}{}\<[E]
+\ColumnHook
+\end{hscode}\resethooks
+    \caption{FPH monadic Haskell premises}
+    \label{fig:example-premisses}
+    \end{figure}
+
+    The monadic Haskell expressions used in the premises of the inferencer rules are given in Figure~\ref{fig:example-premisses}. \ensuremath{\Varid{noBoxes}} forces
+    the absence of boxes everywhere in the type, and \ensuremath{\Varid{unBoxed}} only on the spine to each occurrence of type variable \ensuremath{\Varid{a}}. The most involving, however,
+    is box-stripping. It produces a type with all boxes removed, without affecting the original box annotations. The difficulty is that the type may
+    not be fully known yet. Fortunately, we can use \ensuremath{\mathbf{defer}}, \ensuremath{\Varid{equal}} and \ensuremath{\mathbf{commit}} in monadic expressions too. In fact, we can write higher-order functions
+    to factor out some patterns. For example, \ensuremath{\Varid{dwrap}} (Figure~\ref{fig:example-abstraction}) factors out all the non-determinism of a recursive function
+    where the input is equal to the output modulo some guesses.
+
+    \begin{figure}[htp]
+    \begin{hscode}\SaveRestoreHook
+\column{B}{@{}l@{}}
+\column{7}{@{}l@{}}
+\column{23}{@{}l@{}}
+\column{25}{@{}l@{}}
+\column{29}{@{}l@{}}
+\column{E}{@{}l@{}}
+\>[7]{}\Varid{dwrap}\mathbin{::}\forall\!\;\alpha\;.\;\;\Conid{Deferrable}\;\alpha\Rightarrow (\alpha\to \Conid{I}\;\alpha)\to \alpha\to \Conid{I}\;\alpha{}\<[E]
+\\
+\>[7]{}\Varid{dwrap}\;\Varid{f}\;\Varid{t}\mathrel{=}\mathbf{do}\;{}\<[23]
+\>[23]{}(t_{\mbox{out}},())\leftarrow \mathbf{defer}\;(\lambda t_{\mbox{in}}\;\anonymous \to {}\<[E]
+\\
+\>[23]{}\hsindent{2}{}\<[25]
+\>[25]{}\mathbf{do}\;{}\<[29]
+\>[29]{}\mathbf{unifOne}\;\Varid{t}\;t_{\mbox{in}}{}\<[E]
+\\
+\>[29]{}\Varid{t'}\leftarrow \Varid{f}\;\Varid{t}{}\<[E]
+\\
+\>[29]{}\mathbf{unif}\;t_{\mbox{out}}\;\Varid{t'}{}\<[E]
+\\
+\>[23]{}\mathbf{return}\;t_{\mbox{out}}{}\<[E]
+\ColumnHook
+\end{hscode}\resethooks
+%%    refine :: forall alpha dot Unifyable alpha => ( alpha ->
+%%                  ( forall beta dot Deferrable beta => ((alpha -> I alpha) -> beta -> I beta) -> beta -> I beta )
+%%                  -> I alpha ) -> alpha -> I alpha
+%%      refine f = f'
+%%        where f' t =  f t (\g s ->
+%%                        do  (sOut,()) <-  defer (\sIn _ ->
+%%                                            do  commit' s sIn
+%%                                                sOut' <- g f' s
+%%                                                equal sOut sOut' )
+%%                            return sOut
+%%              commit' sembv t  = commit v t
+%%              commit' t1 t2    = unify (\_ _ -> return ()) t1 t2
+    \caption{Example of evaluation control abstraction.}
+    \label{fig:example-abstraction}
+    \end{figure}
+
+    \paragraph{Other type systems.}
+    The syntax of the $\Defer$-statement is actually a bit more general than we presented in these examples. In the examples,
+    the deferred statements did not have outputs, only inputs. We allow the deferred statements to have outputs. For example,
+    another type system for first class polymorphism, HML~\cite{DBLP:conf/popl/Leijen09}, requires deferred statements that
+    produce a prefix \ensuremath{\Conid{Q}} (denoted with $\Defer_{\tau}^{Q} [ \ldots ]$).
+    
+    Although our examples were about inferencers for type systems dealing with polymorphism, we stress that these were chosen
+    in order to pave the way to a complex example, and that we are not limited to such type systems.
+
+
+\section{Related Work}
+\label{sect:related-work}
+
+    We present an extension of our previous work on the Ruler system~\cite{DBLP:conf/flops/DijkstraS06}.
+    In this system, type rules are required to be written as deterministic functions, and both a type-setted \LaTeX~document
+    and an efficient Attribute-Grammar based inferencer are derived from them. One of the goals of this
+    system is to close the gap between formal description and implementation. However, non-deterministic aspects
+    cannot be directly described in this system, and are omitted (to be solved externally). Thus, this leaves the gap
+    wide open, and we close it with this work.
+
+    \paragraph{Functional Logic Programming.}
+    The essential problem with non-deterministic aspects is that the function to resolve it needs to make decisions,
+    but is unable to do so based on what is known about the inputs at that point. Therefore, the idea is to delay
+    the execution until we know more about the output, and let expected output play a role in the decision process.
+    Therefore, at specific places, we turn functions into relations, which has a close resemblance to
+    Functional Logic Programming~\cite{DBLP:journals/jlp/Hanus94}.
+
+    With FLP, non-deterministic functions can be written as normal functions. The possible
+    alternatives that these functions can take depends not only on the inputs, but also on the scrutinizing of the
+    result. With evaluation strategies such as narrowing~\cite{DBLP:conf/alp/Antoy97}, the search space is explored
+    in a demand-driven way. Knowledge of context is pushed inwards, reducing possible alternatives, and causing
+    evaluation to occur that refines the context even more.
+
+    With the $\Defer$ and $\Commit$, we offer a poor man's mechanism to FLP. The delaying of choice and the
+    scrutinizing of the choice is explicit. A $\Commit$ is required to reduce the choice to at most one
+    possibility. Yet, we have good reasons not to support the full generality of FLP. We want to integrate the
+    inferencers specified in our language into mainstream compilers. Our approach makes only little demands on
+    infrastructure. If it can cope with Algorithm W~\cite{DBLP:journals/jcss/Milner78}, then the proposed mechanisms
+    of this paper fit. Furthermore, we want to be able to use constraint solvers in some foreign language, or arbitrary
+    Haskell libraries in our inference rules. This gives rise to problems with narrowing.
+
+    A difference with respect to FLP is our fixation and inspection of guesses. Consider an expression like \ensuremath{\Varid{const}\;\Varid{x}\;\Varid{y}}.
+    For such an expression, the type of \ensuremath{\Varid{y}} is irrelevant and will not be scrutinized. However, we have several reasons to
+    do so. We produce derivations, so we need a derivation of \ensuremath{\Varid{y}}. Decisions about the inference of \ensuremath{\Varid{y}} need to be made, even
+    when the context does not make strong demands about which one. To make such a decision, we need to inspect which values
+    are still guesses. As a consequence, more type information may be discovered, or even type errors that would otherwise go
+    unnoticed, or which only arise much later (say, when generating code). Also, to deal with
+    rules such as generalization properly, we need to know the difference between an unresolved guess and some fixed but
+    unconstrained information. Furthermore, unresolved guesses retain memory which causes severe memory problems when growing
+    unchecked in mainstream compilers, and when integrating with foreign code, we need invariants about which parts of values
+    are resolved. Finally, examples such as in Figure~\ref{fig:example-queing} really require the guessing to be explicit and
+    first class.
+
+    \paragraph{Logic Programming}
+    In a similar way as with FLP, our approach has strong ties with Logic Programming. One particular difference is that we
+    disallow backtracking and of all possible rules demands that only one rule can succeed. Again, the reasons are related to
+    efficiency and integration. However, there is an even more important reason: to be able to produce sensible type errors,
+    and to prevent infinite searches in the presence of type errors.
+
+    \paragraph{Inferencer Frameworks.}
+    There are inferencer frameworks such as \ensuremath{\Conid{HM}\;(\Conid{X})}~\cite{DBLP:journals/jfp/SulzmannS08}, which is based on a fixed set of type
+    rules parametrized over some relation \ensuremath{\Conid{X}}, for which an inference algorithm needs to be given to obtain an inferencer for
+    the full language. Such a framework is in fact orthogonal to Ruler, and Ruler can be used to construct the algorithm for
+    \ensuremath{\Conid{X}}. In fact, the precise relation of Ruler to other constraint-based inference frameworks is that a Ruler specification
+    can be seen as both a specification of constraints, annotated with the algorithm to solve them.
+
+    \paragraph{Type rule tools.}
+    OTT~\cite{DBLP:conf/icfp/SewellNOPRSS07} produces code for proof assistants. SASyLF~\cite{1411266} is such a proof assistant
+    tailored to proving properties about type systems, as is Twelf~\cite{DBLP:journals/jfp/HarperL07}.
+    
+    Tinkertype~\cite{DBLP:journals/jfp/LevinP03} is a system that can also produce inferencers from type rules. However, the
+    inference algorithms are not derived from the type rules. Instead, it depends on a repository with code for each relation
+    to compose the inferencer.
+
+
+\section{Type Inferencer Syntax}
+\label{sect:syntax}
+
+  \subsection{Core Syntax}
+
+    The syntax of the type inferencer language (named \RulerCore) is given in
+    Figure~\ref{fig:ruler-core-syntax}. A type inferencer is a triple $(\Schemes,\Rules,\Haskell)$
+    of schemes $\Schemes$, rules $\Rules$, and some Haskell support code in the form of
+    data-type declarations, some instances for them, and utility functions. A scheme $\Scheme$
+    represents a function named $\SchemeName$ with inputs declared by environment $\Env_{\In}$, and
+    outputs by environment $\Env_{\Out}$. A scheme can be parametrized over some types $\alpha$,
+    which provides for a limited form of polymorphism for the inferencer rules.
+    The inferencer rules in $\Rules$ with scheme name $\SchemeName$
+    define the function $\SchemeName$. Each rule $\Rule$ consists of a (possibly empty) sequence of
+    premises ($\Statement$), and a conclusion ($\Statement_{\SchemeName}$).
+
+    It is important to realize that we are not defining type rules here. Schemes are not
+    arbitrary relations, but are functions. The premises are statements, not predicates. Also,
+    the order of the premises matter. Values for all inputs need to be available before
+    a scheme can be instantiated. The rules and statements have a certain operational behavior.
+    A rule evaluates successfully if and only evaluation of all its premises succeeds, and for
+    each statement we give a brief description below. We make this more precise later.
+
+    The conclusion $\Rule_{\SchemeName}$ of an inferencer rule defines to what names the actual
+    parameters of the scheme $\SchemeName$ are bound in the context of the rule, and which
+    local results are the outputs of the scheme. Expressed with bindings $\Bindings_{\In}$ and
+    $\Bindings_{\Out}$ respectively, where bindings are a mapping from formal name to actual
+    name.
+
+    \begin{figure}[htp]
+    \begin{displaymath} 
+      \begin{array}[t]{lrlr}
+        \Schemes                   &    =    &   \Scheme_1, \ldots, \Scheme_k                                                 & (\mbox{schemes})\\
+        \Scheme                    &    =    &   \forall \overline{\alpha} .\;\; \Env_{\In} \vdash_{\SchemeName} \Env_{\Out}  & (\mbox{scheme})\\
+        \Rules                     &    =    &   \Rule_{\SchemeName_1}, \ldots, \Rule_{\SchemeName_k}                         & (\mbox{rules})\\
+        \Rule_\SchemeName          &    =    &   \Statements \; ; \; \Statement_\SchemeName                                   & (\mbox{rule})\\
+        \Statements                &    =    &   \Statement_1, \ldots, \Statement_k                                           & (\mbox{statements})\\
+        \Statement                 &    =    &   \Statement_{\SchemeName}                                                     & (\mbox{instantiate})\\
+                                   &    \mid &    n_1 \equiv n_2                                                              & (\mbox{unification})\\
+                                   &    \mid &   \Execution \; e :: \Idents{n} \rightarrow \Idents{m}                         & (\mbox{execution})\\
+                                   &    \mid &   \Fixpoint_{\Bindings}^{\Idents{n}} \; \Statement_{\SchemeName}               & (\mbox{fixpoint})\\
+                                   &    \mid &   \Defer_n^{\Idents{m}} \; \Statements_1, \ldots, \Statements_k                & (\mbox{defer})\\
+                                   &    \mid &   \Commit_{v_{\Type}} \; n                                                     & (\mbox{commit})\\
+                                   &    \mid &   \Fixate_{\Type} \: \Statements                                               & (\mbox{fixate})\\
+        \Statement_\SchemeName     &    =    &   \Bindings_{\In} \vdash_\SchemeName \Bindings_{\Out}                          & (\mbox{scheme instance})\\
+        \Env                       &    =    &   n_1 ::_{\Prop} \Type_1, \ldots, n_k ::_{\Prop} \Type_k                       & (\mbox{environment})\\
+        \Bindings                  &    =    &   n_1 \mapsto m_1, \ldots, n_k \mapsto m_k                                     & (\mbox{bindings})\\
+%        \Props                     &    =    &   \Prop_1, \ldots, \Prop_k                                                    & (\mbox{properties})\\
+        \Prop                      &    =    &   \mbox{d}                                                                     & (\mbox{deferrable})\\
+                                   &    \mid &   \mbox{u}                                                                     & (\mbox{unifyable})\\
+                                   &    \mid &   \emptyset                                                                    & (\mbox{none})\\
+      \end{array}
+    \end{displaymath}
+    With scheme names $\SchemeName$, identifiers $n$, $m$, and $v$, collection of identifiers $\Idents{n}$ and $\Idents{m}$, Haskell types $\tau$,
+    and expressions e.
+    \caption{Syntax of \RulerCore.}
+    \label{fig:ruler-core-syntax}
+    \end{figure}
+
+    Statements for premises come in different forms. There are a couple of statements that allow algorithms
+    to be described:
+    \begin{itemize}
+    \item Evaluation of statement $\Statement_{\SchemeName}$
+      instantiates a scheme, which means applying the scheme function to the inputs, and obtaining the
+      outputs if this application is successful. For the input values, the values bound to the actual names
+      are taken for the formal names (specified by bindings $\Bindings_{\In}$). Similarly, the values bound
+      to the formal name of the scheme are made available under the actual name (specified by bindings
+      $\Bindings_{\Out}$).
+    \item The unification statement attempts to unify the values bound to the names $n_1$ and $n_2$.
+      A unification algorithm based on structural equality needs to be available for the values to which
+      these two types are bound. Successful unification results in a substitution that makes the two values
+      equal. This substitution is implicit and can be assumed to be applied everywhere.
+    \item The execution statement allows monadic Haskell code to be executed. This code is a function taking
+      the values bound to names $\Idents{n}$ as parameter and returns a monadic value containing values for outputs
+      $m^*$. We consider this expression language in more detail later. The purpose of these execution statements
+      is to perform the actual computations needed to produce the values for the inputs of a scheme instantiation,
+      and to inspect the outputs of it by means of pattern matching.
+    \item The fixpoint statement repeatedly instantiates $\SchemeName$, as long as the values bound to
+      identifiers $\Idents{n}$ change. The bindings $\Bindings$ specify how the outputs are mapped back to
+      the inputs after each iteration.
+    \end{itemize}
+    The statements that allow us to algorithmically deal with non-deterministic aspects:
+    \begin{itemize}
+    \item The defer statement represents one of the sequence of statements $\Statements_i$, except that evaluation of it
+      takes place at a later time. In the meantime, a guess (encoded as a fresh variable) for the output $n$ is
+      produced, and bottom-values for outputs $\Idents{n}$. For each guessable data type, we require that we can encode a
+      variable as a value of this data type (denoted as $\sembrack{v}$). These guesses can be passed around as normal values.
+    \item A commit statement refines a guess bound to $v$ with the value bound to identifier $n$, and runs
+      deferred statements, which may lead to other refinements of guesses.
+    \item The fixate statement executes statements $\Statements$. All guesses of type $\Type$ that were not committed during
+      this execution are resolved by executing the deferred statements. Any remaining guesses are marked as fixed. These
+      now represent opaque values that cannot be refined anymore.
+    \end{itemize}
+    
+    Expressions in an $\Execution$-statement are Haskell functions in monad \ensuremath{\Conid{I}} that get the inputs passed as arguments and are
+    obliged to return a product with the results. Hence the type of an expression \ensuremath{\Varid{e}}:
+    \begin{displaymath}
+      e :: \tau_{n_1} \rightarrow \ldots \tau_{n_k} \rightarrow I (\tau_{m_1}, \ldots, \tau_{m_l})
+    \end{displaymath}
+    
+    The \ensuremath{\Conid{I}} monad contains a hidden state, and support failure. In particular, the following operations are available:
+    \begin{hscode}\SaveRestoreHook
+\column{B}{@{}l@{}}
+\column{5}{@{}l@{}}
+\column{14}{@{}l@{}}
+\column{E}{@{}l@{}}
+\>[5]{}\mathbf{commit}{}\<[14]
+\>[14]{}\mathbin{::}\Conid{Deferrable}\;\alpha\Rightarrow \alpha\to \alpha\to \Conid{I}\;(){}\<[E]
+\\
+\>[5]{}\mathbf{defer}{}\<[14]
+\>[14]{}\mathbin{::}(\Conid{Deferrable}\;\alpha,\Conid{Prod}\;\beta)\Rightarrow (\alpha\to \Conid{I}\;\beta)\to \Conid{I}\;(\alpha,\beta){}\<[E]
+\\
+\>[5]{}\mathbf{unif}{}\<[14]
+\>[14]{}\mathbin{::}\Conid{Unifyable}\;\alpha\Rightarrow \alpha\to \alpha\to \Conid{I}\;(){}\<[E]
+\\
+\>[5]{}\mathbf{unifOne}{}\<[14]
+\>[14]{}\mathbin{::}\Conid{Unifyable}\;\alpha\Rightarrow \alpha\to \alpha\to \Conid{I}\;(){}\<[E]
+\\
+\>[5]{}\mathbf{update}{}\<[14]
+\>[14]{}\mathbin{::}\Conid{Container}\;\alpha\Rightarrow \alpha\to \Conid{I}\;\alpha{}\<[E]
+\\
+\>[5]{}\mathbf{fail}{}\<[14]
+\>[14]{}\mathbin{::}\Conid{String}\to \Conid{I}\;(){}\<[E]
+\ColumnHook
+\end{hscode}\resethooks
+    We create a deferrable computation with \ensuremath{\Conid{Defer}}. It takes a monadic function that is only executed when a commit
+    is performed on alpha. This monadic function produces the values for the product \ensuremath{\beta}. Until this actually
+    happened, the contents of the product may not be touched. The \ensuremath{\mathbf{unif}} operation enforces structural equality
+    between values \ensuremath{\alpha}. In case of \ensuremath{\mathbf{unifOne}}, only structural equality on the heads of the values. Finally,
+    \ensuremath{\mathbf{update}} brings all guesses in \ensuremath{\alpha} up to date, and \ensuremath{\mathbf{fail}} causes the inference to fail with a type error.
+
+%%    \begin{figure}[htp]
+%%    \begin{displaymath} 
+%%      \begin{array}[t]{lrlr}
+%%        e  &    =    &   \lambda n \; . \; e                                   &  (\mbox{lambda}) \\
+%%           &    \mid &   |do| \; m_1; \ldots; m_k; r                           &  (\mbox{monadic statements}) \\
+%%        m  &    =    &   m_{\Haskell}[m]                                       &  (\mbox{monadic Haskell}) \\
+%%           &    \mid &   \Unify \; e_{\Haskell,1} \;\; e_{\Haskell,2}          &  (\mbox{unify}) \\
+%%           &    \mid &   (n, \overline{m}) \leftarrow \Defer \; e              &  (\mbox{defer}) \\
+%%           &    \mid &   \Commit \; v \;\; e_{\Haskell}                        &  (\mbox{commit}) \\
+%%           &    \mid &   n \leftarrow \Update \; e_{\Haskell}                  &  (\mbox{app subst}) \\
+%%           &    \mid &   \Fail                                                 &  (\mbox{fail}) \\
+%%           &    \mid &   \Abort \; e_{\Haskell}                                &  (\mbox{error}) \\
+%%        r  &    =    &   \Return \; (e_{\Haskell,1}, \ldots, e_{\Haskell,k})   &  (\mbox{monadic return})
+%%      \end{array}
+%%    \end{displaymath}
+%%    With monadic Haskell expressions $m_{\Haskell}$, and plain Haskell expressions $e_{\Haskell}$.
+%%    \caption{Syntax of expressions.}
+%%    \label{fig:monadic-syntax}
+%%    \end{figure}
+%%
+%%    Expressions in the statements are a form of monadic Haskell functions. Figure~\ref{fig:monadic-syntax}
+%%    lists the syntax of these expressions. The structure of these expressions is a sequence of lambdas
+%%    corresponding to the inputs of the expression, and then a monadic function returning a $n$-tuple of which
+%%    the components correspond to the outputs of the expression. A monadic function $m$, may be an
+%%    arbitrary Haskell expression $m_{\Haskell}$ (of which monadic sub-expressions are allowed to be
+%%    expressions $m$ again), or a number of special monadic operations:
+%%    \begin{itemize}
+%%    \item Unify performs unification on the result of the two expressions received as parameter.
+%%    \item Commit specializes the guess indicated by v the the result of expression.
+%%    \item Update binds a value to $n$, which is the result of the expression with all guesses updated with
+%%      the most recent information available about them. After a Unify or Commit, some more information
+%%      about guesses may have been obtained.
+%%    \item Fail causes the corresponding execution-statement to fail. Consequently, the rule executing this
+%%      statement fails too. If there is no other rule to succeed, the failure becomes a type error.
+%%      Alternatively, Abort causes the type inference to abort with a type error of which the message is
+%%      the result of $e_{Haskell}$. The inferencer rules must be syntax directed, which means that based on
+%%      the syntax of the input to a scheme, there is exactly one rule that does not fail its pattern matches.
+%%    \end{itemize}
+%%    Identifiers of inferencer rules cannot be directly addressed by the Haskell expressions. Those declared
+%%    as inputs can be accessed through the Haskell identifier of the corresponding lambda.
+%%  
+%%    All expressions are evaluated lazily, but all inputs and outputs to expressions, as well as arguments
+%%    to Unify, Commit, and Update, are fully evaluated to normal form.
+
+  \subsection{Syntactic Sugar}
+  
+    The previous section gave the core syntax for the type inferencer. For practical and didactic purposes,
+    the examples in the previous section where given in a somewhat more convenient syntax that can be
+    translated to the core syntax.
+    
+    First of all, we assume a series of notational conventions involving sequences (lists), environments (maps), or sets:
+    \begin{itemize}
+    \item A sequence of, for example, statements is denoted by $\Statements = \overline{\Statement_i} = \Statement_1 \ldots \Statement_k$,
+      where $i$ ($1 \leq i \leq k$) is some index, and $k$ is left implicit as it is clear from the context, i.e. when
+      $i$ ranges also over some list.
+    \item A list of identifiers is denoted by $\Idents{n} = \overline{n_i} = n_1, \ldots, n_k$.
+    \item The empty map, empty list, or empty set is written as $\emptyset$.
+    \end{itemize}
+    
+    \begin{figure}[htp]
+    \begin{displaymath} 
+      \begin{array}[t]{lrlr}
+        \Schemes                   &    =    &   \Scheme_1, \ldots, \Scheme_k                                          & (\mbox{schemes})\\
+        \Scheme                    &    =    &   \forall \overline{\alpha} .\;\;  \SchemeName : d_1, \ldots, d_k       & (\mbox{scheme signature})\\
+        d                          &    =    &   \mathbf{kw}                                                           & (\mbox{keyword decl})\\
+                                   &    \mid &   n \typeofinput_{\Prop} \tau                                           & (\mbox{input decl})\\
+                                   &    \mid &   n \typeofoutput_{\Prop} \tau                                          & (\mbox{output decl})\\
+        \Rules                     &    =    &   \Rule_{\SchemeName_1}, \ldots, \Rule_{\SchemeName_k}                  & (\mbox{rules})\\
+        \Rule_\SchemeName          &    =    &   \inferrule{\Statement_1 \ldots \Statement_k}{\Statement_\SchemeName}  & (\mbox{rule})\\
+        \Statement                 &    =    &   \Statement_{\SchemeName}                                              & (\mbox{instantiate})\\
+                                   &    \mid &    m_{\Haskell,1} \equiv m_{\Haskell,2}                                 & (\mbox{unification})\\
+                                   &    \mid &   \Let \; p_{\Haskell} = e_{\Haskell}                                   & (\mbox{pure})\\
+                                   &    \mid &   p_{\Haskell} \leftarrow m_{\Haskell}                                  & (\mbox{monadic bind})\\
+                                   &    \mid &   m_{\Haskell}                                                          & (\mbox{monadic exec})\\
+                                   &    \mid &   \Fixpoint_{\Bindings}^{\Idents{n}} \; \Statement_{\SchemeName}        & (\mbox{fixpoint})\\
+                                   &    \mid &   \Defer_n^{\Idents{m}} \; \Statements_1, \ldots, \Statements_k         & (\mbox{defer})\\
+%%                                   &    \mid &   \Onebyone_{n_1,n_2}^{\Idents{m}} \;\Statement_{\SchemeName}           & (\mbox{one-by-one})\\
+                                   &    \mid &   \Commit_{v_{\Type}} \; e_{\Haskell}                                   & (\mbox{commit})\\
+                                   &    \mid &   \Fixate_{\Type} \: \Statements                                        & (\mbox{fixate})\\
+                                   &    \mid &   \Force \: m_{\Haskell}                                                & (\mbox{force})\\
+        \Statement_\SchemeName     &    =    &   \SchemeName : i_1, \ldots, i_k                                        & (\mbox{scheme instance})\\
+        i                          &    =    &   \mathbf{kw}                                                           & (\mbox{keyword})\\
+                                   &    \mid &    p_{\Haskell}                                                         & (\mbox{value deconstruction})\\
+                                   &    \mid &    e_{\Haskell}                                                         & (\mbox{value construction}) \\
+      \end{array}
+    \end{displaymath}
+    With keywords $\mathbf{kw}$, Haskell patterns $p_{\Haskell}$, Haskell expressions $e_{\Haskell}$, and monadic Haskell expressions $m_{\Haskell}$.
+    \caption{Syntax of \RulerBase.}
+    \label{fig:ruler-base-syntax}
+    \end{figure}
+    
+    The syntactic sugar is given in Figure~\ref{fig:ruler-base-syntax}. A scheme declaration $\Scheme$ for a
+    scheme named $\SchemeName$, now consists of a sequence of either an input or output declaration, or a keyword.
+    For example, the scheme declaration for a scheme $\mathsf{tp\_expr}$:
+    \begin{displaymath}
+      \mathsf{tp\_expr: } \; (\Gamma \typeofinput \mathsf{Env}) \vdash (e \typeofinput \mathsf{Expr}) : (\tau \typeofoutput_{\mbox{d}} \mathsf{Type})
+    \end{displaymath}
+    defines two inputs $\Gamma$ and $e$ with types $\mathsf{Env}$ and $\mathsf{Expr}$ respectively, and an
+    output named $\tau$ with type $\mathsf{Type}$ (and the deferrable-property). To instantiate this scheme, the statement has the form:
+    $\mathsf{tp\_expr: } \; \ldots \vdash \ldots : \ldots$, where at the places of the dots there is a
+    Haskell pattern for an output, and a pure Haskell expression for an input (the reverse for the conclusion
+    statement). The identifiers of a pattern can be referenced by expressions of subsequent statements of a rule. In the examples of
+    Section~\ref{sect:examples}, we left out the scheme names, because it is clear from the context.
+
+    The essential differences between Figure~\ref{fig:ruler-core-syntax} and Figure~\ref{fig:ruler-base-syntax} are:
+    \begin{itemize}
+    \item The syntactic sugar allows for Haskell expressions and patterns at places where originally only identifiers were
+      expected. This syntactic sugar is translated to execution-statements with the appropriate inputs and outputs.
+      Pattern match failures are translated to fail-expressions. We will also assume that pure Haskell expressions are automatically lifted into
+      a monadic expression when needed. Also, an identifier occurring at multiple input-locations is replaced with unique identifiers with the
+      necessary \ensuremath{\Varid{equiv}}-statements added to the front of the statement sequence.
+    \item No special rules about the structure of monadic functions. These are normal Haskell monadic expressions in some
+      monad $I$, and the commit, unify, and update-operations are functions that act in this monad.
+    \item For the core language, only one deferred statement-sequence is allowed to succeed when triggered to evaluate. Here, we
+          assume that more than one is allowed to succeed, but the first one from the left is taken.
+    \item $\Force$ is syntactic sugar for executing f $m_{\Haskell}$. If the result is a guess, then a commit is done with a fresh
+      value as parameter. If the result is still this fresh value, a commit is done with a fixed value. Otherwise, the result is ignored.
+%%    \item A statement of the form $\Onebyone_{n_1,n_2}^{\Idents{m}} \; \Statement_{\SchemeName}$ is translated to:
+%%          \begin{displaymath}
+%%          \Defer_{n_2}^{\Idents{m}} \!\left.  \begin{array}{l} \{ |do checkConcrete|\;n_2,\; \Statement_{\SchemeName} \}\\
+%%                                                               \{ \Let\; \sembrack{v} = n_2,\; |do checkConcrete| \;n_1,\; \Statement_{\SchemeName} \} \\
+%%                                                               \{ \Let\; (\sembrack{v}, \sembrack{v_2}) = (n_1, n_2),\; w\:\mbox{fresh},\; \Commit_{v_2}\;w,\; \Statement_{\SchemeName} \} \\
+%%                                              \end{array} \right.
+%%          \end{displaymath}
+%%          A one-by-one statement defers execution of $\Statement_{\SchemeName}$ until more is known about $n_2$. Then there are
+%%          three situations to consider. If parameter $n_2$ is not a guess, then some concrete information is found about $n_2$
+%%          and we proceed iwth the execution of $\Statement_{\SchemeName}$. Otherwise, we have not found out anything, and are
+%%          defaulting. In that case, either $n_1$ has a concrete value and we can continue, otherwise we force the defaulting of
+%%          $n_1$ first.
+%%          The idea behind the one-by-one statement is that each recursive step in $\Statement_{\SchemeName}$ should go through
+%%          this one-by-one statement again, such that a derivation is constructed one level at a time (on an on-demand basis).
+%%          (note to self: wouldnt that be something to be done by fixate automatically...)
+    \end{itemize}
+    Identifiers occurring in expressions are brought up-to-date with respect to guesses just before evaluating the expressions.
+
+    \begin{figure}[htp]
+    \begin{hscode}\SaveRestoreHook
+\column{B}{@{}l@{}}
+\column{7}{@{}l@{}}
+\column{9}{@{}l@{}}
+\column{29}{@{}l@{}}
+\column{37}{@{}l@{}}
+\column{E}{@{}l@{}}
+\>[7]{}\mathbf{pattern}\;\Conid{Map}\;\Conid{String}\;\Conid{Ty}\;\mathbf{where}{}\<[E]
+\\
+\>[7]{}\hsindent{2}{}\<[9]
+\>[9]{}\Varid{x}\mathbin{::}\tau,\Gamma\;{}\<[29]
+\>[29]{}\mathbf{input}\;{}\<[37]
+\>[37]{}\Varid{insert}\;\Varid{x}\;\tau\;\Gamma{}\<[E]
+\\[\blanklineskip]
+\>[7]{}\mathbf{pattern}\;\Conid{Expr}\;\mathbf{where}{}\<[E]
+\\
+\>[7]{}\hsindent{2}{}\<[9]
+\>[9]{}\Varid{x}\;{}\<[29]
+\>[29]{}\mathbf{output}\;{}\<[37]
+\>[37]{}\Conid{EVar}\;\Varid{x}{}\<[E]
+\\
+\>[7]{}\hsindent{2}{}\<[9]
+\>[9]{}\Varid{f}\;\Varid{a}\;{}\<[29]
+\>[29]{}\mathbf{output}\;{}\<[37]
+\>[37]{}\Conid{EApp}\;\Varid{f}\;\Varid{a}{}\<[E]
+\\
+\>[7]{}\hsindent{2}{}\<[9]
+\>[9]{}\lambda \Varid{x}\;.\;\;\Varid{e}\;{}\<[29]
+\>[29]{}\mathbf{output}\;{}\<[37]
+\>[37]{}\Conid{ELam}\;\Varid{x}\;\Varid{e}{}\<[E]
+\\[\blanklineskip]
+\>[7]{}\mathbf{pattern}\;\Conid{Ty}\;\mathbf{where}{}\<[E]
+\\
+\>[7]{}\hsindent{2}{}\<[9]
+\>[9]{}[\mskip1.5mu \alpha\mathbin{:=}\tau_1\mskip1.5mu]\;\tau_2\;{}\<[29]
+\>[29]{}\mathbf{output}\;{}\<[37]
+\>[37]{}\Varid{singleSubst}\;\alpha\;\tau_1\Mapsto\Varid{ty}{}\<[E]
+\\[\blanklineskip]
+\>[7]{}\mathbf{pattern}\;\Conid{Ty}\;\mathbf{where}{}\<[E]
+\\
+\>[7]{}\hsindent{2}{}\<[9]
+\>[9]{}\boxexpr{\Varid{t}}{\Varid{b}}\;{}\<[29]
+\>[29]{}\mathbf{input}\;{}\<[37]
+\>[37]{}(\Varid{t},\Varid{b}){}\<[E]
+\\
+\>[7]{}\hsindent{2}{}\<[9]
+\>[9]{}\tybox{\Varid{t}}\;{}\<[29]
+\>[29]{}\mathbf{input}\;{}\<[37]
+\>[37]{}(\Varid{t},\Conid{BYes}){}\<[E]
+\\
+\>[7]{}\hsindent{2}{}\<[9]
+\>[9]{}\Varid{t}\;{}\<[29]
+\>[29]{}\mathbf{input}\;{}\<[37]
+\>[37]{}(\Varid{t},\Conid{BNo}){}\<[E]
+\ColumnHook
+\end{hscode}\resethooks
+    \caption{Examples of pattern declarations.}
+    \label{fig:ruler-pattern-example}
+    \end{figure}
+
+    Finally, we assume a number of pattern declarations, of which an example is given in Figure~\ref{fig:ruler-pattern-example}. These
+    define special syntax for Haskell expressions (indicated with \ensuremath{\mathbf{input}}) and patterns (indicated with \ensuremath{\mathbf{output}}) for certain
+    specific types, and the translation to Haskell. To disambiguate, the types of identifiers play a role. The pattern \ensuremath{\Varid{x}} can
+    stand for the identifier x (say, if the type is \ensuremath{\Conid{String}}), or for the expression \ensuremath{\Conid{EVar}\;\Varid{x}} if type is \ensuremath{\Conid{Expr}}.
+
+\section{Operational Semantics}
+\label{sect:operational-semantics}
+
+%% (add something about having an executable Haskell version of the rules introduced in this section. Add something about the
+%% declarative nature of these rules. Add something about the possibility to write these rules in the proposed language itself,
+%% except that this would be more confusing to the reader).
+
+In this section we give a big-step operational semantics of the inferencer language introduced in Section~\ref{sect:syntax}.
+We first discuss some notation, then explain the evaluation rules. Evaluation of the inferencer rules involves data manipulation.
+Some demands are made about the data in question. In particular, we require structural equality to be defined for data types.
+We finish this section with a discussion of these demands.
+
+  \subsection{Notation}
+
+    For the operational semantics, heaps $\Heap$, substitutions $\Substitution$ and derivations $\Deriv$ are used for
+    bookkeeping. Their syntax is given in Figure~\ref{fig:subst-syntax}. Heaps are a mapping of locations (in our case, plain identifiers) to Haskell values.
+    Substitutions keep track of information about guesses (identified by a variable $v$). Either a guess is resolved and represents
+    some concrete value $w$ of type $\tau$, or will be resolved through a commit on another variable and is for the moment mapped
+    to $\bot$, or represents a closure of the deferred statements. In the latter case, we store in a heap $\Heap$ entries for each
+    identifier referenced by the deferred statements, store a scope identifier $\Scope$ representing the deepest scope in which the
+    deferred statement is introduced (encoded as a number equal to the nesting-depth), and a rule identifier $r$. Each defer-statement
+    introduces a unique rule identifier, which is
+    a placeholder for a derivation. Derivations represents a partial derivation in an abstract way. The conclusions of each rule make
+    up the nodes of the derivation-tree (with the values of their instantiation in heap $\Heap$). Statements that cannot be represented
+    by this are represented with an opaque-leaf $\diamond$. These derivations may be partial and refer to sub-derivations named
+    $\RuleIdent$ with $\derivref{\RuleIdent}$.
+
+    \begin{figure}[htp]
+    \begin{displaymath} 
+      \begin{array}[t]{lrlr}
+      \Heap           &    =    &   n_1 \coloneqq w_{1,\Type_1}, \ldots, n_k \coloneqq w_{k,\Type_k}                    & (\mbox{heap})\\
+%%      h               &    =    &   w_{\Type}                                                                           & (\mbox{concrete value})\\
+%%                      &    \mid &   v_{\mathsf{deferred}}                                                               & (\mbox{deferred value})\\
+%%                      &    \mid &   v_{\mathsf{fixed}}                                                                  & (\mbox{fixed value})\\
+      \Substitution   &    =    &   v_1 \mapsto q_1, \ldots, v_k \mapsto q_k                                            & (\mbox{substitution})\\
+      q               &    =    &   w_{\Type}                                                                           & (\mbox{subst value})\\
+                      &    \mid &   \bot                                                                                & (\mbox{subst bot})\\
+                      &    \mid &   \Deferred_{\Heap}^{\Scope,\RuleIdent} \; \Statements_1, \ldots, \Statements_k       & (\mbox{deferred})\\
+      \Deriv          &    =    &   \inferrule{\Deriv}{\Heap \vdash c_s}                                                & (\mbox{node})\\
+                      &    \mid &   \derivref{\RuleIdent}                                                               & (\mbox{reference})\\
+                      &    \mid &   \diamond                                                                            & (\mbox{opaque})\\
+                      &    \mid &   \Deriv_1 \; \Deriv_2                                                                & (\mbox{and-cons})\\
+      \DerivsEnv      &    =    &   \RuleIdent_1 \mapsto \Deriv_1, \ldots, \RuleIdent_k \mapsto \Deriv_k                & (\mbox{named derivations})\\
+      \end{array}
+    \end{displaymath}
+    With Haskell value $w$, rule identifier $\RuleIdent$, and scope identifier $\Scope$.
+    \caption{Syntax of heaps, substitutions, and derivations.}
+    \label{fig:subst-syntax}
+    \end{figure}
+    
+    Substitutions satisfy the usual substitution properties. Juxtaposition of substitutions $\Substitution_1 \Substitution_2$ represents the
+    left-biased union of the two substitutions, with $\Substitution_1$ applied to all entries $q$ of $\Substitution_2$. Applying a
+    substitution $\Substitution_1$ to a value $w$, denoted with $\Substitution w$, replaces each guess
+    $\sembrack{v}$ with either $w$ if $v \mapsto w_{\Type} \in \Substitution$ or itself otherwise. Application to a $\bot$-entry is the
+    identity, and to a $\Deferred$-entry means applying it to the heap. Substitution application is lifted to environments, heaps, and
+    derivations as well.
+    
+    We also use some notation concerning heaps and bindings. The lookup of a value for an identifier is written as $\Heap(n)$. With
+    bindings we can take and rename entries in a heap: $\Heap(\Bindings)$ is a heap which for each binding $n \mapsto n'$ has the value
+    $w_{\Type}$ for $n$ taken from $\Heap$ as $n'$, i.e. $\Heap(\Bindings)(n) = \Heap(n')$. We also use the reverse:
+    $\Bindings(\Heap)(n') = \Heap(n)$. Juxtaposition of heaps stands for the left-biased union of the two.
+
+  \subsection{Evaluation Rules}
+
+    \paragraph{Overview.}
+    We can now give the evaluation rules of our big-step operational semantics. Figure~\ref{fig:eval-syntax} lists the structure of the
+    evaluation rules. Given a statement $\Statement$, the reduction relation gives a transition from a substitution $\Substitution_0$ and
+    heap $\Heap_0$ with values for the inputs of $\Statement$, to an heap $\Heap_1$ containing values for the outputs of $\Statement$ and
+    an updated substitution $\Substitution_1$. The transition is labeled with a derivation $\Deriv$ which can be considered a trace of the
+    steps that were taken in order to make the transition. Similarly, $\DerivsEnv$ contains (at least) a binding for each reference in
+    derivation $\Deriv$ and any reference of any derivation in $\DerivsEnv$ itself. There are some variations of this reduction relation
+    on the level of statements and rules. An important invariant is that the resulting heap is up to date with respect to the resulting
+    substitution.
+
+    The semantics of substitution refinement by defaulting the guesses of a certain scope, starts with an initial substitution
+    $\Substitution_0$, and the current scope identifier $\Scope$, and ends in a state $\Substitution_1$. The purpose of this relation is to
+    force the evaluation of deferred statements created in $\Scope$ of type $\Type$, such that none of these remain in $\Substitution_1$.
+    
+    For the evaluation of (monadic) Haskell expressions, we construct an expression $e$ and evaluate it in an execution environment
+    $\Haskell$, containing data type definitions, Haskell support code, augmented with bindings for inputs to the expression, including
+    the substitution.
+    
+    \begin{figure}[htp]
+    \begin{displaymath}
+      \begin{array}[t]{ll}
+      \Substitution_0  \attrsep  \Heap_0  \attrsep  \Scope  \attrsep  \Statement  \transition{\DerivsEnv}{\Deriv}  \Heap_1 \attrsep \Substitution_1    & (\mbox{statement reduction}) \\
+      \Substitution_0  \attrsep  \Heap_0  \attrsep  \Scope  \attrsep  \Statement_1,\ldots,\Statement_k  \transition{\DerivsEnv}{\Deriv}  \Heap_1 \attrsep \Substitution_1    & (\mbox{statements reduction}) \\
+      \Substitution_0  \attrsep  \Heap_0  \attrsep  \Scope  \attrsep  \Rule_{\SchemeName}  \transition{\DerivsEnv}{\Deriv}  \Heap_1 \attrsep \Substitution_1    & (\mbox{rule reduction}) \\
+      \Type \attrsep \Substitution_0 \attrsep \Scope \rightarrow^{\DerivsEnv}_{*} \Substitution_1       & (\mbox{scope defaulting}) \\
+      \Haskell \vdash e_{\Haskell} \rightarrow w   &  \mbox{(Haskell evaluation)} \\
+      \end{array}
+    \end{displaymath}
+    \caption{Structure of the evaluation rules.}
+    \label{fig:eval-syntax}
+    \end{figure}
+
+    Given a type inferencer, a triple $(\Schemes,\Rules,\Haskell)$, and an instantiation of scheme $\Scheme$ by means of statement
+    $\Statement_{\SchemeName}$ with a heap $\Heap_0$, evaluation of this statement with the inferencer rules is the transition
+    \begin{displaymath}
+      \emptyset \attrsep \Heap_0 \attrsep 0 \attrsep \Fixate_{*} \: \Statement_{\SchemeName} \transition{\DerivsEnv}{\Deriv}  \Heap_1 \attrsep \Substitution_1
+    \end{displaymath}
+    according to the smallest reduction relations satisfying the evaluation rules of Figure~\ref{fig:conventional-eval-rules},
+    Figure~\ref{fig:apply-eval-rule}, Figure~\ref{fig:nondeterm-eval-rules}, and Figure~\ref{fig:defaulting-eval-rules}. We explain
+    these rules in more detail. Furthermore, we assume that the components of the inferencer-triple are available in the rules as a constant.
+
+    \begin{figure}[htp]
+    \begin{mathpar}
+      \inferrule*[right=Scheme]
+        { \Rule_{\SchemeName} \in \Rules \\
+          \Heap_{\In'} = \Heap_{\In}(\Bindings_{\In}) \\
+          \Heap_{\Out} = \Bindings_{\Out}(\Heap_{\Out'}) \\
+          \Substitution \attrsep \Heap_{\In'} \attrsep \Scope \attrsep \Rule_{\SchemeName} \transition{\DerivsEnv}{\Deriv}  \Heap_{\Out'} \attrsep \Substitution' \\
+        }
+        { \Substitution_1 \attrsep \Heap_{\In} \attrsep \Scope \attrsep \Bindings_{\In} \vdash_\SchemeName \Bindings_{\Out} \transition{\DerivsEnv}{\Deriv}  \Heap_{\Out} \attrsep \Substitution' }
+
+      \inferrule*[right=Unify]
+        { \Substitution' = \ensuremath{\Varid{fst}} \; (\ensuremath{\Varid{run}} \; (\ensuremath{\mathbf{unif}} \; \Heap(n_1) \; \Heap(n_2)) \; \Substitution \; \Scope) }
+        { \Substitution \attrsep \Heap \attrsep \Scope \attrsep n_1 \equiv n_2 \transition{\emptyset}{\diamond} \emptyset \attrsep \Substitution' }
+      
+      \inferrule*[right=Exec]
+        { \Haskell \vdash \ensuremath{\Varid{run}} \; (e \; \Heap(n_1) \ldots \Heap(n_k)) \; \Substitution \; \Scope \rightarrow (\Substitution', (w_1, \ldots, w_l)) \\
+          \Heap' = m_1 \mapsto w_1, \ldots m_k \mapsto w_k
+        }
+        { \Substitution \attrsep \Heap \attrsep \Scope \attrsep \Execution e :: n_1,\ldots,n_k \rightarrow m_1,\ldots,m_l \transition{\emptyset}{\diamond} \Heap' \attrsep \Substitution' }
+
+      \inferrule*[right=Fixstep]
+        { \Rule_{\SchemeName} \in \Rules \\
+          \Substitution_1 \attrsep \Heap_1 \attrsep \Scope \attrsep \Rule_{\SchemeName} \transition{\DerivsEnv}{\Deriv} \Heap_2 \attrsep \Substitution_2 \\
+          \Heap_1(\Idents{n}) \not\eq \Heap_2(\Idents{n}) \\
+          \Substitution_2 \attrsep \Heap_2(\Bindings) \; \Heap_2 \attrsep \Scope \attrsep \Fixpoint^{\Idents{n}}_{\Bindings} \; \Statement_{\SchemeName} \transition{\DerivsEnv}{\Deriv'} \Heap_3 \attrsep \Substitution_3 \\
+        }
+        { \Substitution_1 \attrsep \Heap_1 \attrsep \Scope \attrsep \Fixpoint^{\Idents{n}}_{\Bindings} \; \Statement_{\SchemeName} \transition{\DerivsEnv}{\Deriv \; \Deriv'} \Heap_3 \attrsep \Substitution_3 }
+
+      \inferrule*[right=Fixskip]
+        {}
+        { \Substitution \attrsep \Heap \attrsep \Scope \attrsep \Fixpoint^{\Idents{n}}_{\Bindings} \; \Statement_{\SchemeName} \transition{\DerivsEnv}{\Deriv} \Heap(\Bindings) \; \Heap \attrsep \Substitution }
+    \end{mathpar}
+    \caption{Evaluation rules for conventional statements.}
+    \label{fig:conventional-eval-rules}
+    \end{figure}
+
+    \paragraph{Conventional statements.}
+    In Figure~\ref{fig:apply-eval-rule} are the rule for what we call the conventional statements. These are the statements in which type checking algorithms
+    can be expressed. Type inference is not possible with these rules yet since this requires guessing.
+
+    The Scheme-rule represents instantiation of a scheme named $\SchemeName$. An inferencer rule $\Rule_{\SchemeName}$ is chosen and evaluated. The bindings
+    dictate which values to take from the heap to use as inputs to the rule. Similarly, the bindings dictate under which name the outputs after evaluation
+    are to be stored. These inferencer rules must be syntax directed. There should be only one $\Rule_{\SchemeName}$ that can be applied.
+
+    For the unify-rule, the values bound to $n_1$ and $n_2$ are checked for equality with the \ensuremath{\Varid{unify}} function defined on the type of these values. When the
+    types involve guesses, this may lead to discovery of more type information about guesses and an updated substitution.
+    
+    In the exec-rule, the monadic code is executed with the values of $n_1, \ldots, n_k$ as parameter. The monadic code may update the substitution, or
+    cause the statement to fail. If the execution succeeds, the returned product of the monadic code contains the values for in the output-heap.
+    
+    Finally, with the fixpoint-rule a scheme-statement can be repeatedly executed as long as it causes one of the values of $\Idents{n}$ to change. For each repetition, the
+    bindings $\Bindings$ dictate which outputs are the inputs of the next iteration. In this case there may be more than one applicable rule
+    $\Rule_{\SchemeName}$. However, to make a step, evaluation of the inferencer rule must cause a change of value $n$.
+
+    \begin{figure}[htp]
+    \begin{mathpar}
+      \inferrule*[right=Rule]
+        {
+          \Substitution_{\In} \attrsep \Bindings_{\In}(\Heap_{\In}) \attrsep \Scope \attrsep \Statement_1, \ldots, \Statement_k \transition{\DerivsEnv}{\Deriv_1, \ldots, \Deriv_k} \Heap' \attrsep \Substitution_{\Out} \\
+          \Deriv = \inferrule{\Deriv_1 \ldots \Deriv_k}{\Heap' \vdash (\Bindings_{\In} \vdash_s \Bindings_{\Out})} \\
+          \Heap_{\Out} = \Heap'(\Bindings_{\Out}) \\
+        }
+        { \Substitution_{\In} \attrsep \Heap_{\In} \attrsep \Scope \attrsep \Statement_1, \ldots, \Statement_k ; \Bindings_{\In} \vdash_s \Bindings_{\Out} \transition{\DerivsEnv}{\Deriv}  \Heap_{\Out} \attrsep \Substitution_{\Out} }
+
+      \inferrule*[right=Statements]
+        {
+          \Substitution_i \attrsep (\Substitution_i \Heap_i \ldots \Heap_1) \attrsep \Scope \attrsep \Statement_i \transition{\DerivsEnv}{\Deriv_i} \Heap_{i+1} \attrsep \Substitution_{i+1}, \; 1 \leq i \leq k \\
+        }
+        { \Substitution_1 \attrsep \Heap_1 \attrsep \Scope \attrsep \Statement_1, \ldots, \Statement_k \transition{\DerivsEnv}{\Deriv_1 \ldots \Deriv_k}  \Substitution_{k+1} \Heap_{k+1} \ldots \Heap_1 \attrsep \Substitution_{k+1} }
+    \end{mathpar}
+    \caption{The apply rules.}
+    \label{fig:apply-eval-rule}
+    \end{figure}
+    
+    In Figure~\ref{fig:apply-eval-rule} are evaluation rules for a chosen inferencer rule $\Rule_{\SchemeName}$. The bindings of the conclusion specifies
+    under what names the inputs to the rule need to be presented to the statements. Likewise, the bindings also specify under what names the values of the
+    outputs of the rule are available. Successful evaluation of a rule means that a derivation $\Deriv$ has been produced, of which the current rule forms
+    the root, and the derivations of the premises are its immediate children.
+
+    Evaluation of a sequence of statements causes the heap to accumulate the outputs of the statements already executed
+    so far. The outputs of predecessors of a statement in this sequence are also available as input to the statement. Since each evaluation of a statement
+    potentially causes more information to be known about guesses in such outputs, the most recent substitution is applied to these predecessor-outputs
+    first.
+    
+    \begin{figure}[htp]
+    \begin{mathpar}
+      \inferrule*[right=Defer]
+        { v, v_1, \ldots, v_l, \RuleIdent \; \mbox{fresh} \\
+          \Heap = n \mapsto \sembrack{v}, m_1 \mapsto \sembrack{v_1}, \ldots, m_l \mapsto \sembrack{v_l} \\
+          \Heap_{\Out} = \Heap \Heap_{\In} \\
+          \Substitution_1 = v_1 \mapsto \bot, \ldots, v_l \mapsto \bot \\
+          \Substitution_2 = v \mapsto \Deferred_{\Heap_{\Out}}^{\Scope,\RuleIdent} \; \Statements_1, \ldots, \Statements_k \\
+        }
+        { \Substitution \attrsep \Heap_{\In} \attrsep \Scope \attrsep \Defer_n^{m_1, \ldots, m_l} \; \Statements_1, \ldots, \Statements_k \transition{\emptyset}{\derivref{\RuleIdent}} \Heap_{\Out} \attrsep \Substitution_1 \Substitution_2 \Substitution }
+      
+      \inferrule*[right=CommitVar]
+        { v \mapsto \Deferred_{\Heap}^{\Scope,\RuleIdent} \; \Statement^{**} \in \Substitution \\
+          \Statement_1, \ldots, \Statement_k \in \Statement^{**} \\
+          \Substitution_1 = v \mapsto \Heap_{\In}(n), \Substitution_{\In} \\
+           \Substitution_1 \attrsep \Substitution_1 \Heap \attrsep \Scope \attrsep \Statement_1, \ldots, \Statement_k \transition{\DerivsEnv}{\Deriv} \Heap' \attrsep \Substitution_2 \\
+           \Substitution_{\Out} = \left\{ v \mapsto w \mid n \mapsto \sembrack{v} \in \Heap, n \mapsto w \in \Heap' \right\}, \Substitution_2 \\
+           \RuleIdent \mapsto \Deriv \in \DerivsEnv \\
+        }
+        { \Substitution_{\In} \attrsep \Heap_{\In} \attrsep \Scope \attrsep \Commit_{v_{\Type}} \; n \transition{\DerivsEnv}{\Diamond} \emptyset \attrsep \Substitution_{\Out} }
+  
+      \inferrule*[right=CommitVal]
+        { v \mapsto w \in \Substitution \\
+          n' \; \mbox{fresh} \\
+          \Heap = n' \mapsto w, n \mapsto \Heap_{\In}(n) \\
+          \Substitution_{\In} \attrsep \Heap \attrsep \Scope \attrsep n' \equiv n \transition{\DerivsEnv}{\Diamond} \Heap' \attrsep \Substitution_{\Out}
+        }
+        { \Substitution_{\In} \attrsep \Heap_{\In} \attrsep \Scope \attrsep \Commit_{v_{\Type}} \; n \transition{\DerivsEnv}{\Diamond} \emptyset \attrsep \Substitution_{\Out} }
+
+      \inferrule*[right=Fixate]
+        { \Substitution_{\In} \attrsep \Heap_{\In} \attrsep \Scope \attrsep \Statements \transition{\DerivsEnv}{\Deriv} \Heap_{\Out} \attrsep \Substitution_1 \\
+          \Type \attrsep \Substitution_1 \attrsep \Scope \rightarrow^{\DerivsEnv}_{*} \Substitution_{\Out} \\
+          \mbox{deferred}(\Scope, \Substitution_{\Out}) = \emptyset \\
+        }
+        { \Substitution_{\In} \attrsep \Heap_{\In} \attrsep \Scope-1 \attrsep \Fixate_{\Type} \: \Statements \transition{\DerivsEnv}{\Deriv} \Substitution_{\Out} \Heap_{\Out} \attrsep \Substitution_{\Out} }
+    \end{mathpar}
+    \caption{Evaluation rules for non-determinism annotations.}
+    \label{fig:nondeterm-eval-rules}
+    \end{figure}
+
+    \paragraph{Non-deterministic statements}
+    To deal with guesses, there are the statements that deal with non-determinism, which we will call the non-deterministic statements. Their
+    semantics is made precise in Figure~\ref{fig:nondeterm-eval-rules}.
+    
+    For a Defer-statement, guesses are produced as outputs for $n, m_1, \ldots, m_l$. A closure for the statements $c_1, \ldots, c_k$ is stored as
+    substitution for the guess of $n$ as closure. A commit on this guess leads to the execution of these statements, and to the production of
+    values for the guesses $m_1, \ldots, m_l$. Committing on these latter guesses is not possible, since the substitution for these guesses is
+    mapped to $\bot$. This closure is introduced in scope $\Scope$ and contains a unique identifier $\RuleIdent$ which is the name of the
+    derivation that is produced later. A reference to this derivation is returned as the derivation of the Defer-statement.
+    
+    Evaluation of the Commit-statement leads to the evaluation of the deferred statements. The heap stored in the closure is updated to the
+    current substitution, and the substitution reflects the newly found information about the guess. Then, one of the sequences of statements is
+    chosen and evaluated. The evaluation has caused outputs to be produced for values that were before represented as a guess to
+    a $\bot$-substitution. Subsequently, the substitution is updated such that these substitutions do not map to $\bot$ anymore, but to their
+    newly produced value.
+    
+    Finally, there is the Fixate-statement. Its statement is evaluated in a subscope $\Scope$. After evaluation, the remaining guesses are
+    defaulted such that no deferred statement is left for scope $\Scope$. The rules for defaulting are specified in
+    Figure~\ref{fig:defaulting-eval-rules}.
+
+    \begin{figure}[htp]
+    \begin{mathpar}
+      \inferrule*[right=Flex]
+        { n, v' \; \mbox{fresh} \\
+          v_{\Type} \in \mbox{dom}(\Substitution_{\In}) \\
+          \Heap = n \mapsto \sembrack{v'} \\
+          \Substitution = v' \mapsto \Deferred_{\emptyset}^{\Scope,\RuleIdent} \; \{ \emptyset \} \\
+          \Substitution \Substitution_{\In} \attrsep \Heap \attrsep \Scope \attrsep \Commit_{v_{\Type}} \; n \transition{\DerivsEnv}{\Diamond} \Heap' \attrsep \Substitution_{\Out} \\
+        }
+        { \Type \attrsep \Substitution_{\In} \attrsep \Scope \rightarrow^{\DerivsEnv}_{*} \Substitution_{\Out} }
+
+      \inferrule*[right=Rigid]
+        { n \; \mbox{fresh} \\
+          v_{\Type} \in \mbox{dom}(\Substitution_{\In}) \\
+          \Heap = n \mapsto \sembrack{v}_F \\
+          \Substitution \Substitution_{\In} \attrsep \Heap \attrsep \Scope \attrsep \Commit_{v_{\Type}} \; n \transition{\DerivsEnv}{\Diamond} \Heap' \attrsep \Substitution_{\Out} \\
+        }
+        { \Type \attrsep \Substitution_{\In} \attrsep \Scope \rightarrow^{\DerivsEnv}_{*} \Substitution_{\Out} }
+
+      \inferrule*[right=Trans]
+        { \Type \attrsep \Substitution_{\In} \attrsep \Scope \rightarrow^{\DerivsEnv}_{*} \Substitution \\
+          \Type \attrsep \Substitution \attrsep \Scope \rightarrow^{\DerivsEnv}_{*} \Substitution_{\Out} \\
+        }
+        { \Type \attrsep \Substitution_{\In} \attrsep \Scope \rightarrow^{\DerivsEnv}_{*} \Substitution_{\Out} }
+      
+      \inferrule*[right=Finish]
+        {}
+        { \Type \attrsep \Substitution \attrsep \Scope \rightarrow^{\DerivsEnv}_{*} \Substitution }
+    \end{mathpar}
+    \caption{Defaulting rules.}
+    \label{fig:defaulting-eval-rules}
+    \end{figure}
+
+    A deferred guess is committed to with either a {\it flexible} guess as value, or with
+    a {\it fixed} unknown value. In both cases, of the deferred statement-sequences must be able to evaluate with this newly found information.
+    In the first case, such deferred statement observes a guess as value for its input, and is allowed to refine it. In the later case,
+    the value may not be touched.
+
+    Since committing to a flexible guess results in the introduction of a guess in the scope, in order to end up with no guesses in the scope in
+    the end, each commit to a flexible guess must lead to refinements of guesses. All guesses that are essentially unconstrained will then end up
+    with fixed unknowns.
+
+    \begin{figure}[htp]
+    \begin{hscode}\SaveRestoreHook
+\column{B}{@{}l@{}}
+\column{5}{@{}l@{}}
+\column{E}{@{}l@{}}
+\>[5]{}\mathbf{type}\;\Conid{I}\;\alpha\mathrel{=}\Conid{ErrorT}\;\Conid{Err}\;(\Conid{State}\;(\Substitution,\Scope))\;\alpha{}\<[E]
+\\
+\>[5]{}\Varid{run}\mathbin{::}\Conid{I}\;\alpha\to \Substitution\to \Scope\to (\Substitution,\alpha){}\<[E]
+\ColumnHook
+\end{hscode}\resethooks
+    \caption{The \ensuremath{\Varid{run}} function.}
+    \label{fig:run-function}
+    \end{figure}
+
+    \paragraph{Haskell semantics.}    
+    The semantics of the monadic functions are defined in terms of Haskell. The type of the monad is
+    given in Figure~\ref{fig:run-function}. It is a conventional combination between the error monad and
+    the state monad. The \ensuremath{\Varid{run}} function is the interface between the semantic world and the monad world.
+    If the monadic evaluation is successful, the premise with \ensuremath{\Varid{run}} succeeds and there has been a
+    state transition into the monad and back. If the evaluation results in an \ensuremath{\Conid{Err}}, the premise with
+    \ensuremath{\Varid{run}} does not hold.
+
+  \subsection{Data-type Semantics}
+  
+    The semantics of the previous section makes some assumptions about the types of identifiers occurring
+    in de inferencer rules. This functionality needs to be available in terms of instances for the type
+    classes listed in Figure~\ref{fig:data-classes}. This functionality does not have to be available for
+    all types. Most of this functionality can be generically derived from the structure of the types.
+
+    \begin{figure}[htp]
+    \begin{hscode}\SaveRestoreHook
+\column{B}{@{}l@{}}
+\column{5}{@{}l@{}}
+\column{6}{@{}l@{}}
+\column{7}{@{}l@{}}
+\column{8}{@{}l@{}}
+\column{17}{@{}l@{}}
+\column{24}{@{}l@{}}
+\column{E}{@{}l@{}}
+\>[6]{}\mathbf{class}\;\Conid{Container}\;\alpha\;\mathbf{where}{}\<[E]
+\\
+\>[6]{}\hsindent{2}{}\<[8]
+\>[8]{}\Varid{appSubst}\mathbin{::}(\forall\!\;\beta\;.\;\;\Conid{Container}\;\beta\Rightarrow \beta\to \beta)\to \alpha\to \alpha{}\<[E]
+\\[\blanklineskip]
+\>[5]{}\mathbf{class}\;\Conid{Unifyable}\;\alpha\;\mathbf{where}{}\<[E]
+\\
+\>[5]{}\hsindent{2}{}\<[7]
+\>[7]{}\Varid{unify}\mathbin{::}{}\<[17]
+\>[17]{}(\forall\!\;\beta\;.\;\;\Conid{Unifyable}\;\beta\Rightarrow \beta\to \beta\to \Conid{I}\;()){}\<[E]
+\\
+\>[17]{}\to \alpha\to \alpha\to \Conid{I}\;(){}\<[E]
+\\[\blanklineskip]
+\>[5]{}\mathbf{class}\;\Conid{Deferrable}\;\alpha\;\mathbf{where}{}\<[E]
+\\
+\>[5]{}\hsindent{2}{}\<[7]
+\>[7]{}\Varid{deferVars}{}\<[24]
+\>[24]{}\mathbin{::}\alpha\to \{\mskip1.5mu \Conid{GuessVar}\mskip1.5mu\}{}\<[E]
+\\
+\>[5]{}\hsindent{2}{}\<[7]
+\>[7]{}\Varid{mkDeferValue}{}\<[24]
+\>[24]{}\mathbin{::}\Conid{GuessVar}\to \alpha{}\<[E]
+\\
+\>[5]{}\hsindent{2}{}\<[7]
+\>[7]{}\Varid{mkFixedValue}{}\<[24]
+\>[24]{}\mathbin{::}\Conid{GuessVar}\to \alpha{}\<[E]
+\\
+\>[5]{}\hsindent{2}{}\<[7]
+\>[7]{}\Varid{matchDeferValue}{}\<[24]
+\>[24]{}\mathbin{::}\alpha\to \Conid{Maybe}\;\Conid{GuessVar}{}\<[E]
+\\
+\>[5]{}\hsindent{2}{}\<[7]
+\>[7]{}\Varid{matchFixedValue}{}\<[24]
+\>[24]{}\mathbin{::}\alpha\to \Conid{Maybe}\;\Conid{GuessVar}{}\<[E]
+\ColumnHook
+\end{hscode}\resethooks
+    \caption{Semantics on data.}
+    \label{fig:data-classes}
+    \end{figure}
+
+    A \ensuremath{\Conid{Container}} instance is required to be defined for all types containing guesses. Substitution
+    application \ensuremath{\Substitution\Mapsto\Varid{w}} replaces all occurrences of guess $\sembrack{v}$ with $w'$, given
+    $v \mapsto w'_{\Type} \in \Substitution$. It generically handles the substitution of guesses, and uses
+    \ensuremath{\Varid{appSubst}} to traverse the type.
+
+    \begin{figure}[htp]
+    \begin{hscode}\SaveRestoreHook
+\column{B}{@{}l@{}}
+\column{7}{@{}l@{}}
+\column{17}{@{}l@{}}
+\column{22}{@{}l@{}}
+\column{24}{@{}l@{}}
+\column{28}{@{}l@{}}
+\column{31}{@{}l@{}}
+\column{56}{@{}l@{}}
+\column{E}{@{}l@{}}
+\>[7]{}\mathbf{unif}\;w_1\;w_2\mathrel{=}\Varid{unif'}\;\mathbf{unif}\;w_1\;w_2{}\<[E]
+\\
+\>[7]{}\mathbf{unifOne}\;w_1\;w_2\mathrel{=}\Varid{unif'}\;(\lambda \anonymous \;\anonymous \to \mathbf{return}\;())\;w_1\;w_2{}\<[E]
+\\
+\>[7]{} \hspace{1em}{}\<[E]
+\\
+\>[7]{}\Varid{unif'}\;\Varid{r}\;w_1\;w_2{}\<[22]
+\>[22]{}\mathrel{=}\mathbf{do}\;{}\<[28]
+\>[28]{}w_3\leftarrow \mathbf{update}\;w_1;w_4\leftarrow \mathbf{update}\;w_2{}\<[E]
+\\
+\>[28]{}\Varid{unif''}\;\Varid{r}\;w_1\;w_2{}\<[E]
+\\
+\>[7]{} \hspace{1em}{}\<[E]
+\\
+\>[7]{}\Varid{unif''}\;\anonymous \;{}\<[17]
+\>[17]{}w_1\;{}\<[24]
+\>[24]{}w_2{}\<[31]
+\>[31]{}\mid w_1\equiv w_2{}\<[56]
+\>[56]{}\mathrel{=}\mathbf{return}\;(){}\<[E]
+\\
+\>[7]{}\Varid{unif''}\;\anonymous \;{}\<[17]
+\>[17]{}\sembrack{v_1}\;{}\<[24]
+\>[24]{}\sembrack{v_2}{}\<[56]
+\>[56]{}\mathrel{=}\Varid{compose}\;v_1\;v_2{}\<[E]
+\\
+\>[7]{}\Varid{unif''}\;\anonymous \;{}\<[17]
+\>[17]{}\sembrack{v}\;{}\<[24]
+\>[24]{}\Varid{w}{}\<[31]
+\>[31]{}\mid \Varid{v}\;\not\in\;\Varid{deferVars}\;\Varid{w}{}\<[56]
+\>[56]{}\mathrel{=}\mathbf{commit}\;\Varid{v}\;\Varid{w}{}\<[E]
+\\
+\>[31]{}\mid \Varid{otherwise}{}\<[56]
+\>[56]{}\mathrel{=}\mathbf{fail}\;\text{\tt \char34 occur~check\char34}{}\<[E]
+\\
+\>[7]{}\Varid{unif''}\;\anonymous \;{}\<[17]
+\>[17]{}\Varid{w}\;{}\<[24]
+\>[24]{}\sembrack{v}{}\<[31]
+\>[31]{}\mid \Varid{v}\;\not\in\;\Varid{deferVars}\;\Varid{w}{}\<[56]
+\>[56]{}\mathrel{=}\mathbf{commit}\;\Varid{v}\;\Varid{w}{}\<[E]
+\\
+\>[31]{}\mid \Varid{otherwise}{}\<[56]
+\>[56]{}\mathrel{=}\mathbf{fail}\;\text{\tt \char34 occur~check\char34}{}\<[E]
+\\
+\>[7]{}\Varid{unif''}\;\Varid{r}\;{}\<[17]
+\>[17]{}w_1\;{}\<[24]
+\>[24]{}w_2{}\<[56]
+\>[56]{}\mathrel{=}\Varid{unify}\;\Varid{r}\;w_1\;w_2{}\<[E]
+\ColumnHook
+\end{hscode}\resethooks
+    \caption{Unification and guess specialization.}
+    \label{fig:unif-function}
+    \end{figure}
+
+    For the type of the identifiers of the unification rule a \ensuremath{\Conid{Unifyable}} instance needs to be defined,
+    which asks for a definitely of the \ensuremath{\Varid{unify}} function. Its sole purpose is to succeed if and only if the
+    heads of the two inputs are structurally equal. For the rest, it should delegate to its recursion
+    parameter. This function does not have to deal with guesses, since those are handled generically by the
+    \ensuremath{\mathbf{unif}} function (Figure~\ref{fig:unif-function}). 
+
+    The \ensuremath{\mathbf{unif}} function deals with guesses by committing concrete type information to the guess,
+    unless both values are guesses. In that case, it takes the composition of the two. This means that
+    the two guesses are substituted with a single guess, such that when information is committed to
+    this single guess (in the minimal scope of the two), the deferred statements of the original guesses
+    are sequenced after each other. Since we require confluence with respect to the order information
+    about guesses is found, the execution order of these guesses is allowed to be arbitrary. Also note
+    that not all \ensuremath{\Conid{Unifyable}} types have to be \ensuremath{\Conid{Deferrable}}, depending on the properties of the type. We
+    omitted this detail here, as it is only a minor detail, and the code for \ensuremath{\mathbf{unif}} would be
+    considerably more complicated.
+
+%% \section{Translation To Haskell}
+%% 
+%% Attribute Grammar-like mapping, except that the semantics functions instead of a let, is a monad, such that we can use ST-refs
+%% to represent the substitutions efficiently.
+%% Not sure if it is worth working this out though.
+
+
+\section{Conclusion}
+
+  Type rules of declarative type systems contain non-deterministic aspects. These aspects are problematic when writing an inference
+  algorithm. We presented a domain specific language for inferencers that has special syntax to formulate algorithms to resolve
+  these non-deterministic aspects. The main concept is a first-class guess, which acts as a remote control to a deferred derivation.
+  By manipulating guesses, the deferred derivations can be scheduled such that decisions are made at the moment sufficient information
+  has become available. The result is that we can write inference algorithms by means of annotating the declarative rules of a
+  type system, describing the global scheduling locally, without breaking the relative isolation of the type rules, and without
+  breaking soundness with respect to the original rules.
+
+  \paragraph{Future Work}
+  We intend to formalize the type system of UHC~\cite{DBLP:conf/ifl/DijkstraFS07}, and generate portions of the inference algorithm
+  from this description. We made design decisions that the generated algorithm to be reasonably efficient. Although we conceptually
+  explained semantics of the language in monadic terms, we actually generate code for multi-pass higher-order attribute grammars.
+  An open question is still if we can keep the complexity of some of UHC's efficient data structures hidden from the type rules.
+
+\acks
+
+This work was supported by Microsoft Research through its European PhD Scholarship Programme.
+Thanks to the LerNet Alpha-project to have made it possible to carry out the research for
+this paper at the Universidade Federal de Minas Gerais in Brazil.
+Finally, Arie wants to thank Annette Bieniusa for her extensive proof reading, and the
+Universit\:{a}t Freiburg for providing a friendly and hospitable environment to work on
+the actual writing of the paper.
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\newpage
+\appendix
+{\it Appendices to be moved to a technical report.}
+
+\section{Static Semantics}
+\label{sect:static-semantics}
+
+  In this section we define the static semantics of the type inference language. This semantics expresses
+  when a type inferencer $(\Schemes,\Rules,\Haskell)$ is correctly typed. Concretely, this means that all
+  identifiers are defined before used, all used schemes are defined, identifiers participating in equality,
+  defer and commit statements have the required properties defined for their types, and Haskell fragments have a type
+  corresponding to the type of its inputs and outputs. When this is the case, then compiling the inferencer
+  rules to an algorithm in Haskell gives a type correct Haskell program, and during the evaluation of the
+  inferencer rules according to the operational semantics of Section~\ref{sect:operational-semantics}, the
+  values in the heap have the type of the identifiers if this was the case for the initial heap.
+
+    \begin{figure}[htp]
+    \begin{displaymath}
+    \begin{array}[t]{ll}
+      \vdash \Rule_{\SchemeName}                                             & (\mbox{rule judgment}) \\
+      \overline{\alpha} \attrsep \Env_{\In} \vdash \Statement : \Env_{\Out}  & (\mbox{statement judgment}) \\
+      \Haskell \vdash e : \Type                                              & (\mbox{Haskell judgment}) \\
+    \end{array}
+    \end{displaymath}
+    \caption{Structure of static semantics judgments.}
+    \label{fig:static-judgements}
+    \end{figure}
+
+  The structure of the typing judgments is given in Figure~\ref{fig:static-judgements}. The rules may refer
+  to the set of schemes $\Schemes$, which is assumed as a constant. All schemes are explicitly typed.
+  Local identifiers of an inferencer rule have implicit types which are directly related to the explicit types of schemes
+  due to bindings, or to a type of a Haskell fragment due to inputs and outputs.
+  
+  We give type rules for two typing judgments, one for a rule and one for a statement. The other judgments are
+  rather trivial and left out. For the validity of schemes we want to remark that the names of identifiers
+  in the input environment must be disjoined to those of the output environment, and that all types in the
+  schemes must have a correct kind with respect to the types in $\Haskell$.
+  About the typing judgment for statements, we remark that it mentions types $\overline{\alpha}$. These are
+  the types over which the scheme, rule, and statements are polymorphic. Technically, the types of identifiers
+  in the environments may have free variables, but only if their explicitly occur in $\overline{\alpha}$.
+  Also, the output environment contains exactly the types for the outputs of the premise, whereas the input
+  environment contains at least the types for the identifiers that are input to the premise.
+
+    \begin{figure}[htp]
+    \begin{mathpar}
+      \inferrule*[right=Rule]
+        { \forall \overline{\alpha} . \; \Env_{\In} \vdash_{\SchemeName} \Env_{\Out} \in \Schemes(\SchemeName) \\
+          \mbox{dom}(\Env_{\In}) = \mbox{dom}(\Bindings_{\In}) \\
+          \mbox{dom}(\Env_{\Out}) = \mbox{dom}(\Bindings_{\Out}) \\
+          \overline{\alpha} \attrsep \Env_{\In}(\Bindings_{\In}) \; \Env'_{j < i} \vdash \Statement_i : \Env'_i, \; 1 \leq i \leq k \\
+          \Env_{\Out}(\Bindings_{\Out}) \subseteq \Env_{\In}(\Bindings_{\In}) \; \Env'_{j \leq k} \\
+        }
+        { \vdash \Statement_1, \ldots, \Statement_k ; (\Bindings_{\In} \vdash_{\SchemeName} \Bindings_{\Out}) }
+    \end{mathpar}
+    \caption{Rule typing rule.}
+    \label{fig:static-rule-rules}
+    \end{figure}
+
+  To type check an inferencer rule, we check that a scheme has been defined for it, and verify the define-before-use
+  requirement on the premises. Outputs of these premises are accumulated, and the next premise in the sequence may
+  use any of these outputs. The local identifiers that are connected to the types of the scheme due to bindings, must
+  have types that agree with the types of the scheme.
+
+    \begin{figure}[htp]
+    \begin{mathpar}
+      \inferrule*[right=Scheme]
+        { \forall \overline{\beta} . \; \Env'_{\In} \vdash_{\SchemeName} \Env'_{\Out} \in \Schemes(\SchemeName) \\
+          [\overline{\beta} \coloneqq \overline{\Type}] \: \Env'_{\In} \subseteq \Env_{\In}(\Bindings_{\In}) \\
+        }
+        { \overline{\alpha} \attrsep \Env_{\In} \vdash (\Bindings_{\In} \vdash \Bindings_{\Out}) : \Bindings_{\Out}([\overline{\beta} \coloneqq \overline{\Type}] \: \Env'_{\Out}) }
+      
+      \inferrule*[right=Unify]
+        { n_1 ::_{\Prop_1} \Type \in \Env \\
+          n_2 ::_{\Prop_2} \Type \in \Env \\
+          \Prop_1 \not= \emptyset \\
+          \Prop_2 \not= \emptyset \\
+        }
+        { \overline{\alpha} \attrsep \Env \vdash n_1 \equiv n_2 : \emptyset }
+
+      \inferrule*[right=Execution]
+        { \Type_{\In} = \Env_{\In}(n_1) \rightarrow \ldots \rightarrow \Env_{\In}(n_k) \\
+          \Type_{\Out} = (\Type_{1,\Prop_1}, \ldots, \Type_{l,\Prop_l}) \\
+          \Haskell \vdash e : \forall \overline{\alpha} . \; \Type_{\In} \rightarrow I \; \Type_{\Out} \\
+          \Env_{\Out} = m_1 ::_{\Prop_1} \Type_1, \ldots, m_l ::_{\Prop_l} \Type_l \\
+        }
+        { \overline{\alpha} \attrsep \Env_{\In} \vdash \Execution e :: (n_1 \ldots n_k) \rightarrow (m_1 \ldots m_l) : \Env_{\Out} }
+
+      \inferrule*[right=Fixpoint]
+        { \overline{\alpha} \attrsep \Env_{\In} \vdash \Statement_{\SchemeName} : \Env_{\Out} \\
+          \Env_{\In}(m_i) = \Env_{\Out}(m'_i), \; 1 \leq i \leq k \\
+          \Idents{n} \subseteq \mbox{dom}(\Env_{\In}) \\
+          \Idents{n} \subseteq \mbox{dom}(\Env_{\Out}) \\
+        }
+        { \overline{\alpha} \attrsep \Env_{\In} \vdash \Fixpoint_{m_1 \mapsto m'_1, \ldots, m_k \mapsto m'_k}^{\Idents{n}} \; \Statement_{\SchemeName} : \Env_{\Out} }
+
+      \inferrule*[right=Defer]
+        { \Env_{\In} \; \Env'_{j < i} \vdash \Statement_i : \Env'_i, \; 1 \leq i \leq k \\
+          \Env_{\Out} = \Env'_{j \leq k} \ \{n,\Idents{m}\} \\
+          n ::_{\mbox{d}} \tau \in \Env_{\Out} \\
+        }
+        { \overline{\alpha} \attrsep \Env_{\In} \vdash \Defer_n^{\Idents{m}} \; \Statements_1, \ldots, \Statements_k : \Env_{\Out} } 
+
+      \inferrule*[right=Commit]
+        { n ::_{\mbox{d}} \Type \in \Env_{\In} }
+        { \overline{\alpha} \attrsep \Env_{\In} \vdash \Commit_{v_{\Type}} \; n : \emptyset }
+
+      \inferrule*[right=Fixate]
+        { \overline{\alpha} \attrsep Env'_{j < i}, \Env_{\In} \vdash \Statement_i : \Env'_i, \;1 \leq i \leq k }
+        { \overline{\alpha} \attrsep \Env_{\In} \vdash \Fixate_{\Type} \: \Statement_1, \ldots, \Statement_k : Env'_{j \leq k} }
+    \end{mathpar}
+    \caption{Statement typing rule.}
+    \label{fig:static-statement-rules}
+    \end{figure}
+
+  The typing rules for statements are listed in Figure~\ref{fig:static-statement-rules}. The typing judgement states that given some
+  types $\overline{\alpha}$, and an environment $\Env_{\In}$ stating which identifiers are in scope and what type and properties these
+  have, that the statement produces outputs with types $\Env_{\Out}$. We now focus at some aspects of these rules.
+  
+  \paragraph{Polymorphism.}
+  A limited form of polymorphism is allowed for the types of the inferencer rules, by allowing the types to be parametrized over
+  type variables $\overline{\alpha}$. This is useful when in order to be able to reuse some of the inferencer rules, or when the
+  syntax of the language we are writing an inferencer for is itself polymorphic (for example, parametrized over the types of
+  variables). In fact, we will silently also allow ad-hoc polymorphism by having a set of type class constraints over these variables
+  $\overline{\alpha}$, for example to be able to show values of such a polymorphic type, to test for equality, or to use such values
+  in maps.
+  
+  This polymorphism is visible at two places. In the scheme-rule, when instantiating a scheme polymorphic in $\overline{\beta}$, we can
+  choose the types for these variables. And in the execution-rule, the type of the monadic function must be polymorphic over the
+  variables the scheme itself is polymorphic.
+
+  \paragraph{Haskell.}
+  To type monadic functions, we use Haskell's typing relation with an initial environment $\Haskell$ (containing several utility
+  functions, data types, etc.). The monadic function is a function of taking some of the inputs of the execution-statement, and
+  returning the outputs in monad $I$.
+  
+  \paragraph{Properties.}
+  Some statements can require additional semantics defines on the values they operate on. For example, in order to test two values
+  for equality in the unify-rule, we require a \ensuremath{\Conid{Unify}}-instance to be defined on the type. This is encoded in the language as a property
+  $\Prop$ of an identifier. There are three properties: none, unifyable, and deferrable. When an identifier has the deferrable
+  property, there are instances of both \ensuremath{\Conid{Unifyable}} as \ensuremath{\Conid{Deferrable}} for its type. The commit and defer statements require this deferrable
+  property to be defined for the identifiers they act on.
+
+
+\section{Soundness Almost For Free}
+\label{sect:soundness}
+
+  In general, it is hard to prove that a concrete type inference algorithm is sound with respect to the
+  type system it is based on. Formally this means that if the inferencer manages to infer a type for
+  some program value, that this is indeed a correct type for the program value according to the type
+  system. However, when the inference algorithm is described with the inferencer rules, we almost get
+  the soundness almost for free.
+  
+  \paragraph{Almost free.}
+  The almost-part is due to some assumptions that we need to make:
+  \begin{itemize}
+  \item The inferencer rules contains concrete algorithms in the form of Haskell fragments at the
+     places where type rules has (non-judgement) premises. For example, when a type rule has a
+     premise $\overline{\alpha} \;\#\; \Gamma$, the the type inferencer rule has a premise
+     \begin{hscode}\SaveRestoreHook
+\column{B}{@{}l@{}}
+\column{6}{@{}l@{}}
+\column{E}{@{}l@{}}
+\>[6]{}\mathbf{let}\;\overline{\alpha}\mathrel{=}\Varid{ftv}\;\Varid{ty}\mathbin{-}\Varid{ftv}\;\Gamma{}\<[E]
+\ColumnHook
+\end{hscode}\resethooks
+. In the first case, we only state a demand on $\overline{\alpha}$, in the later
+     case we precisely define what $\overline{\alpha}$ is. For soundness, we need the guarantee
+     that the code fragment ensures that the constraint on $\overline{\alpha}$ is satisfied.
+  \item The inferencer rules may be more fine-grained than the type rules in order to deal with
+     syntax-directness and explicit scheduling or pipelining of certain rules. For example, 
+     for the HML type system, we have a master rule for instantiation with the sole purpose to
+     orchestrate the specific rules for instantiation.
+     Therefore, we require an erasure function $\erasure{\cdotp} :: \Deriv \rightarrow \Deriv$ that
+     eliminates the extra structure from the derivation, such that a derivation is left that
+     matches the structure of the type rules.
+  \end{itemize}
+
+  \paragraph{Notation.}
+  Let $D_T(\SchemeName, \Heap)$ stand for the set of all derivations $\Deriv$ that
+  are valid according to type system $T$ for an instantiation of scheme $\SchemeName$ of $T$, 
+  with the bindings for the identifiers of the scheme in $\Heap$.
+  
+  Let $\DerivsEnv(\Deriv)$ stand for the substitution and merging of a derivations reference
+  $\derivref{\RuleIdent}$ in $\Deriv$ with the derivations named $\RuleIdent$ in
+  $\DerivsEnv$. Let $\DerivsEnv_{*}(\Deriv)$ stand for the fixpoint. If $\DerivsEnv$ is complete,
+  then there is no reference left in the result.
+
+  \paragraph{Soundness.}
+  
+  \begin{thm}
+  Suppose that $(\Schemes,\Rules,\Haskell)$ is an inferencer for some type system $T$,
+  $\Heap_0$ and $\Heap_1$ are some heap, and $\Statement_{\SchemeName}$ is an instantiation of
+  one of the schemes of $T$.
+  Now suppose that there is some substitution $\Substitution$ such that:
+  \begin{displaymath}
+    \emptyset \attrsep \Heap_{\In} \attrsep 0 \attrsep \Fixate \: \Statement_{\SchemeName} \transition{\DerivsEnv}{\Deriv} \Heap_{\Out} \attrsep \Substitution
+  \end{displaymath}
+  Then:
+  \begin{displaymath}
+    \erasure{\DerivsEnv_{*}(\Deriv)} \in D_T(\SchemeName, \Heap_{\Out} \Heap_{\In})
+  \end{displaymath}
+  \end{thm}
+  
+  \begin{proof}
+  We give a sketch. First note that only fixate-statements introduce a scope, and also guarantee that there are no deferred
+  statements remaining in this scope. More concretely, $\Substitution$ does not have any deferred statements. Derivations
+  references are only introduced by a deferred-statement, which also brings equally named deferred statements in scope.
+  Since these have all been resolved, it means that $\DerivsEnv$ is complete, and thus $\DerivsEnv_{*}(\Deriv)$ is a full
+  derivation without any references.
+  
+  By taking the erasure of this derivation, we obtain a derivation $\Deriv'$. In order to show that
+  $\Deriv' \in D_T(\SchemeName, \Heap_{\Out} \Heap_{\In})$, we need to prove for each node in $\Deriv'$,
+  the bindings in its heap $\Heap$, satisfy the premises of the rule in $T$ corresponding with the node.
+  
+  If there is no guessing involved, then we know that Haskell fragments have successfully run and ensured that these
+  premises did hold. Now, when guessing was involved, this means that a certain order of evaluation was taken in order
+  to produce the values. Some values where inspected before the full values where known. We now need to show that the
+  same values would be observed when this evaluation would have occurred at the very end of the inference process.
+
+  We use an important property: all values are constant up to the guesses. Once a commit has been done on
+  a guess, it is never rolled back. This has as consequence that once we observe that a value has a certain structure, this
+  value can be considered to always keep having this structure. Therefore, a Haskell fragment executing too late does not
+  matter, but what if it executed too early, and thus saw only a partial value?
+
+  There are two cases to consider. The first case is that enough of the value was known to complete evaluation. These portions of the
+  value cannot have changed until the end of the inference process, and thus that evaluation would still be valid at a
+  later time. In the second case, not enough of the value was known, and some of the evaluation was deferred. In that case,
+  since all deferred statements have executed, this means that the evaluation was done successfully at a later time.
+  \end{proof}
+  
+  \paragraph{Remarks.}
+  This section talked about soundness only. Dual to soundness is completeness. Unfortunately, completeness cannot be proved in
+  general, because we can encode type systems for which no inference algorithm exists (for example, implicitly typed
+  System F). However, we can ask ourselves the question what constraints we need on the type system and the Haskell fragments
+  in the inferencer rules, in order to be able to prove completeness. As for now, we do not have an answer to this, otherwise,
+  interesting question. Also, we note that one wants to experiment with inference algorithms. Soundness with respect to the
+  type system is immediately wanted, but completeness is something we expect only to achieve after playing around sufficiently
+  and making the right implementation decisions.
+
+
+\end{document}
+

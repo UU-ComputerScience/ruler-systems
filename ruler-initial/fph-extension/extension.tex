@@ -1,0 +1,248 @@
+\documentclass{article}
+
+\usepackage{latexsym}
+\usepackage{mathpartir}
+
+\setlength{\fboxsep}{1pt}
+
+\begin{document}
+
+\section{Markers for FPH}
+
+The following extension for FPH also allows impredicative instantiation in the
+expression of a binding, if the poly type to instantiate to appears only in
+derivations where all instantiations have been done. In this case, the
+impredicative instantiation cannot result in an ambiguous type for the binding,
+as these ambiguities only arise when some of the instantiations do not have to
+be performed.
+
+In order to do this, we indicate that some of the polymorphic types are safe,
+by using a specially marked universal quantifier $\forall_{\!*}$:
+\begin{displaymath}
+\begin{array}{ll}
+\sigma  & ::= \; \forall \overline{a} . \rho \;\;  | \;\; \forall_{\!*} \overline{a} . \rho \\
+\sigma' & ::= \; \forall \overline{a} . \rho' \;\; | \;\; \forall_{\!*} \overline{a} . \rho' \\
+\end{array}
+\end{displaymath}
+
+These marked universal quantifiers play a role during unboxing. Since we allow
+impredicative instantiation for these "safe" types, we can move the box over
+the qualifier, as indicated by the following extra unboxing rule:
+\begin{mathpar}
+\inferrule
+  {\fbox{$\rho$} \sqsubseteq \rho'}
+  {\fbox{$\forall_{\!*} \overline{a} . \rho$} \sqsubseteq \forall_{\!*} \overline{a} . \rho'} \mbox{\tiny{LIFT}}
+\end{mathpar}
+
+These marked universal quantifiers (short: {\it markers}) have to be introduced
+somewhere. This is done by an extra rule for expressions:
+\begin{mathpar}
+\inferrule
+ {\Gamma \vdash e : \rho'}
+ {\Gamma \vdash e : m(\rho')} \mbox{\tiny{MARK}}
+\end{mathpar}
+This rule applies the type of the expression to the relation $m$, but only if
+it is a $\rho'$-type. This is {\it essential}, as we only allow universal
+quantifiers to be marked safe if in the derivation that produces it, all
+instantiations have been performed. Since a $\rho'$ type does not have any
+outermost quantifiers, this means that no instantiation can be performed
+anymore. Then it is safe to to use the relation $m$:
+\begin{displaymath}
+m(\sigma') = \left\{
+  \begin{array}{ll}
+  \fbox{$\sigma$}                       & \mbox{if } \sigma' = \fbox{$\sigma$} \\
+  a                                     & \mbox{if } \sigma' = a \\
+  m(\sigma'_1) \rightarrow m(\sigma'_2) & \mbox{if } \sigma' = \sigma'_1 \rightarrow \sigma'_2 \\
+  \forall \overline{a} . m(\sigma'') \mbox{ or } \forall_{\!*} \overline{a} . m(\sigma'') & \mbox{if } \sigma' = \forall \overline{a} . \sigma''
+  \end{array}\right.
+\end{displaymath}
+It traverses the type structure recursively. When it encounters a universal quantifier, it {\it may} change it to a marked quantifier. This is
+a declarative aspect: later in the derivation process it may turn out that that its only possible to construct a derivation if the quantifier
+was not marked. The relation does not traverse into boxes either, as the contents of a box must be guessed properly directly during instantiation.
+This subtlety is shown in one of the examples later.
+
+Finally, in order to get rid of the markers, there is the last extra rule for expressions:
+\begin{mathpar}
+\inferrule
+ {\Gamma \vdash e : \sigma'}
+ {\Gamma \vdash e : u(\sigma')} \mbox{\tiny{UNMARK}}
+\end{mathpar}
+Again, it delegates to the $u$ function, defined as follows:
+\begin{displaymath}
+u(\sigma') = \left\{
+  \begin{array}{ll}
+  \fbox{$\sigma$}                       & \mbox{if } \sigma' = \fbox{$\sigma$} \\
+  a                                     & \mbox{if } \sigma' = a \\
+  u(\sigma'_1) \rightarrow u(\sigma'_2) & \mbox{if } \sigma' = \sigma'_1 \rightarrow \sigma'_2 \\
+  \forall \overline{a} . u(\sigma'')    & \mbox{if } \sigma' = \forall \overline{a} . \sigma'' \mbox{ or } \sigma' = \forall_{\!*} \overline{a} . \sigma'' 
+  \end{array}\right.
+\end{displaymath}
+The $u$ function recursively traverses the type and turns all marked universal quantifiers in plain ones.
+
+Finally, we demand that types in the environment do not have these markers. The reason for this is that it ensures that markers that matter can only occur by means of the mark rule.
+To demand this, we introduce the type $\sigma_\Gamma$ that does not have the marked universal quantifiers, and change the definition of the environment $\Gamma$ accordingly:
+
+\begin{displaymath}
+\begin{array}{ll}
+\Gamma        & ::= \; \Gamma,\:(x\!:\!\sigma_\Gamma) \;\; | \;\; \cdot \\
+\sigma_\Gamma & ::= \; \forall \overline{a} . \rho
+\end{array}
+\end{displaymath}
+
+The intended use is that the mark rule is applied just after the inst rule, and the unmark rule just at the end
+of typing a binding. In fact, instead of separate rules, the $m$ and $u$ can be moved to the instantiation and
+let rule respectively.
+
+\section{Inference for the $runST$ example}
+
+It is possible to type the runST example with the proposed extension. Assume
+that the environment is:
+\begin{displaymath}
+  \Gamma = ( (\$) \: : \forall ab. (a \rightarrow b) \rightarrow a \rightarrow b), (runST : \forall c . (\forall s . ST s \: c) \rightarrow c), \cdot
+\end{displaymath}
+Then this is the derivation (cut into pieces otherwise it doesn't fit):
+\begin{mathpar}
+\inferrule*[right=unmark]
+  { \inferrule*[right=subs]
+      { \inferrule*[right=app]
+          { \Delta_{\mbox{apply}} \\ \Delta_{\mbox{runST}} }
+          { \Gamma \vdash (\$) \; runST : \fbox{$\forall_{\!*} s . ST s \: r$} \rightarrow r } \\
+          \Delta_{\mbox{unbox}}
+      }
+      { \Gamma \vdash (\$) \; runST : (\forall_{\!*} s . ST s \: r) \rightarrow r }
+  }
+  { \inferrule*[right=gen]
+      { \Gamma \vdash (\$) \; runST : (\forall s . ST s \: r) \rightarrow r \\
+        \{r\}\#\Gamma }
+      { \Gamma \vdash (\$) \; runST : \forall r . (\forall s . ST s \: r) \rightarrow r }
+  }
+\end{mathpar}
+The result of the derivation is a non-boxy type without any marked universal quantifiers. The marker is introduced in order to get rid of the
+box, as given in the $\Delta_{\mbox{unbox}}$ part of the derivation: \\
+\begin{mathpar}
+\inferrule*[right=cong]
+  { \inferrule*[right=lift]
+      {
+         \inferrule*[right=tbox]
+           { \hspace{1em} }
+           { \fbox{$ST s \: r$} \sqsubseteq ST s \: r }
+      }
+      { \fbox{$\forall_{\!*} s . ST s \: r$} \sqsubseteq \forall_{\!*} s . ST s \: r } \\
+    \inferrule*[right=refl]
+      { \hspace{1em} }
+      { r \sqsubseteq r }
+  }
+  { \fbox{$\forall_{\!*} s . ST s \: r$} \rightarrow r \sqsubseteq (\forall_{\!*} s . ST s \: r) \rightarrow r }
+\end{mathpar}
+To get this marker there, it has to be guessed during instantiation of the type for $(\$)$. Since this is just
+a normal $\sigma$-type, this is allowed, as long as it is wrapped in a box. The $\Delta_{\mbox{apply}}$ part of
+the derivation shows this:
+\begin{mathpar}
+\inferrule*[right=inst]
+  { \inferrule*[right=var]
+      { ((\$) \: : \: \forall ab . (a \rightarrow b) \rightarrow a \rightarrow b ) \in \Gamma }
+      { \Gamma \vdash (\$) \: : \forall ab . (a \rightarrow b) \rightarrow a \rightarrow b }
+  }
+  { \Gamma \vdash (\$) \: : (\fbox{$\forall_{\!*} s . ST s \: r$} \rightarrow r) \rightarrow \fbox{$\forall_{\!*} s . ST s \: r$} \rightarrow r }
+\end{mathpar}
+However, this marker results in the following obligation: the type of $runST$ now also needs to have this marker. Since the environment
+does not contain any markers, the only way to get this is by using the mark rule. The mark rule requires the type of $runST$ to be a
+$\rho'$-type, which requires that all instantiations have been performed in the $\Delta_{\mbox{runST}}$ derivation:
+\begin{mathpar}
+\inferrule*[right=mark]
+  { \inferrule*[right=inst]
+      { \inferrule*[right=var]
+          { (runST \: : \: \forall c . (\forall s . ST s \: c) \rightarrow c) \in \Gamma }
+          { \Gamma \vdash runST : \forall c . (\forall s . ST s \: c) \rightarrow c }
+      }
+      { \Gamma \vdash runST : (\forall s . ST s \: r) \rightarrow r }
+  }
+  { \Gamma \vdash runST : (\forall_{\!*} s . ST s \: r) \rightarrow r }
+\end{mathpar}
+
+\section{Inference for higher-ranked $choose \: id$}
+
+A non-boxy rank-1 type can be inferred for $choose \: id$. A higher-rank type
+can be inferred as well, but then it must contain a box. Is this still the
+case with this extension? Here is a snipped of the derivation:
+
+\begin{mathpar}
+\inferrule*[right=App]
+  { \inferrule*[right=Inst]
+      { \ldots }
+      { choose : \fbox{$\forall a . a \rightarrow a$} \rightarrow \fbox{$\forall a . a \rightarrow a$} \rightarrow \fbox{$\forall a . a \rightarrow a$} } \\
+    \inferrule*[right=var]
+      { \ldots }
+      { id : \forall a . a \rightarrow a }
+  }
+  { choose \: id : \fbox{$\forall a . a \rightarrow a$} \rightarrow \fbox{$\forall a . a \rightarrow a$} }
+\end{mathpar}
+
+In order to abuse the extension to get rid of these boxes, we could try to get a
+marked universal quantifier. However, this is not possible. The mark rule cannot
+be applied to the type of $id$, because the type is not in $\rho'$. Also, the
+universal quantifiers after the application cannot be changed via the mark rule,
+because the $m$ relation does not traverse into boxes.
+
+\section{A non-inference}
+
+The following example is taken from the FPH paper, and should end up with a box
+in the type. This is the case for the FPH type system, but what about the
+extension? In this attempt, we try to use the mark rule to get a marked
+universal quantifier, such that we can later use the extra unbox rule to remove
+the box. However, it will turn out that this is not possible.
+
+\begin{displaymath}
+\begin{array}{ll}
+f   & :: \forall a . a \rightarrow [a] \rightarrow [a] \\
+ids & :: [\forall a . a \rightarrow a] \\
+id  & :: \forall a . a \rightarrow a
+\end{array}
+\end{displaymath}
+
+The following is an attempt to construct a derivation:
+
+\begin{mathpar}
+\inferrule*[right=app]
+  { \inferrule*[right=inst]
+      { \ldots }
+      { f : \; \fbox{.} \rightarrow [\fbox{.}] \rightarrow [\fbox{.}] } \\
+    \inferrule*[right=var]
+      { \ldots }
+      { id : \forall a . \mathbf{X} } \\
+    \inferrule*[right=mark]
+      {
+        \inferrule*[right=var]
+          { \ldots }
+          { ids : [\forall a . a \rightarrow a] }
+      }
+      { ids : [\forall_{\!*} a . a \rightarrow a] }
+  }
+  { \inferrule*[right=mark]
+      { \inferrule*[right=subs]
+          { f \: id \: ids : [\fbox{$\forall_{\!*} a . a \rightarrow a$}] }
+          { f \: id \: ids : [\forall_{\!*} a . a \rightarrow a] }
+      }
+      { f \: id \: ids : [\forall a . a \rightarrow a] }
+  }
+\end{mathpar}
+
+This attempt fails because the type of $id$ has to have a marked universal
+quantifier too. This is not possible, because the mark rule does not apply
+here, since the type of id is not in $\rho'$.
+
+However, note that it is possible to construct the derivation with the box
+present. Either by omitting the mark rule, or by choosing not to change the
+quantifier in the $m$ relation. This is essential, because we would for example
+want to be able to type $const '3' (f \: id \: ids)$.
+
+\section{Implementation}
+
+Although the proposed extension is seemingly only a small change, it is likely
+that actually implementing this extension is somewhat challenging. The difficulty
+is caused by the declarative nature of the $m$ relation. It's
+implementation needs to deal with the problem that during type inferencing not
+all type information is known, that not all boxes have been resolved, and that
+instantiation may take place later.
+
+\end{document}

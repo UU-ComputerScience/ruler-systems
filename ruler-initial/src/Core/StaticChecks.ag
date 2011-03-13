@@ -1,0 +1,78 @@
+MODULE {Core.StaticChecks} {} {}
+
+PRAGMA gentypesigs
+PRAGMA gencatas
+PRAGMA gensems
+
+INCLUDE "Core/AST.ag"
+
+imports
+{
+import Data.Set(Set)
+import qualified Data.Set as Set
+import Data.Map(Map)
+import qualified Data.Map as Map
+import Data.Sequence(Seq)
+import qualified Data.Sequence as Seq
+import Util.Common
+
+import Core.Core
+}
+
+{
+data Error
+  = Msg String
+
+instance Show Error where
+  show (Msg s) = s
+}
+
+WRAPPER Module
+{
+check :: Module -> String
+check m
+  = let inh  = Inh_Module {}
+        syn  = wrap_Module (sem_Module m) inh
+        errs = errs_Syn_Module syn
+    in show errs
+}
+
+
+--
+-- Error stream
+--
+
+ATTR Module TypeDecls TypeDecl Alternatives Alternative Fields Field [ | | errs USE {Seq.><} {Seq.empty} : {Seq Error} ]
+
+SEM Field
+  | Field
+      lhs.errs = @loc.dataTypeErrs
+
+
+--
+-- Check that all used types have been introduced in some way.
+--
+
+ATTR TypeDecls TypeDecl Externals External [  | | definedDataTypesGath USE {`Set.union`} {Set.empty} : {Set Identifier} ]
+
+SEM TypeDecl
+  | Tp
+      lhs.definedDataTypesGath = Set.singleton @nm
+
+SEM External
+  | Type
+      lhs.definedDataTypesGath = Set.singleton @nm
+
+ATTR TypeDecls TypeDecl Alternatives Alternative Fields Field Externals External Signature Holes Hole Relations Relation Rules Rule IdentDecls IdentDecl [ definedDataTypes : {Set Identifier} | | ]
+
+SEM Module
+  | Mod
+      loc.definedDataTypes = @types.definedDataTypesGath `Set.union` @externals.definedDataTypesGath
+
+SEM Field
+  | Field
+      loc.dataTypeErrs
+        = if @tp `Set.member` @lhs.definedDataTypes
+          then Seq.empty
+          else Seq.singleton $ Msg ("Data type not defined: " ++ @tp ++ ", defined: " ++ show @lhs.definedDataTypes)
+

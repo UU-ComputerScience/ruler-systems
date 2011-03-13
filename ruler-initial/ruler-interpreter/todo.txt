@@ -1,0 +1,372 @@
+The still-to-implement feature list
+
+* add fixpoint statement:
+    fixpoint e1 e2;
+  where e1 is an unestablished single-visit derivation from some inputs to
+  some outputs, and e2 is an uninstantiated derivation from these inputs to
+  the outputs.
+  Repeatedly establishes e1 and e2 (replacing their respective inputs with
+  respective outputs), until the substitution doesnt change.
+  Unresolved question: instead of checking the substitution, it may be easier
+  to require the programmer to specify a third derivation which takes both
+  e1's inputs and outputs, and returns a boolean if execution should continue...
+
+
+* add a hide keyword to entire visits and inputs/outputs of derivations. These
+  are then not visualized. Now it is only available to a derivation as a whole.
+  Should also not be hard to implement that these are then also not retained in
+  memory.
+
+
+* meta child names
+
+  Allow the following meta fields:
+    successor
+    predecessor
+    any
+    last
+    first
+    none{<expression>}
+    all{<expression>}
+  For a child name in a field.
+  
+  A statement containing an e such a meta name is
+  instantiated for every concrete field that does not have a rule for the
+  instantiation in question.
+  
+  Examples:
+  * If a rule for an input attribute x is missing then:
+      any.x == predecessor.x;
+    takes either this.x or chld.x where chld is the nearest
+    predecessor of the "any" field.
+    I.e. this represents a copy-rule
+  * If a rule for an output attribute is missing then:
+    * to the last child that has x as an output
+        this.x == last.x;
+    * use a default value:
+        this.x == none{emptyset}.x;
+    * use a combination of the values from all children:
+        this.x == all{union}.x;
+  
+  The order in which these definitions occur in a derivation determines the
+  order in which instantiations are tried. Furthermore, for merged derivations,
+  the topmost derivations are considered first.
+
+
+* add a "ref" expression:
+    ref nm
+  where nm is the name of an established derivation.
+  
+  This then creates a value that can be passed around and can be used to
+  refer to the fields of "nm". For the interpreter this is easy: just take
+  the bindings already in the value pointed to by "nm".
+
+  For the compiler the idea is then that we require the type of (ref nm) to be
+  a fixed record, and then create a runtime record with exactly those
+  fields. Order information: the requested outputs of "nm" must be in a
+  equal to or earlier than the visit that produces "ref nm".
+
+  This would be a nice feature to implement the following typical AG pattern:
+
+    data Info = { x :: ... , y :: ..., z :: , .. etc }
+
+    ATTR ... propagate some info attribute around
+    SEM ...  propagation rules
+    
+    SEM ... build info attribute
+      | ...   lhs.info = Info { x = ... , y = ..., z = ... }
+
+  In which case the programmer doesnt have to concern himself anymore with the
+  maintenance of the record.
+
+
+* add backtracking-reduction syntax:
+
+    derivation inputs x, y output z dispatch x
+  
+  at the first visit, all pattern matches on x need to be done and succeed all.
+  If one fails, backtrack. If all succeed, no backtracking anymore (cut).
+  
+  Purpose: later we will only allow one pattern on "x" and require it to be of
+  the form:
+
+    (branch-name <variables>) == x;
+
+  then the derivation can be easily translated to AG code if you also write
+    derivation AG-name dispatch x inputs x, y output z
+  , as:
+    DATA AG-name
+      | <branch-name> <variables> (and their types)
+    SEM AG-name
+      | <branch-name> ...
+
+
+* add iterator-statement and a vector-value:
+
+   iterator <lowerbound> <= <name> <= <upperbound>
+    { stmts*
+    }
+
+  for example:
+
+    ty fresh;
+    let n = length es;
+    iterator 1 <= i <= n
+      { establish checkType gam |- es:i : ty; };
+    ----------------
+    establish gam |- list es : listtype ty;
+
+  This is then a rule that verifies that the inferred type for each component
+  of a list expression (where :i is an indexing operation) is equal.
+
+  This lookup operation can actually be implemented as an external function.
+  The type system should not be dependendly-typed, so either bounds-checks have
+  to happen on runtime, or I may want some variations on this rule such that it
+  is trivially ensured that "out-of-bounds" indexing cannot occur, such as
+  having a "foreach" (and a foreach2,3,... for a zipped version).
+  
+    foreach e : es { establish checkType gam |- e : ty; }
+  
+  Since I often want to write in my own rules something like "take i-1" as
+  input, such a "foreach" is definitely not enough.
+
+
+* add defer/fixate statement
+
+  Use the same mechanism as of the earlier prototype:
+    at each fixate introduce a new scope identifier
+    a defer creates a deferred statement, bound to a variable, for a certain
+    phase and in a certain scope.
+    this variable can be assigned values to (but only one).
+    The deferred statement is executed, either by means of:
+      a dynamic fixate statement:   fixate guess;
+      during a static fixate:   fixate phase-name { statement* };
+    where fixate phase-name executes all defered statements introduced in its
+    scope (unless it is lifted to an outer scope), with that phase-name.
+
+    Should also add a "Fixed" alternative to the Value datatype, such that the
+    fixed guesses are not guesses anymore after the fixate, and that during a
+    lookup these can be translated to a data-type specific "fixed" value.
+    (as was in my previous prototype).
+
+  Also add the more recently figured out mechanism to schedule defered
+  statements in a more deterministic fashion by specifying the phase order
+  of children of a derivation:
+
+    derivation ...
+    { branch ... order phase x chld3, child2, child1:
+        ...
+        inst ... as chld1;
+        ...
+        inst ... as chld2;
+        ...
+        inst ... as chld3;
+        ...
+      ...
+    }
+  
+  where the grammar of orders is:
+  
+    order ::= "order" ("phase" <nm> <chld-order>)+
+    chld-order ::= <nm>+
+                 | "leftfirst"
+                 | "rightfirst"
+
+
+* add type analysis
+
+  Require a type for all inputs and outputs of every external function.
+  Require a type for all inputs and outputs of every derivation.
+  Use extensible records with visit-information to deal with the type of
+  higher-order derivations.
+  
+  I.e. suppose checkType gets itself as input:
+  
+    let checkType = \rec ->
+          derivation ... inputs gam, e outputs ty
+            { ... }
+
+  Then the type of rec should be:
+    ty \\ { inputs: gam, e visit __main
+            outputs: ty visit __main
+            order: __main
+          }
+
+  The caller to checktype now needs to guarantee that an instantiatable-
+  derivation is passed that has at least the given inputs and outputs, and
+  may assume that gam and e are required for visit __main, obtaining ty. And
+  that there is only one visit, but that if there would be more, in what order
+  these fields become available.
+
+  This way, we can deal with passing a derivation with more inputs and outputs
+  to rec, and also ensure that there is a non-cyclic computation order.
+
+  Two consequences are:
+  * catch mistakes earlier (now its only detected at runtime)
+  * remove the runtime type checking in the interpreter when looking up values
+    in the substitution (replace it safely with an unsafeCoerce).
+  
+  As a simplification: give all types explicitly, doing only very local
+  inference.
+
+
+* add abstract interpretation to LaTeX
+
+  Add to the Value data type an "Abstract" case, which gets a symbol-name as
+  value. The "establish" operation has a different semantics when abstract
+  values are involved. If establish cannot succeed due to an abstract value,
+  it still succeeds (marked as "abstract") and all undefined outputs are
+  considered to be properly defined (but with a guess). Then pretty printing
+  the derivation results into a pretty print of the applied rules, and if this
+  is only one level, then this is exactly the type rule.
+  
+  For example, suppose we have a typerule:
+    let checkType = derivation inputs env, expr, ty
+    { branch variable:
+        let ty = lookup x gam
+        ---------
+        establish gam |- var x : ty
+    }
+
+  Then, if we evaluate:
+
+    establish checkType (abstract "\Gam") |- var (abstract "x") : (abstract "\tau")
+
+  Since lookup will fail because there is no "x" in the abstract gamma, it does
+  have abstract inputs (even more than one), so it will succeed producing the
+  abstract subderivation lookup. The output ty will be a variable, which is then
+  unified later during the evaluation to the (abstract "\tau") value. If we now
+  also specify how to pretty print the checkType derivation and how to pretty
+  print the lookup operation, by means of:
+  
+    -- lookup is defined somewhere as external
+    external lookup inputs x gam outputs ty
+      pretty x "\mapsto" ty "\in" gam
+  
+  Then we would get a derivation resembling:
+    x \mapsto \tau \in \gam
+    ----------------------- (variable)
+    \Gam |- x : \tau
+
+  With this mechanism, we can pretty print to "plain" type rules, even while
+  writing in the non-type-rule ruler syntax or while using aspect-oriented
+  notation.
+  
+  To get these rules printed, we add a pretty clause to derivations:
+  
+    derivation ... { ... }
+      pretty
+      { e_1;
+        ...
+        e_n;
+      }
+    where e_i is an expression resulting in either an established (abstract)
+    derivation that is pretty-printed accordingly, or an expression that results
+    in an unestablished derivation iwth a pretty-clause. We can then start with
+    the pretty-clause of the main derivation and follow these references to
+    find all the pretty-print clauses that are desired.
+
+
+* Testing and debugging
+
+  This is a feature that most likely will not be implemented, and is largely
+  speculation. But similar to the pretty printing, we could attach test-cases to
+  derivations, thus being able to run unit-tests. Furthermore, we could add
+  tests that run on established derivations checking some integrity contraints.
+  Also, a feature that I'm often missing is that the attributes are too
+  polymorphic such that they cannot be shown or tested for equality. We could
+  add a feature here that requires a Typeable instance on all polymorphic
+  attributes, and performs some checks or prints some value if it matches some
+  more specific type. 
+
+
+* Create the Ruler Compiler (tm)
+
+  Requirement: type analysis
+  Requirement: given a statement:
+    inst e as nm;
+    (and the corresponding field assignments and establish)
+  The value of e must be computable at compile time.
+
+  Then we have a choice. If this e is an "AG-derivation" and can be
+  mapped onto an AG structure. If it is not, then we map it to a Haskell
+  function, that alike the AG-system, works continuation-based for each
+  visit.
+
+  Furthermore, we need to translate the "inst" depending on what kind of code
+  we are generating. If we are an "AG-derivation" ourselves, then "inst" of
+  an "AG-Derivation" is done automatically by the AG-system. If it is a
+  Haskell derivation, then we need to invoke the required Haskell machinery,
+  and pass the required parameters and deal with the visits.
+  From the Haskell perspective, it's the other way around, to call AG we need
+  to invoke the semantic-functions, etc.
+
+  As a first approach, only allowing AG-derivations would be good enough
+  simplification.
+
+  Aside from the partial evaluation and type checking, should the actual code
+  generation not be too hard...
+
+
+* "Purer" type inferencing
+
+Continuation of the defer/fixate and type analysis.
+Analyse that a guess cannot be used as input unless it has be "fixed".
+For that we provide an expression:
+
+  finalize nm e
+
+where e is a function from the type of nm to the type of nm. When executed, it
+has the following effect: e can assume that the value it gets as parameter is
+not a guess. Then, either the result of the finalize is exactly the value bound
+to nm in case nm is a guess, or it is the result of applying e.
+
+For example, one could write:
+
+  let ty' = finalize ty instantiate;
+
+which either instantiates ty if it known or does not instantiate it. Scheduling
+this statement properly (with a defer) will then ensure that more programs can
+be typed. This "finialize" is then a mechanism to use in proofs for
+  soundness: prove that instantiation also holds for an equal value.
+  completeness: prove that finalize is done at the appropriate moment.
+
+There is still a side-effect, because with "finalize" essentially a
+difference is made between guesses. But it's the only operation that can
+observe this difference, thus it isolates this "impureness" to a well-defined
+place.
+
+A more interesting but harder to implement variation would be the following
+idea. Suppose we have two forms of guesses. A "soft" guess and a "hard" guess.
+A hard guess can only be assigned to once. A soft guess can be redefined. When
+introducing a guess, we specify until what phase we want it to remain soft:
+
+x fresh soft phase3;
+
+Now consider the expression:
+
+  approx nm e
+
+Which could be used in e.g. the statement:
+
+  let ty' = approx ty instantiate;
+
+The idea is that ty' is first approximated as ty, and if through this means or
+other means more information is discovered about ty, then ty' is decoupled from
+ty, although it must still be producable from ty by means of "instantiate".
+
+For a hard guess, approx has the same semantics as "finalize" above. For a
+soft guess, however, approx nm e differs:
+* if nm is a soft guess, then approx returns an indirection to this guess and
+  installs a trigger on the guess. An indirection is a guess that is
+  not eliminated when reducing links in the substitution.
+* if this indirection is assigned to later during the execution, it unlinks the
+  association to the original guess, uses the original guess as input to
+  e and the indirection as output, then executes e.
+
+A note on scheduling. A choice:
+1) run the trigger as soon as information about the input guess is discovered.
+2) wait with executing the trigger to a well-defined point in time.
+Both options have their advantages and disadvantages. We can accomplish both
+possibilities by using a "defer" in e.
+

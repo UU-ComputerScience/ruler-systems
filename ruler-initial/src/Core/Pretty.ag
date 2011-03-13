@@ -1,0 +1,154 @@
+--
+-- Pretty printing of type rules to LaTeX
+--
+
+MODULE {Core.Pretty} {} {}
+
+PRAGMA gentypesigs
+PRAGMA gencatas
+PRAGMA gensems
+
+INCLUDE "Core/AST.ag"
+INCLUDE "Util/Expr/AST.ag"
+INCLUDE "Util/Expr/WithTypeAST.ag"
+
+imports
+{
+import Data.List
+import qualified Data.Set as Set
+import Data.Set(Set)
+import qualified Data.Map as Map
+import Data.Map(Map)
+
+import Text.PrettyPrint
+import Core.Core
+import Util.Common
+import Util.Format.Format
+import Util.Format.Pretty
+import Util.Parsing.Token
+}
+
+WRAPPER Module
+
+{
+pretty :: Module -> String
+pretty m
+  = let inh = Inh_Module {}
+        syn = wrap_Module (sem_Module m) inh
+    in render (pp_Syn_Module syn)
+}
+
+
+--
+-- Distribute formats
+--
+
+ATTR Types Type Relations Relation [ | | gathFormats USE {`Map.union`} {Map.empty} : {Map Identifier (Map Identifier Format)} ]
+ATTR Alternatives Alternative [ | | gathFormats USE {`Map.union`} {Map.empty} : {Map Identifier Format} ]
+
+SEM Type
+  | Tp
+      lhs.gathFormats = Map.singleton @nm (Map.insert typeNm @format @alts.gathFormats)
+
+SEM Relation
+  | Rel
+      lhs.gathFormats = Map.singleton @nm (Map.singleton relationNm @format)
+
+SEM Alternative
+  | Alt
+      lhs.gathFormats = Map.singleton @nm @format
+
+ATTR Relations Relation Rules Rule Judgements Judgement Bindings Binding Expr [ formats : {Map Identifier (Map Identifier Format)} | | ]
+
+SEM Module
+  | Mod
+      relations.formats = @types.gathFormats `Map.union` @relations.gathFormats
+
+ATTR Idents Ident [ | | gathFormats USE {`Map.union`} {Map.empty} : {Map Identifier Format} ]
+ATTR Judgements Judgement Bindings Binding Expr [ identFormats : {Map Identifier Format} | | ]
+
+SEM Ident
+  | Ident
+      lhs.gathFormats = Map.singleton @nm @format
+
+SEM Rule
+  | Rule
+      prems.identFormats = @idents.gathFormats
+      conc.identFormats  = @idents.gathFormats
+
+
+--
+-- Pretty print relations and rules
+--
+
+ATTR Module Rule Judgement Expr [ | | pp : Doc ]
+
+ATTR Relations Relation [ | | pps USE {++} {[]} : {[Doc]} ]
+ATTR Judgements Rules [ | | pps : {[Doc]} ]
+
+SEM Judgements Rules
+  | Cons  lhs.pps = @hd.pp : @tl.pps
+  | Nil   lhs.pps = []
+
+
+SEM Module
+  | Mod
+      lhs.pp = sepwith ($+$) (text "") @relations.pps
+
+SEM Rule
+  | Rule
+      lhs.pp = cmd "inferrule"
+               $+$ ( nest 2 (braces $ sepwith (<+>) (text "\\\\") @prems.pps) )
+               $+$ ( nest 2 (braces $ @conc.pp) )
+               $+$ ( nest 2 (parens $ text $ show @nm) )
+
+SEM Judgement
+  | Judge
+      lhs.pp = ppFormat @loc.format @bindings.pps
+      loc.format = lookupFormat @tp relationNm @lhs.formats
+
+
+--
+-- PP bindings
+--
+
+ATTR Bindings Binding [ | | pps USE {`Map.union`} {Map.empty} : {Map Identifier Doc} ]
+
+SEM Binding
+  | Assign
+      lhs.pps = Map.singleton @nm @expr.pp
+
+SEM Expr
+  | String
+      lhs.pp = text (show @str)
+  | Int
+      lhs.pp = text (show @n)
+  | Ident
+      lhs.pp     = ppFormat @loc.format Map.empty
+      loc.format = lookupIdentFormat @nm @lhs.identFormats
+  | Alt
+      lhs.pp     = ppFormat @loc.format @bindings.pps
+      loc.format = lookupFormat @tp @nm @lhs.formats
+  | Parens
+      lhs.pp = parens @expr.pp
+
+
+{
+lookupFormat :: Identifier -> Identifier -> Map Identifier (Map Identifier Format) -> Format
+lookupFormat tp alt mp
+  = Map.findWithDefault Format_Empty alt (Map.findWithDefault Map.empty tp mp)
+
+lookupIdentFormat :: Identifier -> Map Identifier Format -> Format
+lookupIdentFormat nm mp
+  = Map.findWithDefault Format_Empty nm mp
+}
+
+
+{
+cmd :: String -> Doc
+cmd s = text "\\" <> text s
+
+sepwith :: (Doc -> Doc -> Doc) -> Doc -> [Doc] -> Doc
+sepwith s1 s2 = foldr s1 empty . intersperse s2
+}
+
