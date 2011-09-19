@@ -23,7 +23,7 @@ tokens :-
   <a>    "{" | "}}"                    { tokenAct reserved }
   <h>    "{" | "}"  | "{{"             { tokenAct reserved }
 
-  <0>    interface | visit |
+  <0>    interface | visit | forall |
          inputs | outputs              { tokenAct reserved }
 
   <a>    sem | production |
@@ -31,6 +31,7 @@ tokens :-
          clause | external |
          child | match | eval          { tokenAct reserved }
   
+  <0>    "."                           { tokenAct reserved }
   <0,a>  "::" | ":"                    { tokenAct reserved }
 
   <a>    "="                           { tokenAct reserved }

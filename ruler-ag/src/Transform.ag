@@ -77,6 +77,20 @@ SEM Param
 
 
 --
+-- Pass the identifier context downwards
+--
+
+ATTR ItfVisits ItfVisit [ | ctxIdents : {[Ident]} | ]
+SEM Interface
+  | Interface
+      visits.ctxIdents = []
+
+SEM ItfVisit
+  | Visit
+      loc.ctxIdents = @lhs.ctxIdents ++ @ctx
+
+
+--
 -- Gather and spread interface information
 --
 
@@ -104,7 +118,7 @@ SEM ItfVisits
 SEM ItfVisit
   | Visit
       lhs.visitInfos = [ @loc.visitInfo ]
-      loc.visitInfo  = ItfVisitInfo @name @lhs.nextVisitName @params.params
+      loc.visitInfo  = ItfVisitInfo @loc.ctxIdents @name @lhs.nextVisitName @params.params
 
 SEM Param
   | Param
@@ -113,7 +127,8 @@ SEM Param
 {
 -- Per "interface" a list of visits with inputs and outputs
 type ItfMap       = Map Ident [ItfVisitInfo]
-data ItfVisitInfo = ItfVisitInfo { itfVisit     :: !Ident
+data ItfVisitInfo = ItfVisitInfo { itfCtx       :: ![Ident]
+                                 , itfVisit     :: !Ident
                                  , itfNextVisit :: !(Maybe Ident)
                                  , itfParams    :: ![TypedParam]
                                  } deriving (Eq, Ord, Show)
@@ -470,8 +485,12 @@ SEM Interface
       visits.tycon = @name
       loc.decl     = HsTypeDecl @loc.srcLoc
                        (identToHsn @name)
-                       []
-                       (HsTyCon $ UnQual $ visitItfTyCon @name (fromJust @visits.nextVisitName))
+                       @loc.ctxVars
+                       ( appTyVars @loc.ctxVars
+                         (HsTyCon $ UnQual $ visitItfTyCon @name (itfVisit @loc.fstVisitInfo))
+                       )
+      loc.fstVisitInfo = head @visits.visitInfos
+      loc.ctxVars      = map identToHsn $ itfCtx @loc.fstVisitInfo
 
 {
 visitItfTyCon :: Ident -> Ident -> HsName
@@ -479,6 +498,9 @@ visitItfTyCon n v = HsIdent (show n ++ "_" ++ show v)
 
 visitImpTyCon :: Ident -> Ident -> HsName
 visitImpTyCon n v = HsIdent (show n ++ "_" ++ show v ++ "_imp")
+
+appTyVars :: [HsName] -> HsType -> HsType
+appTyVars xs t = foldl HsTyApp t (map HsTyVar xs)
 }
 
 ATTR ItfVisits ItfVisit
@@ -495,25 +517,27 @@ SEM ItfVisit
       loc.synCon  = synTyCon @lhs.tycon @name
       loc.inhCon' = inhTyCon' @lhs.tycon @name
       loc.synCon' = synTyCon' @lhs.tycon @name
+      
+      loc.ctxVars = map identToHsn @loc.ctxIdents
 
       lhs.decls  = [ -- itf type
                      HsTypeDecl @loc.srcLoc
                        @loc.impCon
-                       []
+                       @loc.ctxVars
                        @loc.type
 
                      -- imp type
                    , HsNewTypeDecl @loc.srcLoc []
                        @loc.itfCon
-                       []
-                       (HsConDecl @loc.srcLoc @loc.itfCon [HsUnBangedTy $ HsTyCon $ UnQual $ @loc.impCon])
+                       @loc.ctxVars
+                       (HsConDecl @loc.srcLoc @loc.itfCon [HsUnBangedTy $ appTyVars @loc.ctxVars $ HsTyCon $ UnQual $ @loc.impCon])
                        []
 
 
                      -- prime types
                    , HsDataDecl @loc.srcLoc []
                          @loc.inhCon'
-                         []
+                         @loc.ctxVars
                          [ HsRecDecl @loc.srcLoc @loc.inhCon'
                              ( [ ([toInhName' @lhs.tycon @name $ paramName p]
                                    , HsUnBangedTy $ embedAsType $ paramType p)
