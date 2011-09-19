@@ -31,8 +31,9 @@ pItfVisits
 
 pItfVisit :: AgParser ItfVisit
 pItfVisit
-   =   ( ItfVisit_Visit
-           <$> pKeyPos "visit"
+   =   ( flip ItfVisit_Visit
+           <$> opt pCtx []
+           <*> pKeyPos "visit"
            <*> pVarIdent
            <*> pParamSets
        )
@@ -43,14 +44,17 @@ pItfVisit
 --           <*> opt (Just <$ pKey ":" <*> pVarIdent) Nothing
 --       )
 
+pCtx :: AgParser [Ident]
+pCtx = pKey "forall" *> pList1 pVarIdent <* pKey "."
+
 pParamSets :: AgParser Params
 pParamSets = concat <$> pList_gr (pInputs <|> pOutputs)
 
 pInputs :: AgParser [Param]
-pInputs = pKey "inputs" *> pListSep_gr (pKey ",") pParamInput
+pInputs = pKey "inputs" *> pList_gr pParamInput
 
 pOutputs :: AgParser [Param]
-pOutputs = pKey "outputs" *> pListSep_gr (pKey ",") pParamOutput
+pOutputs = pKey "outputs" *> pList_gr pParamOutput
 
 pParamInput :: AgParser Param
 pParamInput = pParam True

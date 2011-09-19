@@ -21,6 +21,7 @@ TYPE ItfVisits = [ItfVisit]
 DATA ItfVisit
   | Visit
       pos    : Pos
+      ctx    : {[Ident]}
       name   : Ident
       params : Params
 --  | Tail
