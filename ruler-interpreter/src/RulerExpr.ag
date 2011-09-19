@@ -1604,7 +1604,7 @@ valLookupIT g
                                              _             -> return (Just v)
          _                              -> return Nothing
 
-valExpand :: Monad m => Value -> IT m Value
+valExpand :: (Functor m, Monad m) => Value -> IT m Value
 valExpand v@(ValueGuess g)
   = do subst <- asks itSubst
        case IntMap.lookup g subst of
@@ -1619,7 +1619,7 @@ runIT = runReaderT
 switchStateIT :: (m a -> n b) -> IT m a -> IT n b
 switchStateIT = mapReaderT
 
-isNoPlaceholderIT :: Monad m => Value -> IT m Bool
+isNoPlaceholderIT :: (Functor m, Monad m) => Value -> IT m Bool
 isNoPlaceholderIT (ValuePlaceholder _) = return False
 isNoPlaceholderIT (ValueGuess g)
   = do subst <- asks itSubst
@@ -1635,16 +1635,16 @@ isNoPlaceholderIT _ = return True
 
 type TTM m a = IT (StateT (Int,IntSet) m) a
 
-finishTTM :: Monad m => TTM m a -> IT m a
+finishTTM :: (Functor m, Monad m) => TTM m a -> IT m a
 finishTTM = switchStateIT (\wm -> evalStateT wm (1,IntSet.empty))
 
 class Show a => Tabular a where
-  tablify :: Monad m => ParensInfo -> Int -> a -> TTM m (Table, Int)
+  tablify :: (Functor m, Monad m) => ParensInfo -> Int -> a -> TTM m (Table, Int)
 
   minTableLength :: a -> Int
   minTableLength = length . show
 
-txtShowTablify :: (Monad m, RulerValue a) => a -> TTM m (Table, Int)
+txtShowTablify :: (Functor m, Monad m, RulerValue a) => a -> TTM m (Table, Int)
 txtShowTablify v = do v' <- expAll valLookupIT v
                       let s = show v'
                       return (TableText s, length s)
@@ -1666,7 +1666,7 @@ data Table
   deriving Show
 
 
-processReferences :: Monad m => TTM m a -> (TTM m (Seq (Guess, b)) -> TTM m (Seq (Guess, b))) -> (Guess -> TTM m b) -> TTM m (a, [(Guess, b)], IntSet)
+processReferences :: (Functor m, Monad m) => TTM m a -> (TTM m (Seq (Guess, b)) -> TTM m (Seq (Guess, b))) -> (Guess -> TTM m b) -> TTM m (a, [(Guess, b)], IntSet)
 processReferences m g f
   = do a <- m
        gsInit <- gets snd
@@ -1685,7 +1685,7 @@ processReferences m g f
 
 -- tablifyGuess uses valExpand. If expansion returns in a guess, then it
 -- prints the guess. If it returns in something else, it prints a reference.
-tablifyGuess :: Monad m => Guess -> TTM m (Table, Int)
+tablifyGuess :: (Functor m, Monad m) => Guess -> TTM m (Table, Int)
 tablifyGuess g
   = let txtRef g' = TableText ("%" ++ show g')
         txtVar g' = TableText ("#" ++ show g')
@@ -1720,16 +1720,16 @@ tabDefaultMinSize = 5
 tabConSize :: Int -> [Int] -> Int
 tabConSize n ns = n + 3 * length ns + sum ns
 
-tablifyInd :: (RulerValue a, Monad m) => ParensInfo -> Int -> IndInfo -> Maybe a -> TTM m (Table, Int)
+tablifyInd :: (Functor m, RulerValue a, Monad m) => ParensInfo -> Int -> IndInfo -> Maybe a -> TTM m (Table, Int)
 tablifyInd prio maxSize (IndInfo g) mbVal
   = case mbVal of
       Just v  -> tablify prio maxSize v
       Nothing -> tablify prio maxSize (ValueGuess g)
 
-conRecTablify :: (Monad m, Tabular a) => Int -> a -> TTM m (Table, Int)
+conRecTablify :: (Functor m, Monad m, Tabular a) => Int -> a -> TTM m (Table, Int)
 conRecTablify = tablify (SamePrioYes 9)
 
-conResultTablify :: Monad m => ParensInfo -> String -> [Table] -> [Int] -> TTM m (Table, Int)
+conResultTablify :: (Functor m, Monad m) => ParensInfo -> String -> [Table] -> [Int] -> TTM m (Table, Int)
 conResultTablify prio nm tbls sizes
   = let t = tabBesides ([ tabTxt (nm ++ " ") ] ++ intersperse (tabTxt " ") tbls)
         needParens = not (null tbls) && sameYes

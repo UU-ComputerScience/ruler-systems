@@ -2,7 +2,8 @@ cabal-version: >= 1.8
 build-type: Simple
 name: stepwise
 version: 1.0.2
-license: LGPL
+license: BSD2
+license-file: bsd2.txt
 maintainer: Arie Middelkoop <ariem@cs.uu.nl>
 homepage: http://www.cs.uu.nl/wiki/HUT/WebHome
 description: Stepwise monad: stepwise computations, providing resolution of non-deterministic choice, breadth-first search strategies and online results.
