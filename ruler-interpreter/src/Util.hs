@@ -85,7 +85,7 @@ defDocWidth :: Int
 defDocWidth = 140
 
 -- TT monad version
-toDocTT :: Monad m => Int -> Ident -> DerivationTree -> TTM m Doc
+toDocTT :: (Functor m, Monad m) => Int -> Ident -> DerivationTree -> TTM m Doc
 toDocTT level name (DTNode _ title context inputs outputs visits status)
   = do visitDocs  <- mapM mkVisitDoc visits
        inputDocs  <- mapM createDoc inputs
@@ -135,7 +135,7 @@ toDocTT level name (DTNode _ title context inputs outputs visits status)
 toDocTT _ name (DTLeaf _ val)
   = return (text (show name) <+> text "value" <+> text (show val))
 
-treeToStringTT :: Monad m => DerivationTree -> TTM m String
+treeToStringTT :: (Functor m, Monad m) => DerivationTree -> TTM m String
 treeToStringTT root
   = do (rDoc, refDocs, _) <- processReferences (toDocTT 1 (ident "root") root) id guessToDoc
        return $ render (rDoc $+$ ( vcat [ text (show g) <> text ":" <+> d | (g,d) <- refDocs ] ))
@@ -149,7 +149,7 @@ treeToStringTT root
 
 
 -- Expands all values in the tree to the maximal extend possible
-expandTree :: Monad m => DerivationTree -> IT m DerivationTree
+expandTree :: (Functor m, Monad m) => DerivationTree -> IT m DerivationTree
 expandTree t@(DTNode _ _ _ _ _ _ _)
   = do inputs'  <- attrsExpand (dtInputs t)
        outputs' <- attrsExpand (dtOutputs t)
@@ -159,13 +159,13 @@ expandTree (DTLeaf g v)
   = do v' <- expAll valLookupIT v
        return (DTLeaf g v')
 
-visitExpand :: Monad m => DerivationVisit -> IT m DerivationVisit
+visitExpand :: (Functor m, Monad m) => DerivationVisit -> IT m DerivationVisit
 visitExpand (DTVisit nm subtrees messages)
   = do subtrees' <- mapM (\(k,g,t) -> expandTree t >>= \t' -> return (k,g,t')) subtrees
        return (DTVisit nm subtrees' messages)
 
 -- Expands the value to the maximal extend possible
-attrsExpand :: Monad m => [(Ident,Value)] -> IT m [(Ident,Value)]
+attrsExpand :: (Functor m, Monad m) => [(Ident,Value)] -> IT m [(Ident,Value)]
 attrsExpand
   = mapM (\(i,v) -> expAll valLookupIT v >>= \v' -> return (i,v'))
 
@@ -336,8 +336,8 @@ appExternal f = run . foldl next init
                f <- r
                appFinished f
     init = return $ TookOneArg $ return f
-    next rec v
-      = do (TookOneArg r) <- rec
+    next recur v
+      = do (TookOneArg r) <- recur
            f <- r
            return $ appOneArg f v
 
@@ -442,7 +442,7 @@ renderTableToDoc t
 
 type TTMD a = TTM Dot a
 
-treeToDotStringTT :: Monad m => DerivationTree -> TTM m String
+treeToDotStringTT :: (Functor m, Monad m) => DerivationTree -> TTM m String
 treeToDotStringTT root
   = do opts <- asks itOpts
        let dir = if dirBT opts then "BT" else "TB"
@@ -630,7 +630,7 @@ totalOrder relOrders
 
 -- LaTeX TT monad version
 -- For now, values are printed verbatim, no escaping performed.
-toTexDocTT :: Monad m => DerivationTree -> TTM m Doc
+toTexDocTT :: (Functor m, Monad m) => DerivationTree -> TTM m Doc
 toTexDocTT (DTNode _ title context inputs outputs visits status)
   = do subtreeDocs <- mapM toTexDocTT [ t | (DTVisit _ subtrees _) <- visits, (_,_,t) <- subtrees ]
        inputDocs   <- mapM createAttrDoc inputs
@@ -652,7 +652,7 @@ toTexDocTT (DTNode _ title context inputs outputs visits status)
 toTexDocTT (DTLeaf _ val)
   = return $ text ("\\mbox{" ++ show val ++ "}")
 
-treeToTexStringTT :: Monad m => Bool -> DerivationTree -> TTM m String
+treeToTexStringTT :: (Functor m, Monad m) => Bool -> DerivationTree -> TTM m String
 treeToTexStringTT ruleOnly root
   = do (rDoc, refDocs, _) <- processReferences (toTexDocTT root) id guessToDoc
        let rDoc' = text "\\def\\rulerrules" <> braces rDoc

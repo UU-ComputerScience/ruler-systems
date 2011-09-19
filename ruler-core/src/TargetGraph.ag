@@ -45,9 +45,9 @@ ppgNode pos item rankMap
       DepDefault n    -> ppgKey pos item >#< pp_block "[" "]" "," [ppgProp "label" l, c] >|< ";"
       DepAttach n     -> ppgKey pos item >#< pp_block "[" "]" "," [ppgProp "label" l, c] >|< ";"
       DepInvoke nms   -> ppgKey pos item >#< pp_block "[" "]" "," [ppgProp "skew" ".3",ppgProp "label" l,c] >|< ";"
-      DepVisStart nms -> ppgKey pos item >#< pp_block "[" "]" "," [ppgProp "shape" "box", ppgProp "fillcolor" "black", ppgProp "style" "filled",ppgProp "skew" ".3",ppgProp "label" l,c] >|< ";"
-      DepVisEnd nms   -> ppgKey pos item >#< pp_block "[" "]" "," [ppgProp "shape" "box", ppgProp "fillcolor" "black", ppgProp "style" "filled",ppgProp "skew" ".3",ppgProp "label" l,c] >|< ";"
-      DepClause nms   -> ppgKey pos item >#< pp_block "[" "]" "," [ppgProp "shape" "box", ppgProp "fillcolor" "black", ppgProp "style" "filled",ppgProp "skew" ".3",ppgProp "label" l,c] >|< ";"
+      DepVisStart nms -> ppgKey pos item >#< pp_block "[" "]" "," [ppgProp "shape" "box", ppgProp "fillcolor" "gray", ppgProp "style" "filled",ppgProp "skew" ".3",ppgProp "label" l,c] >|< ";"
+      DepVisEnd nms   -> ppgKey pos item >#< pp_block "[" "]" "," [ppgProp "shape" "box", ppgProp "fillcolor" "gray", ppgProp "style" "filled",ppgProp "skew" ".3",ppgProp "label" l,c] >|< ";"
+      DepClause nms   -> ppgKey pos item >#< pp_block "[" "]" "," [ppgProp "shape" "box", ppgProp "fillcolor" "gray", ppgProp "style" "filled",ppgProp "skew" ".3",ppgProp "label" l,c] >|< ";"
   where mbInfo = Map.lookup item rankMap
         l = ppgLabel pos item (maybe Nothing (Just . snd) mbInfo)
         c = ppgColor (maybe False fst mbInfo)
@@ -59,22 +59,24 @@ ppgColor False = ppgProp "color" "black"
 ppgLabel :: Pos -> DepItem -> Maybe Int -> PP_Doc
 ppgLabel pos item mbRank
   = case item of
-      DepMatch m   -> r >#< show m >|< "?@" >|< show (line pos)
-      DepAssert n  -> r >#< show n >|< "@" >|< show (line pos)
-      DepDefault o -> r >#< "d" >|< show o
-      DepAttach n  -> r >#< "@" >|< show (line pos)
-      DepInvoke (visit:name:_) -> r >#< name >|< "." >|< visit >|< "@" >|< show (line $ identPos name)
+      DepMatch m   -> r >#< "match@" >|< show (line pos)
+      DepAssert n  -> r >#< "eval@" >|< show (line pos)
+      DepDefault o -> r >#< "dflt " >|< show o
+      DepAttach n  -> r >#< "child@" >|< show (line pos)
+      DepInvoke (visit:name:_) -> r >#< "invoke" >#< name >|< "." >|< visit >|< "@" >|< show (line $ identPos name)
       DepInvoke _              -> r >#< text "i???"
-      DepVisStart (visit:_)    -> r >#< ">" >|< show visit >|< "@" >|< show (line $ identPos visit)
+      DepVisStart (visit:_)    -> r >#< "vis start" >#< show visit >|< "@" >|< show (line $ identPos visit)
       DepVisStart _            -> r >#< text ">v???"
-      DepVisEnd (visit:_)      -> r >#< show visit >|< "@" >|< show (line $ identPos visit) >|< "<"
+      DepVisEnd (visit:_)      -> r >#< "vis end" >#< show visit >|< "@" >|< show (line $ identPos visit) >|< "<"
       DepVisEnd _              -> r >#< text "<v???"
-      DepClause (clause:_)     -> r >#< "|" >|< show clause >|< "@" >|< show (line $ identPos clause)
+      DepClause (clause:_)     -> r >#< "clause" >#< show clause >|< "@" >|< show (line $ identPos clause)
       DepClause _              -> r >#< text "|???"
   where
-    r = case mbRank of
+    r = empty
+    {-
+    case mbRank of
           Nothing -> empty
-          Just k  -> show k >|< ":"
+          Just k  -> show k >|< ":" -}
 
 ppgKey :: Pos -> DepItem -> PP_Doc
 ppgKey pos item
@@ -90,7 +92,9 @@ ppgKey pos item
 
 ppgReason :: Reason -> Maybe PP_Doc
 ppgReason reason
-  = case reason of
+  = Nothing
+  {-
+  case reason of
       ReasonScopeVisit i      -> Nothing -- Just ("sc-vis-pre" >#< show i)
       ReasonScopeClause i     -> Nothing -- Just ("sc-cl" >#< show i)
       ReasonScopeEnd i        -> Nothing -- Just ("sc-vis-end" >#< show i)
@@ -100,5 +104,5 @@ ppgReason reason
       ReasonAttach i v        -> Just ("att" >#< show i >|< "." >|< show v)
       ReasonDefault attr      -> Nothing -- Just ("def." >|< show attr)
       ReasonDetach _ _        -> Nothing -- Just $ text "detach"
-      ReasonError             -> Just $ text "error"
+      ReasonError             -> Just $ text "error"  -}
 }

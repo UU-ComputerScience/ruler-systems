@@ -71,6 +71,9 @@ instance Monad Dot where
 			   (g1,uq',r) -> case unDot (k r) uq' of
 					   (g2,uq2,r2) -> (g1 ++ g2,uq2,r2)
 
+instance Functor Dot where
+  fmap f m = m >>= return . f
+
 -- | 'node' takes a list of attributes, generates a new node, and gives a 'NodeId'.
 node      :: [(String,String)] -> Dot NodeId
 node attrs = Dot $ \ uq -> let nid = NodeId $ "n" ++ show uq 
