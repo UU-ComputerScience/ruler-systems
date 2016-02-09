@@ -1,3 +1,5 @@
+{-# LANGUAGE FlexibleContexts #-}
+
 module DepAnalysis (analyze) where
 
 import Common

@@ -12,8 +12,7 @@ copyright: Arie Middelkoop
 extra-source-files: README, uuagc_options, src/AstAG.ag, src/Ast.ag, src/TargetHaskell.ag, src/TargetGraph.ag, src/TargetJs.ag, examples/*.rul
 
 executable ruler-core
-  build-depends: base >= 4, base < 5, uulib, uuagc>=0.9.26, filepath, directory, containers, array, mtl, fgl
-  build-depends: haskell98
+  build-depends: base >= 4, base < 5, uulib >= 0.9.21, uuagc>=0.9.52, filepath, directory, containers, array, mtl >= 2.2, fgl >= 5.5
   main-is: Main.hs
   hs-source-dirs: src
   other-modules:
