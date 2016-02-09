@@ -5,18 +5,18 @@
 --   In practice, you'll combine several of the features presented
 --   here.
 
-{-# LANGUAGE GADTs, DeriveDataTypeable, DoRec #-}
+{-# LANGUAGE GADTs, DeriveDataTypeable, RecursiveDo #-}
 module Control.Monad.Stepwise.Examples where
 
 import Control.Applicative
 import Control.Concurrent
 import Control.Monad.Fix
-import Control.Monad.RWS.Lazy
+import Control.Monad.RWS.Lazy hiding (Alt(..))
 import Control.Monad.Stepwise.Core
 import Control.Monad.Stepwise.Derived
 import Control.Monad.Trans
 import Data.IORef
-import Data.Monoid
+import Data.Monoid hiding (Alt(..))
 import Data.Set(Set)
 import Data.Typeable
 import qualified Data.Set as Set
@@ -239,8 +239,8 @@ search = do
       moves   = foldr1 (<<|>) [ move d >> search | d <- [North .. West] ]
   memoize memo loc actions
 
-pos2key :: Pos -> Int
-pos2key (x,y) = x + 1024 * y
+pos2key :: Pos -> MemoKey
+pos2key (x,y) = mkMemoKey x y -- x + 1024 * y
 
 finished :: Lab ()
 finished = do
@@ -346,7 +346,7 @@ instance Monoid Instrs where
 -- a context potentially different from ours. The key "loc" in this case, however,
 -- identifies a unique context.
 
-memoize :: MemoEnvRef AnyFailure LabSteps Lazy AnyWatcher -> Int -> Lab () -> Lab ()
+memoize :: MemoEnvRef AnyFailure LabSteps Lazy AnyWatcher -> MemoKey -> Lab () -> Lab ()
 memoize memo loc s = do
   b <- branch s
   let k = memoSteps memo loc (pickBranch b)

@@ -21,22 +21,27 @@ module Control.Monad.Stepwise.Core
   , AnyWatcher, AnyFailure(..)           -- types representing "don't care about these aspects"
   , forceSequential                      -- forces the type to sequential
   , memoSteps, newMemoEnv, MemoEnvRef    -- memoize stepwise computations
+  , MemoKey, mkMemoKey                   -- key into memo tables
   ) where
 
 import Control.Applicative
 import Control.Concurrent.MVar
 import Control.Monad
-import Control.Monad.Error
+import Control.Monad.Except
+import Control.Monad.Trans.Error
 import Control.Monad.Fix
 import Control.Monad.Stepwise.Unsafe
 import Control.Monad.Trans
 import Data.IntMap(IntMap)
+import Data.Map(Map)
 import Data.Maybe
 import qualified Data.IntMap as IntMap
+import qualified Data.Map as Map
 import Data.IORef
 import Data.Monoid
 import Data.Typeable
 import GHC.Exts(inline,lazy)
+import GHC.Fingerprint
 import System.IO
 
 
@@ -268,6 +273,12 @@ instance Error e => Monad (Stepwise e i o w) where
   {-# SPECIALIZE instance Monad (Stepwise (Errors e) i o w)   #-}
   {-# SPECIALIZE instance Monad (Stepwise String i o w)       #-}
   {-# SPECIALIZE instance Monad (Stepwise AnyFailure i o w)     #-}
+
+-- Applicative instance of 'Stepwise' computations.
+instance Error e => Applicative (Stepwise e i o w) where
+  pure    = return
+  p <*> q = let !r1 = (\f -> let !r2 = return . f in q >>= r2)
+            in p >>= r1
 
 instance Error e => Functor (Stepwise e i o w) where
   fmap f m = let !r = final . f in resume m r
@@ -900,28 +911,34 @@ printTraceMsg msg
 --  Memoizing stepwise computations
 --
 
+-- | Key into memo tables
+type MemoKey = Fingerprint
+
+mkMemoKey :: Integral a => a -> a -> Fingerprint
+mkMemoKey a b = Fingerprint (fromIntegral a) (fromIntegral b)
+
 -- | Catched stepwise computations are existential in the return value.
 data MemoEntry e i o w where
   Entry :: Typeable a => {-# UNPACK #-} !(StepRef e i o w a) -> MemoEntry e i o w
 
 -- | The first indirection is the cache per return type, the second indirection the
 --   values stored per key.
-type MemoEnv e i o w = IntMap (IntMap (MemoEntry e i o w))
+type MemoEnv e i o w = Map MemoKey (Map MemoKey (MemoEntry e i o w))
 
 -- | Use a different 'MemoEnv' for different watcher types.
 type MemoEnvRef e i o w = IORef (MemoEnv e i o w)
 
 -- | Creates an empty memo-env.
 newMemoEnv :: IO (MemoEnvRef e i o w)
-newMemoEnv = newIORef IntMap.empty
+newMemoEnv = newIORef Map.empty
 
 -- | Memoizes a stepwise computation.
-memoSteps :: Typeable a => MemoEnvRef e i o w -> Int -> Stepwise e i o w a -> Stepwise e i o w a 
+memoSteps :: Typeable a => MemoEnvRef e i o w -> MemoKey -> Stepwise e i o w a -> Stepwise e i o w a 
 memoSteps !ref !key val = Ind $! inlinePerformIO $ do
   mpTp  <- readIORef ref
   tpKey <- memoKey val
-  case IntMap.lookup tpKey mpTp of
-    Just mpKeys -> case IntMap.lookup key mpKeys of
+  case Map.lookup tpKey mpTp of
+    Just mpKeys -> case Map.lookup key mpKeys of
       Nothing        -> insert tpKey
       Just (Entry h) -> return $! unsafeCoerce h
     Nothing     -> insert tpKey
@@ -929,17 +946,17 @@ memoSteps !ref !key val = Ind $! inlinePerformIO $ do
     {-# NOINLINE insert #-}
     insert tpKey = do
       h <- createRef val  -- does not force 'val' yet
-      let upd mp = let mp1 = IntMap.findWithDefault IntMap.empty tpKey mp
-                       mp2 = IntMap.insertWith (flip const) key (Entry h) mp1
-                       mp' = IntMap.insert tpKey mp2 mp
-                       h'  = case IntMap.lookup key mp2 of Just (Entry x) -> unsafeCoerce x
+      let upd mp = let mp1 = Map.findWithDefault Map.empty tpKey mp
+                       mp2 = Map.insertWith (flip const) key (Entry h) mp1
+                       mp' = Map.insert tpKey mp2 mp
+                       h'  = case Map.lookup key mp2 of Just (Entry x) -> unsafeCoerce x
                    in (mp', h')
       h' <- atomicModifyIORef ref upd
       seq val (return h')  -- force 'val' to prevent storing closures in the memo-table.
 
 -- | Produces a unique key based on the type 'a'
-memoKey :: Typeable a => Stepwise e i o w a -> IO Int
-memoKey m = typeRepKey $ typeOf $ extract m
+memoKey :: Typeable a => Stepwise e i o w a -> IO MemoKey
+memoKey m = return $ typeRepFingerprint $ typeOf $ extract m
   where
     extract :: Stepwise e i o w a -> a
     extract _ = error "memoKey: value should not be referred"

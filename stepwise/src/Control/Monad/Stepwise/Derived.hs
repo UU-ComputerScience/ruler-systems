@@ -31,12 +31,6 @@ instance Error e => MonadError e (Stepwise e i o w) where
     Failed mb   -> h (maybe noMsg id mb)
     Lookahead f -> lookahead f
 
--- Applicative instance of 'Stepwise' computations.
-instance Error e => Applicative (Stepwise e i o w) where
-  pure    = return
-  p <*> q = let !r1 = (\f -> let !r2 = return . f in q >>= r2)
-            in p >>= r1
-
 -- | Alternative instance.
 --   Takes the shortest sequence that yields a
 --   value, or the longest that fails.
