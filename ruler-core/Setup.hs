@@ -1,9 +1,9 @@
 module Main where
 
 import Distribution.Simple (defaultMainWithHooks)
-import Distribution.Simple.UUAGC (uuagcLibUserHook)
+import Distribution.Simple.UUAGC (uuagcUserHook')
 import UU.UUAGC (uuagc)
 
 main :: IO ()
 main = defaultMainWithHooks $
-         uuagcLibUserHook uuagc
+         uuagcUserHook' "C:\\projects\\uuagc\\dist\\build\\uuagc\\uuagc.exe"

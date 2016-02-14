@@ -3,7 +3,9 @@ module Scanner(tokenize, ppTokens) where
 
 import UU.Scanner
 import UU.Scanner.GenToken
+import Codec.Binary.UTF8.String
 import Data.Char
+import Data.Word
 import UU.Pretty
 import Opts
 }
@@ -52,7 +54,7 @@ tokens :-
 {
 tokenize :: Opts -> FilePath -> String -> [Token]
 tokenize opts path str
-  = merge $ scanTks opts [(Pos 1 0 path, 0)] (Pos 1 1 path, str)
+  = merge $ scanTks opts [(Pos 1 0 path, 0)] (Pos 1 1 path, [], str)
 
 merge []            = []
 merge r@[_]         = r
@@ -60,11 +62,15 @@ merge (ValToken TkTextln s1 p : ValToken TkTextln s2 _ : r)
   = merge (ValToken TkTextln (s1 ++ s2) p : r)
 merge (t : r)       = t : merge r
 
-type AlexInput = (Pos, String)  -- current position, current string
+type Byte = Word8
+type AlexInput = (Pos, [Byte], String)
 
-alexGetChar :: AlexInput -> Maybe (Char,AlexInput)
-alexGetChar (_, [])     = Nothing
-alexGetChar (p, c : cs) = Just (c, (adv p c, cs))
+alexGetByte :: AlexInput -> Maybe (Byte,AlexInput)
+alexGetByte (p,(b:bs),s) = Just (b,(p,bs,s))
+alexGetByte (p,[],[])    = Nothing
+alexGetByte (p,[],(c:s)) = let p' = adv p c 
+                               (b:bs) = encodeChar c
+                           in p' `seq`  Just (b, (p', bs, s))
 
 alexInputPrevChar :: AlexInput -> Char
 alexInputPrevChar = error "alexInputPrevChar: should not be used."
@@ -73,14 +79,14 @@ type Ctx = (Pos, Int)  -- context start position, start code
 type CtxStack = [Ctx]
 
 scanTks :: Opts -> CtxStack -> AlexInput -> [Token]
-scanTks opts st inp@(pos,str)
+scanTks opts st inp@(pos,bs,str)
   = let (sc,st',tks) = unwind pos str st []
     in tks ++
        case alexScan inp sc of
          AlexEOF                -> unwindAll st' pos
-         AlexError _            -> let (Just (c, inp')) = alexGetChar inp
-                                       tk | sc == h || sc == j = valueToken TkTextln [c] pos
-                                          | otherwise          = errToken [c] pos
+         AlexError _            -> let (Just (b, inp')) = alexGetByte inp
+                                       tk | sc == h || sc == j = valueToken TkTextln [toEnum $ fromEnum b] pos
+                                          | otherwise          = errToken (show b) pos
                                    in tk : scanTks opts st' inp'
          AlexSkip inp' _        -> scanTks opts st' inp'
          AlexToken inp' len act -> let tk = act (take len str) pos

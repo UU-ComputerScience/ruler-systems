@@ -9,6 +9,7 @@ import Errs
 import Control.Monad
 -- import System
 import System.IO
+import System.Exit
 
 main :: IO ()
 main = do opts  <- commandlineArgs
