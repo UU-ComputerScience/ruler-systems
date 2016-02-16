@@ -1,5 +1,5 @@
 {
-{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE BangPatterns, DatatypeContexts #-}
 module Alias where
 
 import Control.Monad.Error
