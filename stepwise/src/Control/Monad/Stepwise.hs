@@ -47,7 +47,7 @@
 --   selected becomes garbage.
 --
 --   With this approach, we encode a breadth-first evaluation by letting each
---   couroutine emitting steps regularly, and alternate the coroutine to take
+--   coroutine emitting steps regularly, and alternate the coroutine to take
 --   steps from. We get depth-first behavior by fully
 --   stepping through one of the choices first before considering the other
 --   choice. Custom strategies are possible by emitting progress reports. For
@@ -68,7 +68,7 @@
 --   it has to be /transcoded/ first via e.g. 'transcode'.
 --
 --   In some situations, the choice between a coroutine @a@ and @b@ may
---   depend on what happends when we pick i.e. @a@ and our caller continues
+--   depend on what happens when we pick i.e. @a@ and our caller continues
 --   its evaluation. For example, suppose that the continued evaluation is
 --   represented by some unknown coroutine @r@, and we we define a coroutine
 --   @c = choice a b@. This means that the actual evaluation is @choice a b >>= r@.

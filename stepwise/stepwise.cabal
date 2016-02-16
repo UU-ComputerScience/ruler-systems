@@ -13,8 +13,13 @@ copyright: Arie Middelkoop
 
 library
   build-depends: base >= 4, base < 5, mtl > 1.1, containers >= 0.3, transformers
-  exposed-modules: Control.Monad.Stepwise, Control.Monad.Stepwise.Core, Control.Monad.Stepwise.Derived
-  exposed-modules: Control.Monad.Stepwise.Unsafe
-  exposed-modules: Control.Monad.Stepwise.Examples, Control.Monad.Stepwise.Proofs
-  exposed-modules: Control.Monad.Stepwise.AG
+  exposed-modules: Control.Monad.Stepwise,
+                   Control.Monad.Stepwise.Core,
+                   Control.Monad.Stepwise.CorePure,
+                   Control.Monad.Stepwise.Derived,
+                   Control.Monad.Stepwise.Unsafe,
+                   Control.Monad.Stepwise.Examples,
+                   Control.Monad.Stepwise.Proofs,
+                   Control.Monad.Stepwise.AG
   hs-source-dirs: src
+  ghc-options:     -fno-warn-warnings-deprecations
